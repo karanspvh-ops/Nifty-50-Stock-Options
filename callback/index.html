@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Angel One Auth Callback</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 36px 32px;
+      max-width: 520px;
+      width: 100%;
+      text-align: center;
+    }
+    .status-icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+    .subtitle { font-size: 14px; color: #94a3b8; margin-bottom: 28px; }
+    .token-box {
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: monospace;
+      font-size: 13px;
+      word-break: break-all;
+      color: #38bdf8;
+      text-align: left;
+      margin-bottom: 16px;
+      min-height: 48px;
+    }
+    .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 6px;
+      text-align: left;
+    }
+    .copy-btn {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+    }
+    .copy-btn:hover { background: #2563eb; }
+    .copy-btn.copied { background: #16a34a; }
+    .error { color: #f87171; }
+    .note {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #475569;
+      border-top: 1px solid #1e293b;
+      padding-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status-icon" id="icon">&#9203;</div>
+    <h1 id="title">Processing Authentication...</h1>
+    <p class="subtitle" id="subtitle">Reading token from Angel One redirect</p>
+
+    <div id="token-section" style="display:none;">
+      <div class="label">Auth Token</div>
+      <div class="token-box" id="token-display"></div>
+      <button class="copy-btn" id="copy-btn" onclick="copyToken()">Copy Token</button>
+    </div>
+
+    <div id="error-section" style="display:none;">
+      <div class="token-box error" id="error-msg"></div>
+    </div>
+
+    <p class="note">Paste this token into your trading script. This page does not store or transmit your token anywhere.</p>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const token  = params.get("auth_token") || params.get("authtoken") || params.get("token");
+
+    if (token) {
+      document.getElementById("icon").textContent    = "✅";
+      document.getElementById("title").textContent   = "Authentication Successful";
+      document.getElementById("subtitle").textContent = "Copy the token below and paste it into your trading script.";
+      document.getElementById("token-display").textContent = token;
+      document.getElementById("token-section").style.display = "block";
+    } else {
+      document.getElementById("icon").textContent    = "❌";
+      document.getElementById("title").textContent   = "No Token Found";
+      document.getElementById("subtitle").textContent = "The URL did not contain an auth_token parameter.";
+      document.getElementById("error-msg").textContent =
+        "Expected: ?auth_token=YOUR_TOKEN\nReceived: " + (window.location.search || "(no query params)");
+      document.getElementById("error-section").style.display = "block";
+    }
+
+    function copyToken() {
+      const token = document.getElementById("token-display").textContent;
+      navigator.clipboard.writeText(token).then(() => {
+        const btn = document.getElementById("copy-btn");
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = "Copy Token";
+          btn.classList.remove("copied");
+        }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

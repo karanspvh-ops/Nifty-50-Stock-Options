@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Credentials & secrets
+config.json
+secrets.json
+*.key
+*.pem
+
+# Logs & data
+*.log
+*.csv
+*.xlsx
