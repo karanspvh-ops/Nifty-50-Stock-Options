@@ -31,7 +31,8 @@ from backend.core.settings_manager import get_active_index
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 EXCHANGE_TYPE_NSE_CM = 1          # NSE Cash (for equity ticks)
-FEED_MODE_LTP        = 1          # LTP only (lightest)
+FEED_MODE_LTP        = 1          # LTP only (no close/volume)
+FEED_MODE_QUOTE      = 2          # LTP + OHLC + volume + prev close (needed for % move)
 MAX_TOKENS_PER_SUB   = 50         # Angel One limit per subscription call
 RECONNECT_DELAY      = 5          # seconds between reconnect attempts
 SECTOR_UPDATE_INTERVAL = 5        # seconds between sector aggregation
@@ -104,11 +105,8 @@ class TickEngine:
             token     = str(message.get("token", ""))
             ltp       = float(message.get("last_traded_price", 0)) / 100  # paise → ₹
             volume    = int(message.get("volume_trade_for_the_day", 0))
-            prev_close = float(message.get("52_week_low_price", 0)) / 100  # fallback
-
-            # Better: use close_price field if present
-            if "close_price" in message:
-                prev_close = float(message["close_price"]) / 100
+            # QUOTE mode field for previous-day close (in paise)
+            prev_close = float(message.get("closed_price", 0)) / 100
 
             ts = datetime.now()
 
@@ -132,7 +130,7 @@ class TickEngine:
         for sub in token_list:
             self._ws.subscribe(
                 correlation_id="tick_engine",
-                mode=FEED_MODE_LTP,
+                mode=FEED_MODE_QUOTE,
                 token_list=[sub]
             )
         print(f"[TICK ENGINE] Subscribed to {len(self._subscribed_tokens)} stocks.")

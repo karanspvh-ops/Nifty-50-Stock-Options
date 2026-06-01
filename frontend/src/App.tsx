@@ -50,7 +50,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg text-white">
+    <div className="flex h-full w-full overflow-hidden bg-bg text-white">
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
