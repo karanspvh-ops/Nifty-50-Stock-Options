@@ -28,6 +28,21 @@ module.exports = {
       out_file    : "./logs/trading-engine-out.log",
       error_file  : "./logs/trading-engine-err.log",
       time        : true,
+    },
+    {
+      name        : "trading-frontend",
+      script      : "npm",
+      args        : "run preview -- --port 3000 --host",
+      cwd         : "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options\\frontend",
+      interpreter : "none",
+      watch       : false,
+      autorestart : true,
+      max_restarts: 999,
+      restart_delay: 2000,
+      log_file    : "../logs/frontend.log",
+      out_file    : "../logs/frontend-out.log",
+      error_file  : "../logs/frontend-err.log",
+      time        : true,
     }
   ]
 };

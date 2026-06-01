@@ -18,10 +18,13 @@ from backend.routers.market_router   import router as market_router
 from backend.routers.risk_router     import router as risk_router
 from backend.routers.scanner_router  import router as scanner_router
 from backend.routers.trading_router  import router as trading_router
+from backend.routers.reports_router  import router as reports_router
 from backend.core.tick_engine        import tick_engine
 from backend.core.risk_engine        import risk_engine
 from backend.core.trading_engine     import trading_engine
 from backend.core.stock_universe     import refresh_instrument_list
+from backend.agents.pnl_agent        import pnl_agent
+from backend.agents.ml_agent         import ml_agent
 
 
 @asynccontextmanager
@@ -45,9 +48,15 @@ async def lifespan(app: FastAPI):
     print("[BOOT] Starting trading engine...")
     trading_engine.start()
     print("[BOOT] Trading engine running.")
+    print("[BOOT] Starting PnL agent...")
+    pnl_agent.start()
+    print("[BOOT] Starting ML agent...")
+    ml_agent.start()
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
+    ml_agent.stop()
+    pnl_agent.stop()
     print("[SHUTDOWN] Stopping trading engine...")
     trading_engine.stop()
     print("[SHUTDOWN] Stopping risk engine...")
@@ -81,6 +90,7 @@ app.include_router(market_router)
 app.include_router(risk_router)
 app.include_router(scanner_router)
 app.include_router(trading_router)
+app.include_router(reports_router)
 
 
 @app.get("/health")
