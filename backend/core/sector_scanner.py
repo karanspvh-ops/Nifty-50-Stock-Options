@@ -132,12 +132,16 @@ class SectorScanner:
                 if trade_direction == "put"  and ind_dir == "bullish":
                     continue
 
+            # ── Options availability: only F&O stocks have a lot size ──────────
+            from backend.core.stock_universe import get_meta
+            meta     = get_meta(token)
+            lot_size = meta.get("lot_size", 0)
+            if lot_size <= 0:
+                continue   # no options on this stock (e.g. non-F&O Nifty 200 name)
+
             # ── Affordability: rough premium estimate ──────────────────────────
             # Option premium ~ 1-3% of stock price for ATM options
             est_premium = round(ltp * 0.015, 2)     # ~1.5% ATM estimate
-            from backend.core.stock_universe import get_meta
-            meta     = get_meta(token)
-            lot_size = meta.get("lot_size", 1)
             cost     = est_premium * lot_size
 
             # Must be affordable (max 50% of available funds per trade)

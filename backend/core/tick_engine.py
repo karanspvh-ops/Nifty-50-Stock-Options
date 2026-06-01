@@ -86,8 +86,10 @@ class TickEngine:
     # ── Subscription helpers ─────────────────────────────────────────────────
 
     def _build_token_list(self) -> list:
-        index  = get_active_index()
-        stocks = get_stocks_for_index(index)
+        # Always subscribe to the full NIFTY200 superset so every stock streams.
+        # Index switching (50/100/200) is then just a view filter — instant,
+        # no unsubscribe/re-subscribe needed.
+        stocks = get_stocks_for_index("NIFTY200")
         tokens = [s["token"] for s in stocks]
         self._subscribed_tokens = tokens
         # Angel One expects: [{"exchangeType": 1, "tokens": [...]}]

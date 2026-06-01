@@ -19,8 +19,8 @@ export default function SectorBarChart() {
         Sector Momentum
         <span className="ml-2 text-xs text-muted font-normal">avg % move today</span>
       </h2>
-      <ResponsiveContainer width="100%" height={160}>
-        <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+      <ResponsiveContainer width="100%" height={180}>
+        <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }} barCategoryGap="45%">
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
           <XAxis
             dataKey="sector"
@@ -44,7 +44,7 @@ export default function SectorBarChart() {
             formatter={(val: any) => [`${Number(val).toFixed(2)}%`, 'Change']}
           />
           <ReferenceLine y={0} stroke="#475569" />
-          <Bar dataKey="pct" radius={[3, 3, 0, 0]}>
+          <Bar dataKey="pct" radius={[2, 2, 2, 2]} maxBarSize={14}>
             {data.map((entry, i) => (
               <Cell key={i} fill={entry.pct >= 0 ? '#22c55e' : '#ef4444'} />
             ))}

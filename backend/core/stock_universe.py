@@ -1,174 +1,288 @@
 """
-stock_universe.py — Static + dynamic stock master.
+stock_universe.py — NSE stock master with index membership + sector map.
 
-Contains:
-  - NSE token → symbol mapping for Nifty 50 / 100 / 200
-  - Sector classification
-  - Helper functions to filter by index
-  - Instrument list refresher (fetches latest tokens from Angel One)
+Design:
+  - Index membership is defined by SYMBOL (stable, authoritative).
+      NIFTY50  = the 50 names
+      NIFTY100 = NIFTY50 + NIFTY NEXT 50
+      NIFTY200 = NIFTY100 + Midcap names
+  - NSE cash TOKENS are resolved dynamically from Angel One's instrument
+    master at startup (resolve_universe_tokens). This eliminates the
+    hand-typed-token errors / duplicate-key drops of the old design.
+  - A small seed-token map keeps the Nifty 50 working offline / in tests.
+
+Public API (unchanged):
+  get_stocks_for_index, get_tokens_for_index, get_sectors_for_index,
+  get_stocks_in_sector, get_meta, get_token, refresh_instrument_list,
+  load_instrument_cache, find_option_token
 """
 
 import os, json, requests
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-# ── Static master (token → metadata) ─────────────────────────────────────────
-# Format: "TOKEN": {"symbol", "sector", "indices": [...], "lot_size"}
-STOCK_MASTER: Dict[str, dict] = {
-    # ── NIFTY 50 ──────────────────────────────────────────────────────────────
-    "1594":  {"symbol": "INFY",        "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 300},
-    "11536": {"symbol": "TCS",         "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 150},
-    "13538": {"symbol": "TECHM",       "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 300},
-    "7229":  {"symbol": "HCLTECH",     "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 350},
-    "3787":  {"symbol": "WIPRO",       "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1500},
-    "1333":  {"symbol": "HDFCBANK",    "sector": "PVT BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 550},
-    "4963":  {"symbol": "ICICIBANK",   "sector": "PVT BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 700},
-    "1922":  {"symbol": "KOTAKBANK",   "sector": "PVT BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 400},
-    "5258":  {"symbol": "INDUSINDBK",  "sector": "PVT BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 500},
-    "5900":  {"symbol": "AXISBANK",    "sector": "PVT BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 625},
-    "3045":  {"symbol": "SBIN",        "sector": "PSU BANK",    "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1500},
-    "2885":  {"symbol": "RELIANCE",    "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 250},
-    "526":   {"symbol": "BPCL",        "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1800},
-    "2475":  {"symbol": "ONGC",        "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1925},
-    "11630": {"symbol": "NTPC",        "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 3000},
-    "14977": {"symbol": "POWERGRID",   "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 2700},
-    "236":   {"symbol": "ASIANPAINT",  "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 200},
-    "1394":  {"symbol": "HINDUNILVR",  "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 300},
-    "1660":  {"symbol": "ITC",         "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1600},
-    "547":   {"symbol": "BRITANNIA",   "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 200},
-    "2031":  {"symbol": "M&M",         "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 350},
-    "10999": {"symbol": "MARUTI",      "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 100},
-    "1348":  {"symbol": "HEROMOTOCO",  "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 300},
-    "16669": {"symbol": "BAJAJ-AUTO",  "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 75},
-    "910":   {"symbol": "EICHERMOT",   "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 100},
-    "317":   {"symbol": "BAJFINANCE",  "sector": "FIN SERVICE", "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 125},
-    "16675": {"symbol": "BAJAJFINSV",  "sector": "FIN SERVICE", "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 500},
-    "1232":  {"symbol": "GRASIM",      "sector": "CEMENT",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 475},
-    "11532": {"symbol": "ULTRACEMCO",  "sector": "CEMENT",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 100},
-    "1363":  {"symbol": "HINDALCO",    "sector": "METAL",       "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 2150},
-    "3499":  {"symbol": "TATASTEEL",   "sector": "METAL",       "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 5500},
-    "3456":  {"symbol": "TATAMOTORS",  "sector": "AUTO",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1400},
-    "3351":  {"symbol": "SUNPHARMA",   "sector": "PHARMA",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 700},
-    "881":   {"symbol": "DRREDDY",     "sector": "PHARMA",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 125},
-    "694":   {"symbol": "CIPLA",       "sector": "PHARMA",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 650},
-    "11483": {"symbol": "LT",          "sector": "CAPITAL GOODS","indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 150},
-    "10604": {"symbol": "BHARTIARTL",  "sector": "TELECOM",     "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 475},
-    "157":   {"symbol": "APOLLOHOSP",  "sector": "PHARMA",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 125},
-    "10940": {"symbol": "DIVISLAB",    "sector": "PHARMA",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 200},
-    "467":   {"symbol": "HDFCLIFE",    "sector": "FIN SERVICE", "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1100},
-    "21808": {"symbol": "SBILIFE",     "sector": "FIN SERVICE", "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 750},
-    "17963": {"symbol": "NESTLEIND",   "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 800},
-    "3432":  {"symbol": "TATACONSUM",  "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 900},
-    "11287": {"symbol": "UPL",         "sector": "CHEMICALS",   "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1300},
-    "3506":  {"symbol": "TITAN",       "sector": "FMCG",        "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 375},
-    "20374": {"symbol": "COALINDIA",   "sector": "ENERGY",      "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 4200},
-    "15083": {"symbol": "ADANIPORTS",  "sector": "INFRA",       "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 1250},
-    "25":    {"symbol": "ADANIENT",    "sector": "INFRA",       "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 500},
-    "17818": {"symbol": "LTIM",        "sector": "IT",          "indices": ["NIFTY50","NIFTY100","NIFTY200"], "lot_size": 150},
-
-    # ── NIFTY 100 additional ──────────────────────────────────────────────────
-    "21614": {"symbol": "PERSISTENT",  "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 60},
-    "18096": {"symbol": "COFORGE",     "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 150},
-    "11375": {"symbol": "MPHASIS",     "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 175},
-    "11543": {"symbol": "KPITTECH",    "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 500},
-    "7406":  {"symbol": "TATAELXSI",   "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 100},
-    "2263":  {"symbol": "OFSS",        "sector": "IT",          "indices": ["NIFTY100","NIFTY200"], "lot_size": 100},
-    "11483": {"symbol": "LT",          "sector": "CAPITAL GOODS","indices": ["NIFTY100","NIFTY200"], "lot_size": 150},
-    "4668":  {"symbol": "UNIONBANK",   "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 4000},
-    "1214":  {"symbol": "CANBK",       "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 2700},
-    "1270":  {"symbol": "PNB",         "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 4000},
-    "4668":  {"symbol": "BANKINDIA",   "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 3300},
-    "1624":  {"symbol": "BANKBARODA",  "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 3750},
-    "1023":  {"symbol": "INDIANB",     "sector": "PSU BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 700},
-    "5215":  {"symbol": "AUBANK",      "sector": "PVT BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 1000},
-    "3721":  {"symbol": "RBLBANK",     "sector": "PVT BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 1800},
-    "11483": {"symbol": "IDFCFIRSTB",  "sector": "PVT BANK",    "indices": ["NIFTY100","NIFTY200"], "lot_size": 7500},
-    "16714": {"symbol": "NUVAMA",      "sector": "FIN SERVICE", "indices": ["NIFTY100","NIFTY200"], "lot_size": 250},
-    "19061": {"symbol": "ANGELONE",    "sector": "FIN SERVICE", "indices": ["NIFTY100","NIFTY200"], "lot_size": 250},
-    "11351": {"symbol": "BOSCHLTD",    "sector": "AUTO",        "indices": ["NIFTY100","NIFTY200"], "lot_size": 50},
-    "8467":  {"symbol": "TIINDIA",     "sector": "AUTO",        "indices": ["NIFTY100","NIFTY200"], "lot_size": 175},
-    "2127":  {"symbol": "OBEROIRLTY",  "sector": "REALTY",      "indices": ["NIFTY100","NIFTY200"], "lot_size": 600},
-    "17971": {"symbol": "LODHA",       "sector": "REALTY",      "indices": ["NIFTY100","NIFTY200"], "lot_size": 650},
-    "20560": {"symbol": "NBCC",        "sector": "REALTY",      "indices": ["NIFTY100","NIFTY200"], "lot_size": 4200},
-    "10217": {"symbol": "SUZLON",      "sector": "ENERGY",      "indices": ["NIFTY100","NIFTY200"], "lot_size": 5400},
-    "14418": {"symbol": "IREDA",       "sector": "ENERGY",      "indices": ["NIFTY100","NIFTY200"], "lot_size": 2250},
-    "11385": {"symbol": "VEDL",        "sector": "METAL",       "indices": ["NIFTY100","NIFTY200"], "lot_size": 2000},
-    "11723": {"symbol": "JSWSTEEL",    "sector": "METAL",       "indices": ["NIFTY100","NIFTY200"], "lot_size": 600},
+# ── Sector map (symbol → sector) ──────────────────────────────────────────────
+SECTOR_OF: Dict[str, str] = {
+    # NIFTY 50
+    "ADANIENT": "INFRA", "ADANIPORTS": "INFRA", "APOLLOHOSP": "PHARMA",
+    "ASIANPAINT": "FMCG", "AXISBANK": "PVT BANK", "BAJAJ-AUTO": "AUTO",
+    "BAJFINANCE": "FIN SERVICE", "BAJAJFINSV": "FIN SERVICE", "BEL": "CAPITAL GOODS",
+    "BHARTIARTL": "TELECOM", "BPCL": "ENERGY", "BRITANNIA": "FMCG",
+    "CIPLA": "PHARMA", "COALINDIA": "ENERGY", "DRREDDY": "PHARMA",
+    "EICHERMOT": "AUTO", "GRASIM": "CEMENT", "HCLTECH": "IT",
+    "HDFCBANK": "PVT BANK", "HDFCLIFE": "FIN SERVICE", "HEROMOTOCO": "AUTO",
+    "HINDALCO": "METAL", "HINDUNILVR": "FMCG", "ICICIBANK": "PVT BANK",
+    "INDUSINDBK": "PVT BANK", "INFY": "IT", "ITC": "FMCG", "JSWSTEEL": "METAL",
+    "KOTAKBANK": "PVT BANK", "LT": "CAPITAL GOODS", "LTIM": "IT", "M&M": "AUTO",
+    "MARUTI": "AUTO", "NESTLEIND": "FMCG", "NTPC": "ENERGY", "ONGC": "ENERGY",
+    "POWERGRID": "ENERGY", "RELIANCE": "ENERGY", "SBILIFE": "FIN SERVICE",
+    "SBIN": "PSU BANK", "SHRIRAMFIN": "FIN SERVICE", "SUNPHARMA": "PHARMA",
+    "TATACONSUM": "FMCG", "TATAMOTORS": "AUTO", "TATASTEEL": "METAL",
+    "TCS": "IT", "TECHM": "IT", "TITAN": "FMCG", "TRENT": "RETAIL",
+    "ULTRACEMCO": "CEMENT", "WIPRO": "IT",
+    # NIFTY NEXT 50
+    "ABB": "CAPITAL GOODS", "ADANIENSOL": "ENERGY", "ADANIGREEN": "ENERGY",
+    "ADANIPOWER": "ENERGY", "AMBUJACEM": "CEMENT", "DMART": "RETAIL",
+    "BAJAJHLDNG": "FIN SERVICE", "BANKBARODA": "PSU BANK", "BERGEPAINT": "FMCG",
+    "BOSCHLTD": "AUTO", "CANBK": "PSU BANK", "CHOLAFIN": "FIN SERVICE",
+    "COLPAL": "FMCG", "DABUR": "FMCG", "DIVISLAB": "PHARMA", "DLF": "REALTY",
+    "GAIL": "ENERGY", "GODREJCP": "FMCG", "HAVELLS": "CONSUMER DURABLES",
+    "HAL": "CAPITAL GOODS", "ICICIGI": "FIN SERVICE", "ICICIPRULI": "FIN SERVICE",
+    "IOC": "ENERGY", "INDIGO": "AVIATION", "IRFC": "FIN SERVICE",
+    "JINDALSTEL": "METAL", "JIOFIN": "FIN SERVICE", "JSWENERGY": "ENERGY",
+    "LICI": "FIN SERVICE", "LODHA": "REALTY", "MOTHERSON": "AUTO",
+    "NAUKRI": "IT", "PFC": "FIN SERVICE", "PIDILITIND": "CHEMICALS",
+    "PNB": "PSU BANK", "RECLTD": "FIN SERVICE", "SIEMENS": "CAPITAL GOODS",
+    "SRF": "CHEMICALS", "TATAPOWER": "ENERGY", "TORNTPHARM": "PHARMA",
+    "TVSMOTOR": "AUTO", "VBL": "FMCG", "VEDL": "METAL", "ZOMATO": "RETAIL",
+    "ZYDUSLIFE": "PHARMA", "GODREJPROP": "REALTY", "POLYCAB": "CAPITAL GOODS",
+    "UNITDSPR": "FMCG", "PAGEIND": "FMCG",
+    # NIFTY MIDCAP (to complete NIFTY 200)
+    "PERSISTENT": "IT", "COFORGE": "IT", "MPHASIS": "IT", "KPITTECH": "IT",
+    "OFSS": "IT", "LTTS": "IT", "TATAELXSI": "IT", "PETRONET": "ENERGY",
+    "SUZLON": "ENERGY", "IREDA": "ENERGY", "NHPC": "ENERGY", "SJVN": "ENERGY",
+    "OIL": "ENERGY", "IGL": "ENERGY", "GUJGASLTD": "ENERGY", "NMDC": "METAL",
+    "SAIL": "METAL", "HINDZINC": "METAL", "NATIONALUM": "METAL",
+    "APLAPOLLO": "METAL", "BHEL": "CAPITAL GOODS", "CGPOWER": "CAPITAL GOODS",
+    "CUMMINSIND": "CAPITAL GOODS", "THERMAX": "CAPITAL GOODS",
+    "OBEROIRLTY": "REALTY", "PHOENIXLTD": "REALTY", "PRESTIGE": "REALTY",
+    "AUBANK": "PVT BANK", "BANDHANBNK": "PVT BANK", "FEDERALBNK": "PVT BANK",
+    "IDFCFIRSTB": "PVT BANK", "RBLBANK": "PVT BANK", "YESBANK": "PVT BANK",
+    "INDIANB": "PSU BANK", "UNIONBANK": "PSU BANK", "BANKINDIA": "PSU BANK",
+    "IOB": "PSU BANK", "MAZDOCK": "CAPITAL GOODS", "BDL": "CAPITAL GOODS",
+    "COCHINSHIP": "CAPITAL GOODS", "LICHSGFIN": "FIN SERVICE",
+    "MUTHOOTFIN": "FIN SERVICE", "MFSL": "FIN SERVICE", "SBICARD": "FIN SERVICE",
+    "ANGELONE": "FIN SERVICE", "NUVAMA": "FIN SERVICE", "POLICYBZR": "FIN SERVICE",
+    "PAYTM": "FIN SERVICE", "LUPIN": "PHARMA", "AUROPHARMA": "PHARMA",
+    "ALKEM": "PHARMA", "BIOCON": "PHARMA", "GLENMARK": "PHARMA",
+    "LAURUSLABS": "PHARMA", "MANKIND": "PHARMA", "ABBOTINDIA": "PHARMA",
+    "MARICO": "FMCG", "TATACOMM": "TELECOM", "IDEA": "TELECOM",
+    "INDUSTOWER": "TELECOM", "ASHOKLEY": "AUTO", "BHARATFORG": "AUTO",
+    "BALKRISIND": "AUTO", "MRF": "AUTO", "EXIDEIND": "AUTO", "TIINDIA": "AUTO",
+    "ESCORTS": "AUTO", "UNOMINDA": "AUTO", "SONACOMS": "AUTO",
+    "COROMANDEL": "CHEMICALS", "DEEPAKNTR": "CHEMICALS", "PIIND": "CHEMICALS",
+    "UPL": "CHEMICALS", "TATACHEM": "CHEMICALS", "AARTIIND": "CHEMICALS",
+    "DALBHARAT": "CEMENT", "ACC": "CEMENT", "RAMCOCEM": "CEMENT",
+    "JKCEMENT": "CEMENT", "SHREECEM": "CEMENT", "VOLTAS": "CONSUMER DURABLES",
+    "DIXON": "CONSUMER DURABLES", "CROMPTON": "CONSUMER DURABLES",
+    "BLUESTARCO": "CONSUMER DURABLES", "KALYANKJIL": "RETAIL",
+    "PATANJALI": "FMCG", "INDHOTEL": "HOSPITALITY", "JUBLFOOD": "FMCG",
+    "CONCOR": "LOGISTICS", "DELHIVERY": "LOGISTICS", "GMRAIRPORT": "INFRA",
+    "IRCTC": "RETAIL", "IRB": "INFRA", "ABCAPITAL": "FIN SERVICE",
+    "HUDCO": "FIN SERVICE", "BSE": "FIN SERVICE", "CDSL": "FIN SERVICE",
+    "KEI": "CAPITAL GOODS", "SUPREMEIND": "CAPITAL GOODS", "ASTRAL": "CAPITAL GOODS",
 }
 
-# ── Reverse lookup: symbol → token ───────────────────────────────────────────
-SYMBOL_TO_TOKEN: Dict[str, str] = {
-    v["symbol"]: k for k, v in STOCK_MASTER.items()
+# ── Index membership (symbol lists) ───────────────────────────────────────────
+NIFTY50_SYMBOLS = [
+    "ADANIENT","ADANIPORTS","APOLLOHOSP","ASIANPAINT","AXISBANK","BAJAJ-AUTO",
+    "BAJFINANCE","BAJAJFINSV","BEL","BHARTIARTL","BPCL","BRITANNIA","CIPLA",
+    "COALINDIA","DRREDDY","EICHERMOT","GRASIM","HCLTECH","HDFCBANK","HDFCLIFE",
+    "HEROMOTOCO","HINDALCO","HINDUNILVR","ICICIBANK","INDUSINDBK","INFY","ITC",
+    "JSWSTEEL","KOTAKBANK","LT","LTIM","M&M","MARUTI","NESTLEIND","NTPC","ONGC",
+    "POWERGRID","RELIANCE","SBILIFE","SBIN","SHRIRAMFIN","SUNPHARMA","TATACONSUM",
+    "TATAMOTORS","TATASTEEL","TCS","TECHM","TITAN","TRENT","ULTRACEMCO","WIPRO",
+]
+
+NIFTY_NEXT50_SYMBOLS = [
+    "ABB","ADANIENSOL","ADANIGREEN","ADANIPOWER","AMBUJACEM","DMART","BAJAJHLDNG",
+    "BANKBARODA","BERGEPAINT","BOSCHLTD","CANBK","CHOLAFIN","COLPAL","DABUR",
+    "DIVISLAB","DLF","GAIL","GODREJCP","HAVELLS","HAL","ICICIGI","ICICIPRULI",
+    "IOC","INDIGO","IRFC","JINDALSTEL","JIOFIN","JSWENERGY","LICI","LODHA",
+    "MOTHERSON","NAUKRI","PFC","PIDILITIND","PNB","RECLTD","SIEMENS","SRF",
+    "TATAPOWER","TORNTPHARM","TVSMOTOR","VBL","VEDL","ZOMATO","ZYDUSLIFE",
+    "GODREJPROP","POLYCAB","UNITDSPR","PAGEIND",
+]
+
+NIFTY_MIDCAP_SYMBOLS = [
+    "PERSISTENT","COFORGE","MPHASIS","KPITTECH","OFSS","LTTS","TATAELXSI",
+    "PETRONET","SUZLON","IREDA","NHPC","SJVN","OIL","IGL","GUJGASLTD","NMDC",
+    "SAIL","HINDZINC","NATIONALUM","APLAPOLLO","BHEL","CGPOWER","CUMMINSIND",
+    "THERMAX","OBEROIRLTY","PHOENIXLTD","PRESTIGE","AUBANK","BANDHANBNK",
+    "FEDERALBNK","IDFCFIRSTB","RBLBANK","YESBANK","INDIANB","UNIONBANK",
+    "BANKINDIA","IOB","MAZDOCK","BDL","COCHINSHIP","LICHSGFIN","MUTHOOTFIN",
+    "MFSL","SBICARD","ANGELONE","NUVAMA","POLICYBZR","PAYTM","LUPIN","AUROPHARMA",
+    "ALKEM","BIOCON","GLENMARK","LAURUSLABS","MANKIND","ABBOTINDIA","MARICO",
+    "TATACOMM","IDEA","INDUSTOWER","ASHOKLEY","BHARATFORG","BALKRISIND","MRF",
+    "EXIDEIND","TIINDIA","ESCORTS","UNOMINDA","SONACOMS","COROMANDEL","DEEPAKNTR",
+    "PIIND","UPL","TATACHEM","AARTIIND","DALBHARAT","ACC","RAMCOCEM","JKCEMENT",
+    "SHREECEM","VOLTAS","DIXON","CROMPTON","BLUESTARCO","KALYANKJIL","PATANJALI",
+    "INDHOTEL","JUBLFOOD","CONCOR","DELHIVERY","GMRAIRPORT","IRCTC","IRB",
+    "ABCAPITAL","HUDCO","BSE","CDSL","KEI","SUPREMEIND","ASTRAL",
+]
+
+_N50  = set(NIFTY50_SYMBOLS)
+_N100 = _N50 | set(NIFTY_NEXT50_SYMBOLS)
+_N200 = _N100 | set(NIFTY_MIDCAP_SYMBOLS)
+
+
+def _membership(symbol: str) -> List[str]:
+    out = []
+    if symbol in _N50:
+        out = ["NIFTY50", "NIFTY100", "NIFTY200"]
+    elif symbol in _N100:
+        out = ["NIFTY100", "NIFTY200"]
+    elif symbol in _N200:
+        out = ["NIFTY200"]
+    return out
+
+
+# ── Seed NSE-cash tokens (offline / test fallback; overridden by live master) ──
+_SEED_TOKENS: Dict[str, str] = {
+    "INFY": "1594", "TCS": "11536", "TECHM": "13538", "HCLTECH": "7229",
+    "WIPRO": "3787", "LTIM": "17818", "HDFCBANK": "1333", "ICICIBANK": "4963",
+    "KOTAKBANK": "1922", "INDUSINDBK": "5258", "AXISBANK": "5900", "SBIN": "3045",
+    "RELIANCE": "2885", "BPCL": "526", "ONGC": "2475", "NTPC": "11630",
+    "POWERGRID": "14977", "COALINDIA": "20374", "ASIANPAINT": "236",
+    "HINDUNILVR": "1394", "ITC": "1660", "BRITANNIA": "547", "NESTLEIND": "17963",
+    "TATACONSUM": "3432", "TITAN": "3506", "M&M": "2031", "MARUTI": "10999",
+    "HEROMOTOCO": "1348", "BAJAJ-AUTO": "16669", "EICHERMOT": "910",
+    "TATAMOTORS": "3456", "BAJFINANCE": "317", "BAJAJFINSV": "16675",
+    "HDFCLIFE": "467", "SBILIFE": "21808", "GRASIM": "1232", "ULTRACEMCO": "11532",
+    "HINDALCO": "1363", "TATASTEEL": "3499", "JSWSTEEL": "11723",
+    "SUNPHARMA": "3351", "DRREDDY": "881", "CIPLA": "694", "APOLLOHOSP": "157",
+    "LT": "11483", "BHARTIARTL": "10604", "ADANIPORTS": "15083", "ADANIENT": "25",
+    "TRENT": "1964", "BEL": "383", "SHRIRAMFIN": "4306",
 }
 
+# ── Runtime maps (rebuilt on token resolution) ────────────────────────────────
+SYMBOL_TO_TOKEN: Dict[str, str] = {}
+STOCK_MASTER:    Dict[str, dict] = {}   # token → {symbol, sector, indices, lot_size}
+_LOT_SIZE:       Dict[str, int]  = {}   # symbol → lot size (from NFO master)
 
+
+def _rebuild_master(token_map: Dict[str, str]):
+    """Rebuild STOCK_MASTER and SYMBOL_TO_TOKEN from a symbol→token map."""
+    SYMBOL_TO_TOKEN.clear()
+    STOCK_MASTER.clear()
+    for sym, token in token_map.items():
+        indices = _membership(sym)
+        if not indices:
+            continue
+        SYMBOL_TO_TOKEN[sym] = token
+        STOCK_MASTER[token] = {
+            "symbol":   sym,
+            "sector":   SECTOR_OF.get(sym, "OTHER"),
+            "indices":  indices,
+            "lot_size": _LOT_SIZE.get(sym, 0),
+        }
+
+
+# Build once at import using seed tokens (keeps tests / offline working)
+_rebuild_master(_SEED_TOKENS)
+
+
+# ── Public query API ──────────────────────────────────────────────────────────
 def get_stocks_for_index(index: str) -> List[dict]:
-    """Return list of stock dicts for NIFTY50 / NIFTY100 / NIFTY200."""
     return [
         {"token": token, **meta}
         for token, meta in STOCK_MASTER.items()
         if index in meta["indices"]
     ]
 
-
 def get_tokens_for_index(index: str) -> List[str]:
     return [s["token"] for s in get_stocks_for_index(index)]
-
 
 def get_sectors_for_index(index: str) -> List[str]:
     return sorted({s["sector"] for s in get_stocks_for_index(index)})
 
-
 def get_stocks_in_sector(sector: str, index: str = "NIFTY50") -> List[dict]:
-    return [
-        s for s in get_stocks_for_index(index)
-        if s["sector"].upper() == sector.upper()
-    ]
-
+    return [s for s in get_stocks_for_index(index)
+            if s["sector"].upper() == sector.upper()]
 
 def get_meta(token: str) -> dict:
     return STOCK_MASTER.get(token, {})
 
-
-def get_token(symbol: str) -> str | None:
+def get_token(symbol: str) -> Optional[str]:
     return SYMBOL_TO_TOKEN.get(symbol)
 
 
-# ── Dynamic instrument list (fetches from Angel One) ─────────────────────────
-_INSTRUMENT_CACHE_PATH = os.path.join(
-    os.path.dirname(__file__), "../../instrument_cache.json"
-)
+# ── Instrument master (NFO cache for option lookup) ───────────────────────────
+_INSTRUMENT_CACHE_PATH = os.path.join(os.path.dirname(__file__), "../../instrument_cache.json")
+_MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+
 
 def refresh_instrument_list() -> dict:
     """
-    Downloads the full Angel One instrument master and caches it locally.
-    Returns token → tradingsymbol dict for NSE_FO (options).
-    Call once at startup to keep token data fresh.
+    Download the Angel One master once and:
+      1. Cache NFO instruments (for option-contract lookup)
+      2. Build NSE-cash symbol→token map and resolve our universe tokens
+      3. Capture F&O lot sizes
+    Returns the NFO cache dict.
     """
-    url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
     try:
-        r = requests.get(url, timeout=30)
+        r = requests.get(_MASTER_URL, timeout=30)
         r.raise_for_status()
         instruments = r.json()
-        # Filter NSE_FO only (for options lookup)
-        nse_fo = {
-            i["token"]: {
-                "symbol":        i["symbol"],
-                "name":          i["name"],
-                "expiry":        i.get("expiry", ""),
-                "strike":        i.get("strike", ""),
-                "lotsize":       i.get("lotsize", "1"),
-                "instrumenttype": i.get("instrumenttype", ""),
-                "exch_seg":      i.get("exch_seg", ""),
-            }
-            for i in instruments
-            if i.get("exch_seg") == "NFO"
-        }
+
+        # ── NFO cache + lot sizes ─────────────────────────────────────────────
+        nse_fo = {}
+        for i in instruments:
+            if i.get("exch_seg") == "NFO":
+                nse_fo[i["token"]] = {
+                    "symbol":         i["symbol"],
+                    "name":           i["name"],
+                    "expiry":         i.get("expiry", ""),
+                    "strike":         i.get("strike", ""),
+                    "lotsize":        i.get("lotsize", "1"),
+                    "instrumenttype": i.get("instrumenttype", ""),
+                    "exch_seg":       i.get("exch_seg", ""),
+                }
+                # Capture lot size for the underlying (FUT rows are cleanest)
+                name = i.get("name", "")
+                if name in SECTOR_OF and i.get("instrumenttype", "").startswith("FUT"):
+                    try:
+                        _LOT_SIZE[name] = int(i.get("lotsize", "0"))
+                    except ValueError:
+                        pass
         with open(_INSTRUMENT_CACHE_PATH, "w") as f:
             json.dump(nse_fo, f)
-        print(f"[UNIVERSE] Instrument list refreshed: {len(nse_fo)} NFO instruments cached.")
+
+        # ── NSE-cash token resolution ─────────────────────────────────────────
+        resolved: Dict[str, str] = {}
+        for i in instruments:
+            if i.get("exch_seg") == "NSE":
+                name   = i.get("name", "")
+                symbol = i.get("symbol", "")
+                # Equity series rows end with "-EQ"
+                if name in SECTOR_OF and symbol.upper().endswith("-EQ"):
+                    resolved[name] = i["token"]
+
+        # Merge: start from seed, override with anything resolved live
+        merged = dict(_SEED_TOKENS)
+        merged.update(resolved)
+        _rebuild_master(merged)
+
+        print(f"[UNIVERSE] Master refreshed | NFO: {len(nse_fo)} | "
+              f"NSE tokens resolved: {len(resolved)} | "
+              f"Universe stocks: {len(STOCK_MASTER)} "
+              f"(N50={len(get_stocks_for_index('NIFTY50'))}, "
+              f"N100={len(get_stocks_for_index('NIFTY100'))}, "
+              f"N200={len(get_stocks_for_index('NIFTY200'))})")
         return nse_fo
+
     except Exception as e:
-        print(f"[UNIVERSE] Failed to refresh instrument list: {e}")
+        print(f"[UNIVERSE] Refresh failed ({e}); using seed tokens "
+              f"(N50={len(get_stocks_for_index('NIFTY50'))}).")
         return {}
 
 
@@ -179,21 +293,16 @@ def load_instrument_cache() -> dict:
     return refresh_instrument_list()
 
 
-def find_option_token(symbol: str, expiry: str, strike: float, option_type: str) -> str | None:
-    """
-    Find the NSE token for a specific option contract.
-    expiry format: DDMMMYYYY  e.g. 26JUN2025
-    option_type: CE or PE
-    """
+def find_option_token(symbol: str, expiry: str, strike: float, option_type: str) -> Optional[str]:
+    """Find the NSE token for a specific option contract."""
     cache = load_instrument_cache()
     target_name   = symbol.upper()
     target_expiry = expiry.upper()
-    target_strike = int(strike * 100)  # Angel stores strike * 100
+    target_strike = int(strike * 100)
     target_type   = option_type.upper()
-
     for token, meta in cache.items():
-        if (meta["name"]    == target_name and
-            meta["expiry"]  == target_expiry and
+        if (meta["name"] == target_name and
+            meta["expiry"] == target_expiry and
             meta["instrumenttype"] == target_type and
             int(float(meta.get("strike", 0))) == target_strike):
             return token
