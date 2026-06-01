@@ -6,6 +6,7 @@ import Header       from './components/layout/Header';
 import SectorHeatmap    from './components/dashboard/SectorHeatmap';
 import SectorBarChart   from './components/dashboard/SectorBarChart';
 import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
+import StockRanking     from './components/dashboard/StockRanking';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 
@@ -17,6 +18,7 @@ function Dashboard() {
       <SectorHeatmap />
       <SectorBarChart />
       <OpenTradesPanel />
+      <StockRanking />
     </div>
   );
 }

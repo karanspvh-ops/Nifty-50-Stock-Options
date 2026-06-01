@@ -78,6 +78,70 @@ def list_stocks(index: Optional[str] = Query(None)):
     return sorted(result, key=lambda x: abs(x.get("pct_change") or 0), reverse=True)
 
 
+@router.get("/ranking")
+def stock_ranking(
+    index: Optional[str] = Query(None),
+    order: str           = Query("most_likely"),  # most_likely | least_likely
+):
+    """
+    Rank every stock in the index sector-wise.
+
+    R-Factor = stock's |move| relative to its sector's average |move|.
+      > 1.0  → stronger than its sector (leader)
+      < 1.0  → weaker than its sector (laggard)
+
+    Score   = |pct_change| * (1 + r_factor * 0.25)   → "tradability"
+    Signal  = up / down (direction of the move)
+
+    order="most_likely"  → strongest movers first (best to trade)
+    order="least_likely" → weakest / flattest first
+    """
+    idx     = index or get_active_index()
+    stocks  = get_stocks_for_index(idx)
+    moves   = market.get_all_stock_moves()
+    sectors_live = market.get_sector_moves()
+
+    # Group rows by sector with computed score
+    by_sector: dict = {}
+    for s in stocks:
+        move = moves.get(s["token"])
+        if not move:
+            continue
+        sector  = s["sector"]
+        pct     = move.get("pct_change", 0) or 0
+        sec_avg = abs(sectors_live.get(sector, {}).get("pct_change", 0)) or 0.1
+        r_factor = round(abs(pct) / sec_avg, 2)
+        score    = round(abs(pct) * (1 + r_factor * 0.25), 3)
+        row = {
+            "token":      s["token"],
+            "symbol":     s["symbol"],
+            "ltp":        move.get("ltp"),
+            "pct_change": pct,
+            "r_factor":   r_factor,
+            "score":      score,
+            "signal":     "up" if pct > 0 else ("down" if pct < 0 else "flat"),
+        }
+        by_sector.setdefault(sector, []).append(row)
+
+    reverse = (order != "least_likely")
+    result  = []
+    for sector, rows in by_sector.items():
+        rows.sort(key=lambda x: x["score"], reverse=reverse)
+        sec_data = sectors_live.get(sector, {})
+        result.append({
+            "sector":      sector,
+            "sector_pct":  sec_data.get("pct_change", 0),
+            "sector_dir":  sec_data.get("direction", "flat"),
+            "up_count":    sum(1 for r in rows if r["signal"] == "up"),
+            "down_count":  sum(1 for r in rows if r["signal"] == "down"),
+            "stocks":      rows,
+        })
+
+    # Order sectors by absolute momentum (strongest sector first)
+    result.sort(key=lambda x: abs(x["sector_pct"]), reverse=True)
+    return result
+
+
 @router.post("/engine/start")
 def start_engine():
     tick_engine.start()
