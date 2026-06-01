@@ -1,0 +1,93 @@
+"""
+main.py — FastAPI application entry point.
+Managed by PM2 — runs 24/7, survives browser/terminal close.
+"""
+
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
+from backend.database import init_db
+from backend.routers.settings_router import router as settings_router
+from backend.routers.session_router  import router as session_router
+from backend.routers.trades_router   import router as trades_router
+from backend.routers.market_router   import router as market_router
+from backend.routers.risk_router     import router as risk_router
+from backend.routers.scanner_router  import router as scanner_router
+from backend.routers.trading_router  import router as trading_router
+from backend.core.tick_engine        import tick_engine
+from backend.core.risk_engine        import risk_engine
+from backend.core.trading_engine     import trading_engine
+from backend.core.stock_universe     import refresh_instrument_list
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ──────────────────────────────────────────────────
+    print("[BOOT] Initialising database...")
+    init_db()
+    print("[BOOT] Database ready.")
+
+    print("[BOOT] Refreshing instrument master...")
+    refresh_instrument_list()
+
+    print("[BOOT] Starting tick engine...")
+    tick_engine.start()
+    print("[BOOT] Tick engine running.")
+
+    print("[BOOT] Starting risk engine...")
+    risk_engine.start()
+    print("[BOOT] Risk engine running.")
+
+    print("[BOOT] Starting trading engine...")
+    trading_engine.start()
+    print("[BOOT] Trading engine running.")
+    print("[BOOT] All systems GO. PM2 will restart on crash.")
+    yield
+    # ── Shutdown ─────────────────────────────────────────────────
+    print("[SHUTDOWN] Stopping trading engine...")
+    trading_engine.stop()
+    print("[SHUTDOWN] Stopping risk engine...")
+    risk_engine.stop()
+    print("[SHUTDOWN] Stopping tick engine...")
+    tick_engine.stop()
+    print("[SHUTDOWN] Graceful shutdown complete.")
+
+
+app = FastAPI(
+    title       = "Nifty 50 Options Trading Engine",
+    description = "Multi-agent, real-time algorithmic trading platform",
+    version     = "1.0.0",
+    lifespan    = lifespan,
+)
+
+# ── CORS (React frontend on port 3000) ───────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins     = ["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials = True,
+    allow_methods     = ["*"],
+    allow_headers     = ["*"],
+)
+
+# ── Routers ──────────────────────────────────────────────────────────────────
+app.include_router(settings_router)
+app.include_router(session_router)
+app.include_router(trades_router)
+app.include_router(market_router)
+app.include_router(risk_router)
+app.include_router(scanner_router)
+app.include_router(trading_router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "engine": "running"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)

@@ -1,0 +1,21 @@
+# Broker API
+smartapi-python
+pyotp
+logzero
+websocket-client
+
+# Backend server
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+
+# Data & Technical Analysis
+pandas
+ta
+numpy
+requests
+
+# Utilities
+python-dotenv
+schedule
