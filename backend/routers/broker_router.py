@@ -36,8 +36,10 @@ def login(payload: LoginPayload):
     try:
         from backend.core.stock_universe import refresh_instrument_list
         from backend.core.tick_engine     import tick_engine
-        refresh_instrument_list(force=True)
-        tick_engine.start()
+        from backend.core.backfill         import start_backfill
+        refresh_instrument_list(force=True)   # resolve Kite tokens
+        tick_engine.start()                   # start the live feed
+        start_backfill()                      # warm up indicators (DB + Kite history)
     except Exception as e:
         print(f"[BROKER] post-login startup warning: {e}")
 
