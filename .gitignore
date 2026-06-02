@@ -16,3 +16,14 @@ secrets.json
 *.log
 *.csv
 *.xlsx
+
+# Local build tools (re-clonable)
+tools/
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# DB / runtime
+trading.db
+instrument_cache.json
