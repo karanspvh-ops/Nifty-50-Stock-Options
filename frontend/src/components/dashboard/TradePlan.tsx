@@ -10,6 +10,12 @@ interface Plan {
   status: string; phase: string; trend: string;
   sector: string | null; direction: string | null; sector_pct: number;
   stocks: PlanStock[]; note: string; generated_at: string; enabled: boolean;
+  entry_window_open: boolean; trail_gap_pct: number;
+}
+interface Tune {
+  status: string; trades?: number; required?: number; current_gap?: number;
+  recommended_gap?: number; applied?: boolean; rationale?: string;
+  win_rate?: number; avg_giveback_pct?: number; message?: string;
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -20,12 +26,18 @@ const PHASE_LABEL: Record<string, string> = {
 
 export default function TradePlan() {
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [tune, setTune] = useState<Tune | null>(null);
+  const [gap, setGap]   = useState<number>(20);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const r = await fetch(`${API}/api/strategy/plan`);
-        setPlan(await r.json());
+        const [p, t] = await Promise.all([
+          fetch(`${API}/api/strategy/plan`).then(r => r.json()),
+          fetch(`${API}/api/strategy/tune`).then(r => r.json()),
+        ]);
+        setPlan(p); setTune(t);
+        if (typeof p.trail_gap_pct === 'number') setGap(p.trail_gap_pct);
       } catch { /* offline */ }
     };
     load();
@@ -41,9 +53,18 @@ export default function TradePlan() {
     });
   };
 
+  const saveGap = async (v: number) => {
+    setGap(v);
+    await fetch(`${API}/api/strategy/params`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trail_gap_pct: v }),
+    });
+  };
+
   const bullish = plan?.direction === 'call';
   const showPreview = plan && plan.sector &&
     ['preview', 'final', 'entering'].includes(plan.status);
+  const windowOpen = plan?.entry_window_open;
 
   return (
     <div className={`rounded-xl border p-4 ${
@@ -84,10 +105,10 @@ export default function TradePlan() {
                 {plan.sector_pct >= 0 ? '+' : ''}{plan.sector_pct.toFixed(2)}%
               </span>
             </span>
-            <span className="text-[10px] text-muted ml-auto">
-              {plan.status === 'preview' && '⏳ Review window — entries at 9:40'}
-              {plan.status === 'entering' && '🟢 Entering now'}
-              {plan.status === 'final' && '✅ Finalised'}
+            <span className="text-[10px] ml-auto">
+              {windowOpen
+                ? <span className="text-up">🟢 Entry window OPEN (≤9:45)</span>
+                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Below is the current breakout picture for reference.</span>}
             </span>
           </div>
 
@@ -129,6 +150,29 @@ export default function TradePlan() {
           <p className="text-[10px] text-muted mt-2">{plan.note} · SL 10% · target 50% · positional</p>
         </>
       )}
+
+      {/* Trailing gap control + ML auto-tune */}
+      <div className="mt-3 pt-3 border-t border-border flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted uppercase tracking-wider">Trailing gap</span>
+          <input type="range" min={8} max={35} step={1} value={gap}
+            onChange={e => saveGap(parseInt(e.target.value))}
+            className="w-28 accent-accent" />
+          <span className="text-xs text-white font-semibold w-10">{gap}%</span>
+        </div>
+
+        {tune && tune.status === 'insufficient_data' && (
+          <span className="text-[10px] text-muted">
+            🤖 Auto-tune learning: {tune.trades}/{tune.required} trades
+          </span>
+        )}
+        {tune && (tune.status === 'tuned' || tune.status === 'analyzed') && (
+          <span className={`text-[10px] ${tune.applied ? 'text-up' : 'text-muted'}`}>
+            🤖 {tune.applied ? `Auto-tuned → ${tune.recommended_gap}%` : `Suggests ${tune.recommended_gap}%`}
+            {tune.rationale ? ` · ${tune.rationale}` : ''}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

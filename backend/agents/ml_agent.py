@@ -76,6 +76,12 @@ class MLAgent:
                 self._run_analysis()
             except Exception as e:
                 print(f"[ML AGENT] Analysis error: {e}")
+            # Opening Breakout: auto-tune the trailing gap once/day (>=50 trades)
+            try:
+                from backend.core.opening_breakout import opening_breakout
+                opening_breakout.maybe_auto_tune()
+            except Exception as e:
+                print(f"[ML AGENT] OB auto-tune error: {e}")
             time.sleep(RUN_INTERVAL)
 
     # ── Main analysis pipeline ────────────────────────────────────────────────

@@ -63,6 +63,21 @@ TRAIL_GAP_PCT       = 20.0         # trail 20% off the peak
 OB_TAG = "[OB]"
 LOOP_SEC = 5
 
+# ── Tunable parameters (persisted; editable from UI; auto-tuned by ML) ─────────
+import json
+_PARAMS_PATH = os.path.join(ROOT, "ob_params.json")
+_DEFAULT_PARAMS = {
+    "move_min_pct":       MOVE_MIN_PCT,
+    "max_positions":      MAX_POSITIONS,
+    "hard_sl_pct":        HARD_SL_PCT,
+    "target_pct":         TARGET_PCT,
+    "second_target_pct":  SECOND_TARGET_PCT,
+    "trail_activate_pct": TRAIL_ACTIVATE_PCT,
+    "trail_gap_pct":      TRAIL_GAP_PCT,
+    "auto_tune_enabled":  True,    # ML may adjust trail_gap once >=50 trades
+}
+MIN_TRADES_TO_TUNE = 50            # don't auto-tune until enough history
+
 
 @dataclass
 class PlanStock:
@@ -98,6 +113,40 @@ class OpeningBreakout:
         self._open_ref: Dict[str, float] = {}      # token -> 09:15 open price
         self._plan:     Optional[TradePlan] = None
         self._phase     = "IDLE"
+        self._params    = self._load_params()
+        self._last_tune: Optional[str] = None      # date of last auto-tune
+        self._tune_report: dict = {}
+
+    # ── Parameter store ───────────────────────────────────────────────────────
+    def _load_params(self) -> dict:
+        params = dict(_DEFAULT_PARAMS)
+        if os.path.exists(_PARAMS_PATH):
+            try:
+                params.update(json.load(open(_PARAMS_PATH)))
+            except Exception:
+                pass
+        return params
+
+    def _save_params(self):
+        try:
+            json.dump(self._params, open(_PARAMS_PATH, "w"), indent=2)
+        except Exception as e:
+            print(f"[OB] param save error: {e}")
+
+    def get_params(self) -> dict:
+        return dict(self._params)
+
+    def set_params(self, updates: dict) -> dict:
+        allowed = set(_DEFAULT_PARAMS.keys())
+        for k, v in updates.items():
+            if k in allowed:
+                self._params[k] = v
+        self._save_params()
+        print(f"[OB] params updated: {updates}")
+        return self.get_params()
+
+    def _p(self, key: str):
+        return self._params.get(key, _DEFAULT_PARAMS.get(key))
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
     def start(self):
@@ -253,15 +302,15 @@ class OpeningBreakout:
                 symbol=s["symbol"], token=token,
                 opening_move=move, day_move=day_move,
                 r_factor=r_factor, ltp=ltp, est_premium=est_premium,
-                eligible=abs(move) >= MOVE_MIN_PCT,
+                eligible=abs(move) >= self._p("move_min_pct"),
             ))
 
         # Rank: prefer eligible (already moved), then by |move| * r_factor
         candidates.sort(key=lambda c: (c.eligible, abs(c.opening_move) * c.r_factor), reverse=True)
-        top = candidates[:MAX_POSITIONS]
+        top = candidates[:int(self._p("max_positions"))]
 
         note = (f"Top {len(top)} {sector} stocks; entries trigger once a stock "
-                f"has moved ≥ {MOVE_MIN_PCT}% from the open.")
+                f"has moved ≥ {self._p('move_min_pct')}% from the open.")
         return TradePlan(
             status=status, trend=trend, sector=sector, direction=direction,
             sector_pct=sector_pct, stocks=top, note=note,
@@ -274,9 +323,10 @@ class OpeningBreakout:
             return
         open_ob = self._count_open_ob(env)
         session = get_or_create_session(env)
+        max_pos = int(self._p("max_positions"))
 
         for ps in self._plan.stocks:
-            if open_ob >= MAX_POSITIONS:
+            if open_ob >= max_pos:
                 break
             if ps.entered or self._already_in(env, ps.symbol):
                 continue
@@ -286,7 +336,7 @@ class OpeningBreakout:
             if not ltp:
                 continue
             move = self._opening_move(ps.token, ltp) if self._open_ref.get(ps.token) else ps.day_move
-            if abs(move) < MOVE_MIN_PCT:
+            if abs(move) < self._p("move_min_pct"):
                 continue
             if market.is_trading_halted():
                 break
@@ -298,7 +348,7 @@ class OpeningBreakout:
                 env=env, symbol=ps.symbol, token=ps.token,
                 direction=self._plan.direction, session_id=session["id"],
                 entry_logic=reason, indicators={"opening_move": move, "r_factor": ps.r_factor},
-                sl_pct_override=HARD_SL_PCT, target_pct_override=TARGET_PCT,
+                sl_pct_override=self._p("hard_sl_pct"), target_pct_override=self._p("target_pct"),
             )
             if trade:
                 ps.entered = True
@@ -333,22 +383,28 @@ class OpeningBreakout:
                 self._set_highest(t.id, ltp)
                 t.highest_price = ltp
 
-            hard_sl = entry * (1 - HARD_SL_PCT / 100)
+            hard_sl_pct = self._p("hard_sl_pct")
+            target_pct  = self._p("target_pct")
+            second_pct  = self._p("second_target_pct")
+            activate_pct= self._p("trail_activate_pct")
+            gap_pct     = self._p("trail_gap_pct")
+
+            hard_sl = entry * (1 - hard_sl_pct / 100)
             peak    = t.highest_price or ltp
             peak_pct = (peak - entry) / entry * 100
 
-            # trailing stop becomes active after +20%
+            # trailing stop becomes active after the activation threshold
             trail_stop = hard_sl
-            if peak_pct >= TRAIL_ACTIVATE_PCT:
-                trail_stop = max(hard_sl, peak * (1 - TRAIL_GAP_PCT / 100))
+            if peak_pct >= activate_pct:
+                trail_stop = max(hard_sl, peak * (1 - gap_pct / 100))
 
-            # Target (single lot → full exit at +50%)
-            if pnl_pct >= TARGET_PCT and t.quantity <= 1:
-                risk_engine.force_exit_trade(t.id, f"{OB_TAG} Target +{TARGET_PCT:.0f}% hit")
+            # Target (single lot → full exit)
+            if pnl_pct >= target_pct and t.quantity <= 1:
+                risk_engine.force_exit_trade(t.id, f"{OB_TAG} Target +{target_pct:.0f}% hit")
                 continue
-            # Multi-lot: sell half at +50%, runner trails to +100%
-            if pnl_pct >= SECOND_TARGET_PCT:
-                risk_engine.force_exit_trade(t.id, f"{OB_TAG} Runner target +{SECOND_TARGET_PCT:.0f}% hit")
+            # Multi-lot: runner trails to second target
+            if pnl_pct >= second_pct:
+                risk_engine.force_exit_trade(t.id, f"{OB_TAG} Runner target +{second_pct:.0f}% hit")
                 continue
 
             # Stop / trail exit
@@ -357,7 +413,7 @@ class OpeningBreakout:
                 if trail_stop > hard_sl:
                     risk_engine.force_exit_trade(t.id, f"{OB_TAG} Trailing stop hit (locked {lock:+.1f}%)")
                 else:
-                    risk_engine.force_exit_trade(t.id, f"{OB_TAG} Hard SL -{HARD_SL_PCT:.0f}% hit")
+                    risk_engine.force_exit_trade(t.id, f"{OB_TAG} Hard SL -{hard_sl_pct:.0f}% hit")
 
     def _square_off(self, env: TradeEnv):
         db = DBSession()
@@ -402,15 +458,124 @@ class OpeningBreakout:
         finally:
             db.close()
 
+    # ── ML auto-tuning of the trailing gap (after >= 50 trades) ───────────────
+    def analyze_and_tune(self, env: TradeEnv = TradeEnv.PAPER) -> dict:
+        """
+        Once there are >= 50 completed OB trades, study how the trailing stop
+        behaved and recommend (and optionally apply) a better trailing gap.
+
+        Logic:
+          - For trades that exited via the trailing stop, measure "give-back"
+            = peak_profit% - exit_profit%. A large average give-back means the
+            gap is too loose (we surrender too much) -> tighten it.
+          - If trades trail out very early (low peak) and win-rate is poor,
+            the gap is too tight -> widen it.
+          - Bounded to [8%, 35%]; only nudges a few points at a time.
+        """
+        db = DBSession()
+        try:
+            trades = (
+                db.query(Trade)
+                .filter(Trade.env == env, Trade.status != TradeStatus.OPEN,
+                        Trade.entry_logic.like(f"{OB_TAG}%"))
+                .all()
+            )
+        finally:
+            db.close()
+
+        n = len(trades)
+        if n < MIN_TRADES_TO_TUNE:
+            return {"status": "insufficient_data", "trades": n,
+                    "required": MIN_TRADES_TO_TUNE,
+                    "message": f"Need {MIN_TRADES_TO_TUNE} completed trades to auto-tune "
+                               f"(have {n}). Trailing gap stays at {self._p('trail_gap_pct')}%."}
+
+        wins   = [t for t in trades if (t.pnl or 0) > 0]
+        win_rate = round(len(wins) / n * 100, 1)
+        avg_pnl  = round(sum(t.pnl or 0 for t in trades) / n, 2)
+
+        givebacks, peaks = [], []
+        trail_exits = 0
+        for t in trades:
+            if not t.entry_price or not t.highest_price:
+                continue
+            peak_pct = (t.highest_price - t.entry_price) / t.entry_price * 100
+            peaks.append(peak_pct)
+            if t.exit_logic and "Trailing stop" in t.exit_logic:
+                trail_exits += 1
+                givebacks.append(peak_pct - (t.pnl_pct or 0))
+
+        cur_gap   = self._p("trail_gap_pct")
+        avg_give  = round(sum(givebacks) / len(givebacks), 1) if givebacks else 0
+        avg_peak  = round(sum(peaks) / len(peaks), 1) if peaks else 0
+
+        # ── Decide adjustment ─────────────────────────────────────────────────
+        new_gap = cur_gap
+        rationale = ""
+        if givebacks and avg_give > cur_gap * 1.25:
+            new_gap = max(8.0, round(cur_gap - 3, 1))
+            rationale = (f"Average give-back {avg_give}% exceeds the current gap "
+                         f"{cur_gap}% — trail is too loose, tightening to {new_gap}%.")
+        elif avg_peak and avg_peak < 25 and win_rate < 45:
+            new_gap = min(35.0, round(cur_gap + 3, 1))
+            rationale = (f"Trades peak low (avg {avg_peak}%) with a {win_rate}% win rate — "
+                         f"trail is too tight, widening to {new_gap}% to let winners run.")
+        else:
+            rationale = (f"Current gap {cur_gap}% looks balanced "
+                         f"(avg give-back {avg_give}%, avg peak {avg_peak}%). No change.")
+
+        applied = False
+        if self._p("auto_tune_enabled") and new_gap != cur_gap:
+            self.set_params({"trail_gap_pct": new_gap})
+            applied = True
+
+        report = {
+            "status":        "tuned" if applied else "analyzed",
+            "trades":        n,
+            "win_rate":      win_rate,
+            "avg_pnl":       avg_pnl,
+            "avg_peak_pct":  avg_peak,
+            "avg_giveback_pct": avg_give,
+            "trail_exits":   trail_exits,
+            "current_gap":   cur_gap,
+            "recommended_gap": new_gap,
+            "applied":       applied,
+            "auto_tune_enabled": self._p("auto_tune_enabled"),
+            "rationale":     rationale,
+            "generated_at":  datetime.now().isoformat(),
+        }
+        self._tune_report = report
+        return report
+
+    def maybe_auto_tune(self):
+        """Called periodically (e.g. by the ML agent). Tunes at most once/day."""
+        today = str(datetime.now().date())
+        if self._last_tune == today:
+            return
+        self._last_tune = today
+        try:
+            self.analyze_and_tune(TradeEnv.PAPER)
+        except Exception as e:
+            print(f"[OB] auto-tune error: {e}")
+
+    def get_tune_report(self) -> dict:
+        return self._tune_report or {"status": "not_run"}
+
     # ── Public API ────────────────────────────────────────────────────────────
+    def _entry_window_open(self) -> bool:
+        t = datetime.now().time()
+        return SCAN_START <= t <= ENTRY_DEADLINE
+
     def get_plan(self) -> dict:
         """Return the current plan; build an on-demand preview if none yet."""
         plan = self._plan or self._build_plan(status="preview")
         if not plan:
             return {"status": "no_data"}
         d = asdict(plan)
-        d["phase"]   = self._phase
-        d["enabled"] = self._enabled
+        d["phase"]              = self._phase
+        d["enabled"]            = self._enabled
+        d["entry_window_open"]  = self._entry_window_open()
+        d["trail_gap_pct"]      = self._p("trail_gap_pct")
         return d
 
     def get_state(self) -> dict:
@@ -419,15 +584,9 @@ class OpeningBreakout:
             "phase":       self._phase,
             "today":       str(self._today) if self._today else None,
             "open_refs":   len(self._open_ref),
-            "params": {
-                "scan_window":   "09:15–09:40",
-                "entry_by":      "09:45",
-                "move_min_pct":  MOVE_MIN_PCT,
-                "max_positions": MAX_POSITIONS,
-                "hard_sl_pct":   HARD_SL_PCT,
-                "target_pct":    TARGET_PCT,
-                "trail_gap_pct": TRAIL_GAP_PCT,
-            },
+            "entry_window_open": self._entry_window_open(),
+            "params":      self.get_params(),
+            "windows": {"scan": "09:15–09:40", "entry_by": "09:45", "square_off": "15:15"},
         }
 
 
