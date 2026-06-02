@@ -31,8 +31,8 @@ module.exports = {
     },
     {
       name        : "trading-frontend",
-      script      : "npm",
-      args        : "run preview -- --port 3000 --host",
+      script      : "cmd",
+      args        : "/c npm run preview -- --port 3000 --host",
       cwd         : "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options\\frontend",
       interpreter : "none",
       watch       : false,

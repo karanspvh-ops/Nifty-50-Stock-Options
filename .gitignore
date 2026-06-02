@@ -28,3 +28,10 @@ frontend/dist/
 # DB / runtime
 trading.db
 instrument_cache.json
+universe_tokens.json
+universe_lots.json
+ob_params.json
+reports/
+
+# Ad-hoc test/scratch scripts
+test_module*.py
