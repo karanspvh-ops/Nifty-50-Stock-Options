@@ -129,9 +129,13 @@ def place_entry_order(
     session_id:   int,
     entry_logic:  str,
     indicators:   dict,
+    sl_pct_override:     Optional[float] = None,
+    target_pct_override: Optional[float] = None,
 ) -> Optional[Trade]:
     """
     Place an entry (BUY) order.
+    Optional overrides let a strategy set its own SL / target (e.g. the
+    Opening Breakout strategy uses 10% SL and 50% target).
     Returns the Trade record on success, None on failure.
     """
     # ── Feed check ────────────────────────────────────────────────────────────
@@ -145,8 +149,8 @@ def place_entry_order(
 
     settings       = get_settings()
     available_funds = settings.get("available_funds", 0)
-    trade_sl_pct   = settings.get("trade_sl_pct", 5.0)
-    target_pct     = settings.get("target_profit_pct", 0.0)
+    trade_sl_pct   = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
+    target_pct     = target_pct_override if target_pct_override is not None else settings.get("target_profit_pct", 0.0)
 
     # Get stock LTP
     ltp = market.get_ltp(token)

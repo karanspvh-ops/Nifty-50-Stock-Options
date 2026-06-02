@@ -8,6 +8,7 @@ import SectorBarChart   from './components/dashboard/SectorBarChart';
 import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
 import TradableSignals  from './components/dashboard/TradableSignals';
+import TradePlan        from './components/dashboard/TradePlan';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 
@@ -17,6 +18,7 @@ function Dashboard() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
       <OpenTradesPanel />
+      <TradePlan />
       <SectorHeatmap />
       <SectorBarChart />
       <TradableSignals />

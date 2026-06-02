@@ -104,6 +104,11 @@ class RiskEngine:
     # ── Per-trade risk check ──────────────────────────────────────────────────
 
     def _check_trade(self, db: DBSession, trade: Trade):
+        # Opening Breakout trades are managed by their own engine (custom
+        # 10% SL / trail / 50% target). Skip them here.
+        if (trade.entry_logic or "").startswith("[OB]"):
+            return
+
         token = self._get_token_for_symbol(trade.symbol)
         if not token:
             return

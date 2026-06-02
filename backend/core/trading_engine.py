@@ -47,6 +47,11 @@ from backend.database import (
 ENGINE_TICK = 5       # seconds between main loop iterations
 MAX_OPEN_TRADES = 2   # per environment
 
+# The Opening Breakout strategy is now the active strategy. Disable the
+# generic auto-entry here to avoid double-trading. (Scanner/state remain
+# available for the dashboard.)
+AUTO_ENTRY_ENABLED = False
+
 
 class TradingEngine:
     def __init__(self):
@@ -143,6 +148,8 @@ class TradingEngine:
 
         # ── Look for entry signals on selected stocks ─────────────────────────
         self._state = "WATCHING"
+        if not AUTO_ENTRY_ENABLED:
+            return   # Opening Breakout strategy owns entries now
         for candidate in result.candidates:
             if open_count >= MAX_OPEN_TRADES:
                 break
