@@ -83,6 +83,10 @@ class TickEngine:
             print(f"[TICK ENGINE] Login exception: {e}")
             return False
 
+    def get_smart(self):
+        """Return the authenticated SmartConnect session (shared, avoids re-login)."""
+        return self._smart
+
     # ── Subscription helpers ─────────────────────────────────────────────────
 
     def _build_token_list(self) -> list:

@@ -113,9 +113,14 @@ class MarketState:
             if token not in self._candles:
                 self._candles[token] = []
             self._candles[token].append(candle)
-            # Keep last 100 candles per stock
-            if len(self._candles[token]) > 100:
-                self._candles[token] = self._candles[token][-100:]
+            # Keep last 260 candles per stock (enough for EMA200 + headroom)
+            if len(self._candles[token]) > 260:
+                self._candles[token] = self._candles[token][-260:]
+
+    def seed_candles(self, token: str, candles: list):
+        """Bulk-load historical candles (backfill). Replaces existing history."""
+        with self._lock:
+            self._candles[token] = list(candles)[-260:]
 
     def get_candles(self, token: str, n: int = 50) -> List[dict]:
         with self._lock:

@@ -42,6 +42,10 @@ async def lifespan(app: FastAPI):
     tick_engine.start()
     print("[BOOT] Tick engine running.")
 
+    print("[BOOT] Launching historical backfill (warms up indicators)...")
+    from backend.core.backfill import start_backfill
+    start_backfill()
+
     print("[BOOT] Starting risk engine...")
     risk_engine.start()
     print("[BOOT] Risk engine running.")
@@ -101,6 +105,12 @@ app.include_router(reports_router)
 @app.get("/health")
 def health():
     return {"status": "ok", "engine": "running"}
+
+
+@app.get("/api/backfill/status")
+def backfill_status():
+    from backend.core.backfill import get_status
+    return get_status()
 
 
 if __name__ == "__main__":

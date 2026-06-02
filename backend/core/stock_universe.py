@@ -217,22 +217,81 @@ def get_token(symbol: str) -> Optional[str]:
 
 
 # ── Instrument master (NFO cache for option lookup) ───────────────────────────
-_INSTRUMENT_CACHE_PATH = os.path.join(os.path.dirname(__file__), "../../instrument_cache.json")
+_BASE_DIR              = os.path.join(os.path.dirname(__file__), "../..")
+_INSTRUMENT_CACHE_PATH = os.path.join(_BASE_DIR, "instrument_cache.json")
+_TOKENS_CACHE_PATH     = os.path.join(_BASE_DIR, "universe_tokens.json")
+_LOTS_CACHE_PATH       = os.path.join(_BASE_DIR, "universe_lots.json")
 _MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+_CACHE_MAX_AGE_SEC = 20 * 3600   # re-download at most once per ~20h
 
 
-def refresh_instrument_list() -> dict:
+def _cache_fresh() -> bool:
+    """True if the resolved-token cache exists and is recent enough."""
+    for p in (_TOKENS_CACHE_PATH, _INSTRUMENT_CACHE_PATH):
+        if not os.path.exists(p):
+            return False
+    import time as _t
+    age = _t.time() - os.path.getmtime(_TOKENS_CACHE_PATH)
+    return age < _CACHE_MAX_AGE_SEC
+
+
+def _load_from_cache() -> dict:
+    """Rebuild master from cached token map + return cached NFO dict."""
+    with open(_TOKENS_CACHE_PATH) as f:
+        tokens = json.load(f)
+    if os.path.exists(_LOTS_CACHE_PATH):
+        try:
+            _LOT_SIZE.update({k: int(v) for k, v in json.load(open(_LOTS_CACHE_PATH)).items()})
+        except Exception:
+            pass
+    _rebuild_master(tokens)
+    with open(_INSTRUMENT_CACHE_PATH) as f:
+        nfo = json.load(f)
+    print(f"[UNIVERSE] Loaded from cache | NSE tokens: {len(tokens)} | "
+          f"N50={len(get_stocks_for_index('NIFTY50'))}, "
+          f"N100={len(get_stocks_for_index('NIFTY100'))}, "
+          f"N200={len(get_stocks_for_index('NIFTY200'))}")
+    return nfo
+
+
+def _download_master(timeout_sec: int = 25):
+    """Download the master JSON with a hard wall-clock timeout (thread-based)."""
+    import threading
+    result = {}
+    def _worker():
+        try:
+            r = requests.get(_MASTER_URL, timeout=(10, timeout_sec))
+            r.raise_for_status()
+            result["data"] = r.json()
+        except Exception as e:
+            result["error"] = str(e)
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout_sec)
+    if t.is_alive():
+        raise TimeoutError(f"master download exceeded {timeout_sec}s hard limit")
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return result["data"]
+
+
+def refresh_instrument_list(force: bool = False) -> dict:
     """
-    Download the Angel One master once and:
-      1. Cache NFO instruments (for option-contract lookup)
-      2. Build NSE-cash symbol→token map and resolve our universe tokens
-      3. Capture F&O lot sizes
+    Resolve the universe. Uses a local cache (refreshed at most once/20h) so
+    boot never re-downloads the ~20MB master and never hangs. On any download
+    failure, falls back to the existing NFO cache + seed tokens so the system
+    always boots.
     Returns the NFO cache dict.
     """
+    # ── Fast path: fresh cache on disk ────────────────────────────────────────
+    if not force and _cache_fresh():
+        try:
+            return _load_from_cache()
+        except Exception as e:
+            print(f"[UNIVERSE] Cache load failed ({e}); will try download.")
+
     try:
-        r = requests.get(_MASTER_URL, timeout=30)
-        r.raise_for_status()
-        instruments = r.json()
+        instruments = _download_master()
 
         # ── NFO cache + lot sizes ─────────────────────────────────────────────
         nse_fo = {}
@@ -272,6 +331,15 @@ def refresh_instrument_list() -> dict:
         merged.update(resolved)
         _rebuild_master(merged)
 
+        # Persist caches so future boots skip the download
+        try:
+            with open(_TOKENS_CACHE_PATH, "w") as f:
+                json.dump(merged, f)
+            with open(_LOTS_CACHE_PATH, "w") as f:
+                json.dump(_LOT_SIZE, f)
+        except Exception as e:
+            print(f"[UNIVERSE] Cache write warning: {e}")
+
         print(f"[UNIVERSE] Master refreshed | NFO: {len(nse_fo)} | "
               f"NSE tokens resolved: {len(resolved)} | "
               f"Universe stocks: {len(STOCK_MASTER)} "
@@ -281,9 +349,22 @@ def refresh_instrument_list() -> dict:
         return nse_fo
 
     except Exception as e:
-        print(f"[UNIVERSE] Refresh failed ({e}); using seed tokens "
-              f"(N50={len(get_stocks_for_index('NIFTY50'))}).")
-        return {}
+        print(f"[UNIVERSE] Download failed ({e}).")
+        # ── Fallback 1: stale token cache if present ──────────────────────────
+        if os.path.exists(_TOKENS_CACHE_PATH) and os.path.exists(_INSTRUMENT_CACHE_PATH):
+            try:
+                print("[UNIVERSE] Falling back to existing token cache.")
+                return _load_from_cache()
+            except Exception as e2:
+                print(f"[UNIVERSE] Cache fallback failed: {e2}")
+        # ── Fallback 2: seed tokens + existing NFO cache ──────────────────────
+        _rebuild_master(_SEED_TOKENS)
+        print(f"[UNIVERSE] Using seed tokens (N50={len(get_stocks_for_index('NIFTY50'))}).")
+        try:
+            with open(_INSTRUMENT_CACHE_PATH) as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 
 def load_instrument_cache() -> dict:
