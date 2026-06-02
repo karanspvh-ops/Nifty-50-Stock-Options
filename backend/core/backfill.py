@@ -68,48 +68,25 @@ def _reload_from_db() -> int:
     return loaded
 
 
-# ── Source 2: Angel historical API (optional) ─────────────────────────────────
-def _load_config() -> dict:
-    with open(os.path.join(ROOT, "config.json")) as f:
-        return json.load(f)
-
-
-def _historical_session():
-    """Build a SmartConnect session using the historical_api_key, if present."""
-    cfg = _load_config()
-    hist_key = cfg.get("historical_api_key")
-    if not hist_key:
-        return None, "no historical_api_key in config"
+# ── Source 2: Zerodha Kite historical (needs Historical Data subscription) ────
+def _fetch_kite(kite, token: str) -> int:
+    """Pull recent 5-min candles via Kite. Returns -1 on API failure."""
     try:
-        import pyotp
-        from SmartApi import SmartConnect
-        smart = SmartConnect(api_key=hist_key)
-        data  = smart.generateSession(cfg["client_id"], cfg["mpin"],
-                                      pyotp.TOTP(cfg["totp_secret"]).now())
-        if not data.get("status"):
-            return None, f"historical login failed: {data.get('message')}"
-        return smart, "ok"
-    except Exception as e:
-        return None, f"historical login error: {e}"
-
-
-def _fetch_api(smart, token: str) -> int:
-    to_dt   = datetime.now()
-    from_dt = to_dt - timedelta(days=LOOKBACK_DAYS)
-    resp = smart.getCandleData({
-        "exchange": "NSE", "symboltoken": token, "interval": INTERVAL,
-        "fromdate": from_dt.strftime("%Y-%m-%d %H:%M"),
-        "todate":   to_dt.strftime("%Y-%m-%d %H:%M"),
-    })
-    if not isinstance(resp, dict) or not resp.get("status") or not resp.get("data"):
-        return -1   # signal failure (e.g. invalid key)
-    candles = [{
-        "ts": row[0], "open": float(row[1]), "high": float(row[2]),
-        "low": float(row[3]), "close": float(row[4]), "volume": int(row[5]),
-    } for row in resp["data"]]
-    if candles:
+        to_dt   = datetime.now()
+        from_dt = to_dt - timedelta(days=LOOKBACK_DAYS)
+        rows = kite.historical_data(int(token), from_dt, to_dt, "5minute")
+        if not rows:
+            return 0
+        candles = [{
+            "ts": r["date"].isoformat() if hasattr(r["date"], "isoformat") else str(r["date"]),
+            "open": float(r["open"]), "high": float(r["high"]),
+            "low": float(r["low"]), "close": float(r["close"]),
+            "volume": int(r.get("volume", 0)),
+        } for r in rows]
         market.seed_candles(token, candles)
-    return len(candles)
+        return len(candles)
+    except Exception:
+        return -1
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -122,31 +99,31 @@ def _run():
     _status["source"]    = "db"
     print(f"[BACKFILL] Reloaded candle history for {db_loaded} stocks from SQLite.")
 
-    # 2) Optional Angel historical enrichment
-    smart, why = _historical_session()
-    if smart is None:
-        _status["note"] = f"Historical API skipped ({why}). Using SQLite warmup."
+    # 2) Kite historical enrichment (if logged in + subscription active)
+    from backend.core.broker import broker
+    if not broker.has_token():
+        _status.update({"running": False, "finished": True,
+                        "note": "No Zerodha token — SQLite warmup only."})
         print(f"[BACKFILL] {_status['note']}")
-        _status.update({"running": False, "finished": True})
         return
 
+    kite   = broker.kite()
     stocks = get_stocks_for_index("NIFTY200")
-    print(f"[BACKFILL] Historical key found — enriching {len(stocks)} stocks...")
+    print(f"[BACKFILL] Enriching {len(stocks)} stocks via Kite historical...")
     api_loaded = 0
     for i, s in enumerate(stocks):
-        n = _fetch_api(smart, s["token"])
-        if n == -1:
-            if i == 0:
-                _status["note"] = "Historical key present but API rejected it."
-                print(f"[BACKFILL] {_status['note']} Falling back to SQLite warmup.")
-                break
-        elif n > 0:
+        n = _fetch_kite(kite, s["token"])
+        if n == -1 and i == 0:
+            _status["note"] = "Kite historical unavailable (needs Historical Data subscription). SQLite warmup only."
+            print(f"[BACKFILL] {_status['note']}")
+            break
+        if n > 0:
             api_loaded += 1
             _status["api_loaded"] = api_loaded
         time.sleep(THROTTLE_SEC)
 
-    _status.update({"running": False, "finished": True, "source": "db+api"})
-    print(f"[BACKFILL] Complete. DB: {db_loaded} stocks, API enriched: {api_loaded}.")
+    _status.update({"running": False, "finished": True, "source": "db+kite"})
+    print(f"[BACKFILL] Complete. DB: {db_loaded} stocks, Kite enriched: {api_loaded}.")
 
 
 def start_backfill():

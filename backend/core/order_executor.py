@@ -1,245 +1,164 @@
 """
-order_executor.py — Places and squares off option orders.
+order_executor.py — Places and squares off option orders via Zerodha Kite.
 
-Paper mode:  simulates execution at current LTP, writes directly to DB.
-Live mode:   calls Angel One SmartAPI placeOrder() then writes to DB.
+Paper mode:  fills at the real option LTP (Kite quote), writes to DB.
+Live mode:   kite.place_order() (NFO, MARKET, MIS intraday) then writes to DB.
 
-Critical rules:
-  - If feed is disconnected: REJECT order (no blind trades).
-  - All orders are MARKET orders (no limit — options spread is wide).
-  - Only OPTION BUYING (BUY to enter, SELL to exit). No shorting.
-  - Quantity is computed from available_funds and estimated premium.
+Rules:
+  - Feed disconnected -> reject (no blind trades).
+  - MARKET orders only (option spreads are wide).
+  - Option BUYING only (BUY to enter, SELL to exit). No shorting.
+  - Real option premiums via Kite quote() — no more estimates.
 """
 
-import json, os, sys
-from datetime import datetime
+import os, sys
+from datetime import datetime, date
 from typing import Optional, Tuple
-
-import pyotp
-from SmartApi import SmartConnect
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
 from backend.database import (
-    Session, Trade, TradingSession, TradingSession,
-    TradeEnv, TradeDirection, TradeStatus
+    Session, Trade, TradeEnv, TradeDirection, TradeStatus
 )
 from backend.core.market_state     import market
 from backend.core.settings_manager import get_settings
 from backend.core.session_manager  import get_or_create_session, update_portfolio_balance
-from backend.core.stock_universe   import find_option_token, get_meta
+from backend.core.stock_universe   import load_instrument_cache, get_meta
+from backend.core.broker           import broker
 
 
-# ── Angel One session cache (reuse within the day) ────────────────────────────
-_smart_session: Optional[SmartConnect] = None
-
-def _get_smart() -> SmartConnect:
-    global _smart_session
-    if _smart_session:
-        return _smart_session
-    cfg  = json.load(open(os.path.join(ROOT, "config.json")))
-    totp = pyotp.TOTP(cfg["totp_secret"]).now()
-    obj  = SmartConnect(api_key=cfg["api_key"])
-    data = obj.generateSession(cfg["client_id"], cfg["mpin"], totp)
-    if data["status"]:
-        _smart_session = obj
-        return obj
-    raise ConnectionError(f"Angel One login failed: {data['message']}")
-
-
-# ── Quantity calculator ────────────────────────────────────────────────────────
-
+# ── Quantity ──────────────────────────────────────────────────────────────────
 def calc_quantity(available_funds: float, premium: float, lot_size: int) -> int:
-    """
-    How many lots can we buy?
-    Use at most 50% of available funds per trade.
-    Minimum 1 lot.
-    """
     budget    = available_funds * 0.5
     cost_1lot = premium * lot_size
     if cost_1lot <= 0:
         return 1
-    lots = int(budget // cost_1lot)
-    return max(lots, 1)
+    return max(int(budget // cost_1lot), 1)
 
 
-# ── Option selection ───────────────────────────────────────────────────────────
-
-def select_option(
-    symbol:    str,
-    ltp:       float,
-    direction: str,   # "call" or "put"
-) -> Tuple[Optional[str], Optional[str], float, str]:
-    """
-    Returns (option_token, option_symbol, strike, expiry).
-    Picks ATM strike, nearest weekly expiry.
-    Returns (None, None, 0, '') on failure.
-    """
-    from backend.core.stock_universe import load_instrument_cache
-    import math
-
-    # Round to nearest 50 (standard Nifty options strike increment)
-    meta      = get_meta(symbol) if isinstance(symbol, str) else {}
-    # For individual stocks the increment is typically 50 or 100
-    # Use 50 as default
-    increment = 50
-    atm_strike = round(ltp / increment) * increment
-
-    option_type = "CE" if direction == "call" else "PE"
-
-    cache = load_instrument_cache()
-    # Find contracts matching symbol, option_type, expiry closest to today
-    from datetime import date
-    today = date.today()
-
-    best_token  = None
-    best_symbol = None
-    best_expiry = None
-    min_days    = 9999
-
-    for token, meta_i in cache.items():
-        if (meta_i.get("name",     "").upper() == symbol.upper() and
-            meta_i.get("instrumenttype", "").upper() == option_type and
-            str(int(float(meta_i.get("strike", 0)))) == str(int(atm_strike))):
-            try:
-                # expiry format: DDMMMYYYY e.g. 26JUN2025
-                exp_str = meta_i.get("expiry", "")
-                exp_dt  = datetime.strptime(exp_str, "%d%b%Y").date()
-                days    = (exp_dt - today).days
-                if 0 <= days < min_days:
-                    min_days    = days
-                    best_token  = token
-                    best_symbol = meta_i.get("symbol", "")
-                    best_expiry = exp_str
-            except Exception:
-                continue
-
-    strike = atm_strike
-    return best_token, best_symbol, strike, best_expiry or ""
-
-
-# ── Entry order ───────────────────────────────────────────────────────────────
-
-def place_entry_order(
-    env:          TradeEnv,
-    symbol:       str,
-    token:        str,
-    direction:    str,
-    session_id:   int,
-    entry_logic:  str,
-    indicators:   dict,
-    sl_pct_override:     Optional[float] = None,
-    target_pct_override: Optional[float] = None,
-) -> Optional[Trade]:
-    """
-    Place an entry (BUY) order.
-    Optional overrides let a strategy set its own SL / target (e.g. the
-    Opening Breakout strategy uses 10% SL and 50% target).
-    Returns the Trade record on success, None on failure.
-    """
-    # ── Feed check ────────────────────────────────────────────────────────────
-    if not market.is_feed_connected():
-        print(f"[ORDER] REJECTED — feed disconnected. Cannot place {symbol} {direction} entry.")
+# ── Real option premium (Kite quote works with this key) ──────────────────────
+def option_premium(opt_token: str, opt_symbol: str) -> Optional[float]:
+    # Prefer the live-subscribed tick
+    p = market.get_ltp(opt_token) if opt_token else None
+    if p:
+        return p
+    # Fallback: direct Kite quote
+    try:
+        key = f"NFO:{opt_symbol}"
+        q   = broker.kite().quote([key])
+        return float(q[key]["last_price"])
+    except Exception:
         return None
 
+
+# ── ATM option selection (nearest expiry, strike closest to LTP) ──────────────
+def select_option(symbol: str, ltp: float, direction: str
+                  ) -> Tuple[Optional[str], Optional[str], float, str]:
+    """Returns (token, tradingsymbol, strike, expiry_iso)."""
+    cache       = load_instrument_cache()
+    option_type = "CE" if direction == "call" else "PE"
+    today       = date.today()
+
+    contracts = [(t, m) for t, m in cache.items()
+                 if m.get("name") == symbol.upper()
+                 and m.get("instrument_type") == option_type]
+    if not contracts:
+        return None, None, 0.0, ""
+
+    # nearest non-expired expiry
+    def exp_date(m):
+        try:    return date.fromisoformat(m["expiry"])
+        except Exception: return date(2099, 1, 1)
+    future = [(t, m) for t, m in contracts if exp_date(m) >= today]
+    if not future:
+        return None, None, 0.0, ""
+    nearest = min(exp_date(m) for _, m in future)
+    same    = [(t, m) for t, m in future if exp_date(m) == nearest]
+
+    # ATM = strike closest to LTP
+    tok, m = min(same, key=lambda x: abs(float(x[1]["strike"]) - ltp))
+
+    # subscribe this option so its live LTP flows into market_state
+    try:
+        from backend.core.tick_engine import tick_engine
+        tick_engine.subscribe_options([{"token": tok,
+                                         "tradingsymbol": m["tradingsymbol"],
+                                         "name": m["name"]}])
+    except Exception:
+        pass
+    return tok, m["tradingsymbol"], float(m["strike"]), m["expiry"]
+
+
+# ── Entry ─────────────────────────────────────────────────────────────────────
+def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
+                      indicators, sl_pct_override=None, target_pct_override=None) -> Optional[Trade]:
+    if not market.is_feed_connected():
+        print(f"[ORDER] REJECTED — feed disconnected ({symbol} {direction}).")
+        return None
     if market.is_trading_halted():
         print(f"[ORDER] REJECTED — trading halted: {market.get_halt_reason()}")
         return None
 
-    settings       = get_settings()
+    settings        = get_settings()
     available_funds = settings.get("available_funds", 0)
-    trade_sl_pct   = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
-    target_pct     = target_pct_override if target_pct_override is not None else settings.get("target_profit_pct", 0.0)
+    trade_sl_pct    = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
+    target_pct      = target_pct_override if target_pct_override is not None else settings.get("target_profit_pct", 0.0)
 
-    # Get stock LTP
     ltp = market.get_ltp(token)
     if not ltp:
         print(f"[ORDER] REJECTED — no LTP for {symbol}")
         return None
 
-    # Select option
     opt_token, opt_symbol, strike, expiry = select_option(symbol, ltp, direction)
+    if not opt_token or not opt_symbol:
+        print(f"[ORDER] REJECTED — no ATM option found for {symbol}")
+        return None
 
-    # Premium: use option LTP if available, else estimate
-    premium = market.get_ltp(opt_token) if opt_token else None
+    premium = option_premium(opt_token, opt_symbol)
     if not premium:
-        premium = round(ltp * 0.015, 2)     # fallback estimate
+        print(f"[ORDER] REJECTED — could not read {opt_symbol} premium")
+        return None
 
     meta     = get_meta(token)
-    lot_size = meta.get("lot_size", 1)
+    lot_size = meta.get("lot_size", 1) or 1
     qty      = calc_quantity(available_funds, premium, lot_size)
+    trade_sl_price = round(premium * (1 - trade_sl_pct / 100), 2)
+    target_price   = round(premium * (1 + target_pct / 100), 2) if target_pct > 0 else None
 
-    trade_sl_price  = round(premium * (1 - trade_sl_pct / 100), 2)
-    target_price    = round(premium * (1 + target_pct / 100), 2) if target_pct > 0 else None
-
-    # ── Paper mode ───────────────────────────────────────────────────────────
     if env == TradeEnv.PAPER:
-        entry_price = premium    # paper fills at estimated premium
-        order_id    = f"PAPER-{datetime.now().strftime('%H%M%S%f')}"
-        print(f"[PAPER] BUY {qty}x {opt_symbol or symbol+' '+direction.upper()} "
-              f"@ ₹{entry_price:.2f} | SL: ₹{trade_sl_price:.2f}")
-
-    # ── Live mode ─────────────────────────────────────────────────────────────
+        entry_price = premium
+        print(f"[PAPER] BUY {qty}x {opt_symbol} @ ₹{entry_price:.2f} | SL ₹{trade_sl_price:.2f}")
     else:
-        if not opt_token or not opt_symbol:
-            print(f"[ORDER] REJECTED — could not find option token for {symbol}")
-            return None
         try:
-            smart  = _get_smart()
-            resp   = smart.placeOrder({
-                "variety":         "NORMAL",
-                "tradingsymbol":   opt_symbol,
-                "symboltoken":     opt_token,
-                "transactiontype": "BUY",
-                "exchange":        "NFO",
-                "ordertype":       "MARKET",
-                "producttype":     "INTRADAY",
-                "duration":        "DAY",
-                "price":           "0",
-                "squareoff":       "0",
-                "stoploss":        "0",
-                "quantity":        str(qty * lot_size),
-            })
-            if not resp.get("status"):
-                print(f"[ORDER] LIVE order FAILED: {resp.get('message')}")
-                return None
-            order_id    = resp["data"]["orderid"]
-            entry_price = premium    # will be updated by order book later
-            print(f"[LIVE] BUY order placed | {opt_symbol} | Qty: {qty*lot_size} | "
-                  f"OrderID: {order_id}")
+            kite = broker.kite()
+            order_id = kite.place_order(
+                variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO,
+                tradingsymbol=opt_symbol, transaction_type=kite.TRANSACTION_TYPE_BUY,
+                quantity=qty * lot_size, product=kite.PRODUCT_MIS,
+                order_type=kite.ORDER_TYPE_MARKET,
+            )
+            entry_price = premium
+            print(f"[LIVE] BUY {opt_symbol} qty {qty*lot_size} | order {order_id}")
         except Exception as e:
-            print(f"[ORDER] Exception placing live order: {e}")
+            print(f"[ORDER] LIVE entry failed: {e}")
             return None
 
-    # ── Write to DB ───────────────────────────────────────────────────────────
     db = Session()
     try:
         trade = Trade(
-            session_id          = session_id,
-            env                 = env,
-            status              = TradeStatus.OPEN,
-            direction           = TradeDirection(direction),
-            symbol              = symbol,
-            option_symbol       = opt_symbol or f"{symbol}-{direction.upper()}",
-            strike              = strike,
-            expiry              = expiry,
-            option_type         = "CE" if direction == "call" else "PE",
-            entry_price         = entry_price,
-            quantity            = qty,
-            lot_size            = lot_size,
-            trade_sl_pct        = trade_sl_pct,
-            trade_sl_price      = trade_sl_price,
-            target_price        = target_price,
-            entry_logic         = entry_logic,
-            indicators_snapshot = indicators,
-            entered_at          = datetime.utcnow(),
+            session_id=session_id, env=env, status=TradeStatus.OPEN,
+            direction=TradeDirection(direction), symbol=symbol,
+            option_symbol=opt_symbol, strike=strike, expiry=expiry,
+            option_type="CE" if direction == "call" else "PE",
+            entry_price=entry_price, quantity=qty, lot_size=lot_size,
+            trade_sl_pct=trade_sl_pct, trade_sl_price=trade_sl_price,
+            target_price=target_price, entry_logic=entry_logic,
+            indicators_snapshot=indicators, entered_at=datetime.utcnow(),
         )
-        db.add(trade)
-        db.commit()
-        db.refresh(trade)
-        print(f"[ORDER] Trade #{trade.id} recorded | {symbol} {direction.upper()} "
-              f"| Entry: ₹{entry_price:.2f} | Env: {env}")
+        db.add(trade); db.commit(); db.refresh(trade)
+        print(f"[ORDER] Trade #{trade.id} | {symbol} {direction.upper()} {opt_symbol} "
+              f"@ ₹{entry_price:.2f} | {env}")
         return trade
     except Exception as e:
         print(f"[ORDER] DB write error: {e}")
@@ -248,64 +167,28 @@ def place_entry_order(
         db.close()
 
 
-# ── Exit order ────────────────────────────────────────────────────────────────
-
-def place_exit_order(
-    trade_id:   int,
-    exit_price: float,
-    reason:     str,
-    env:        TradeEnv,
-) -> bool:
-    """
-    Called by RiskEngine exit callback.
-    In live mode: places SELL order on Angel One.
-    In paper mode: nothing extra (DB already updated by RiskEngine).
-    """
+# ── Exit ──────────────────────────────────────────────────────────────────────
+def place_exit_order(trade_id: int, exit_price: float, reason: str, env: TradeEnv) -> bool:
     if env == TradeEnv.LIVE:
         db = Session()
         try:
             trade = db.query(Trade).filter(Trade.id == trade_id).first()
             if not trade or not trade.option_symbol:
                 return False
-            # Find option token
-            from backend.core.stock_universe import load_instrument_cache
-            cache = load_instrument_cache()
-            opt_token = next(
-                (t for t, m in cache.items()
-                 if m.get("symbol", "").upper() == trade.option_symbol.upper()),
-                None
+            kite = broker.kite()
+            order_id = kite.place_order(
+                variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO,
+                tradingsymbol=trade.option_symbol,
+                transaction_type=kite.TRANSACTION_TYPE_SELL,
+                quantity=trade.quantity * trade.lot_size,
+                product=kite.PRODUCT_MIS, order_type=kite.ORDER_TYPE_MARKET,
             )
-            if not opt_token:
-                print(f"[ORDER] EXIT: cannot find token for {trade.option_symbol}")
-                return False
-            smart = _get_smart()
-            resp  = smart.placeOrder({
-                "variety":         "NORMAL",
-                "tradingsymbol":   trade.option_symbol,
-                "symboltoken":     opt_token,
-                "transactiontype": "SELL",
-                "exchange":        "NFO",
-                "ordertype":       "MARKET",
-                "producttype":     "INTRADAY",
-                "duration":        "DAY",
-                "price":           "0",
-                "squareoff":       "0",
-                "stoploss":        "0",
-                "quantity":        str(trade.quantity * trade.lot_size),
-            })
-            if resp.get("status"):
-                print(f"[LIVE] SELL order placed | {trade.option_symbol} | "
-                      f"Reason: {reason} | OrderID: {resp['data']['orderid']}")
-                return True
-            else:
-                print(f"[ORDER] EXIT order failed: {resp.get('message')}")
-                return False
+            print(f"[LIVE] SELL {trade.option_symbol} | {reason} | order {order_id}")
+            return True
         except Exception as e:
-            print(f"[ORDER] EXIT exception: {e}")
+            print(f"[ORDER] LIVE exit failed: {e}")
             return False
         finally:
             db.close()
-
-    # Paper mode — DB already updated by risk engine
     print(f"[PAPER] EXIT trade #{trade_id} @ ₹{exit_price:.2f} | {reason}")
     return True

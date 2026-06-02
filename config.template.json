@@ -1,0 +1,6 @@
+{
+  "api_key": "YOUR_API_KEY",
+  "client_id": "YOUR_ANGEL_ONE_CLIENT_ID",
+  "mpin": "YOUR_4_DIGIT_MPIN",
+  "totp_secret": "YOUR_TOTP_SECRET"
+}

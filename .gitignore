@@ -9,6 +9,7 @@ venv/
 # Credentials & secrets
 config.json
 secrets.json
+kite_token.json
 *.key
 *.pem
 

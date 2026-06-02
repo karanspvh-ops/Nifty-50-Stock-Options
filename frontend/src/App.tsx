@@ -3,6 +3,7 @@ import { useMarketSocket } from './hooks/useMarketSocket';
 import { useMarketStore } from './store/marketStore';
 import Sidebar      from './components/layout/Sidebar';
 import Header       from './components/layout/Header';
+import LoginBanner  from './components/layout/LoginBanner';
 import SectorHeatmap    from './components/dashboard/SectorHeatmap';
 import SectorBarChart   from './components/dashboard/SectorBarChart';
 import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
@@ -60,6 +61,7 @@ export default function App() {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
+        <LoginBanner />
         <EngineStatus />
         <main className="flex-1 overflow-hidden">
           {activeView === 'dashboard'     && <Dashboard />}

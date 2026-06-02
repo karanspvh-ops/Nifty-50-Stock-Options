@@ -146,25 +146,7 @@ def _membership(symbol: str) -> List[str]:
     return out
 
 
-# ── Seed NSE-cash tokens (offline / test fallback; overridden by live master) ──
-_SEED_TOKENS: Dict[str, str] = {
-    "INFY": "1594", "TCS": "11536", "TECHM": "13538", "HCLTECH": "7229",
-    "WIPRO": "3787", "LTIM": "17818", "HDFCBANK": "1333", "ICICIBANK": "4963",
-    "KOTAKBANK": "1922", "INDUSINDBK": "5258", "AXISBANK": "5900", "SBIN": "3045",
-    "RELIANCE": "2885", "BPCL": "526", "ONGC": "2475", "NTPC": "11630",
-    "POWERGRID": "14977", "COALINDIA": "20374", "ASIANPAINT": "236",
-    "HINDUNILVR": "1394", "ITC": "1660", "BRITANNIA": "547", "NESTLEIND": "17963",
-    "TATACONSUM": "3432", "TITAN": "3506", "M&M": "2031", "MARUTI": "10999",
-    "HEROMOTOCO": "1348", "BAJAJ-AUTO": "16669", "EICHERMOT": "910",
-    "TATAMOTORS": "3456", "BAJFINANCE": "317", "BAJAJFINSV": "16675",
-    "HDFCLIFE": "467", "SBILIFE": "21808", "GRASIM": "1232", "ULTRACEMCO": "11532",
-    "HINDALCO": "1363", "TATASTEEL": "3499", "JSWSTEEL": "11723",
-    "SUNPHARMA": "3351", "DRREDDY": "881", "CIPLA": "694", "APOLLOHOSP": "157",
-    "LT": "11483", "BHARTIARTL": "10604", "ADANIPORTS": "15083", "ADANIENT": "25",
-    "TRENT": "1964", "BEL": "383", "SHRIRAMFIN": "4306",
-}
-
-# ── Runtime maps (rebuilt on token resolution) ────────────────────────────────
+# ── Runtime maps (rebuilt on token resolution from Zerodha instruments) ───────
 SYMBOL_TO_TOKEN: Dict[str, str] = {}
 STOCK_MASTER:    Dict[str, dict] = {}   # token → {symbol, sector, indices, lot_size}
 _LOT_SIZE:       Dict[str, int]  = {}   # symbol → lot size (from NFO master)
@@ -187,8 +169,17 @@ def _rebuild_master(token_map: Dict[str, str]):
         }
 
 
-# Build once at import using seed tokens (keeps tests / offline working)
-_rebuild_master(_SEED_TOKENS)
+# Build from cache at import if available (so the system has the universe
+# before the daily Zerodha login refreshes it).
+def _try_load_cache_at_import():
+    try:
+        if os.path.exists(_TOKENS_CACHE_PATH):
+            tokens = json.load(open(_TOKENS_CACHE_PATH))
+            if os.path.exists(_LOTS_CACHE_PATH):
+                _LOT_SIZE.update({k: int(v) for k, v in json.load(open(_LOTS_CACHE_PATH)).items()})
+            _rebuild_master(tokens)
+    except Exception:
+        pass
 
 
 # ── Public query API ──────────────────────────────────────────────────────────
@@ -216,175 +207,111 @@ def get_token(symbol: str) -> Optional[str]:
     return SYMBOL_TO_TOKEN.get(symbol)
 
 
-# ── Instrument master (NFO cache for option lookup) ───────────────────────────
+# ── Instrument master (resolved from Zerodha Kite instruments) ────────────────
 _BASE_DIR              = os.path.join(os.path.dirname(__file__), "../..")
-_INSTRUMENT_CACHE_PATH = os.path.join(_BASE_DIR, "instrument_cache.json")
-_TOKENS_CACHE_PATH     = os.path.join(_BASE_DIR, "universe_tokens.json")
-_LOTS_CACHE_PATH       = os.path.join(_BASE_DIR, "universe_lots.json")
-_MASTER_URL = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
-_CACHE_MAX_AGE_SEC = 20 * 3600   # re-download at most once per ~20h
-
-
-def _cache_fresh() -> bool:
-    """True if the resolved-token cache exists and is recent enough."""
-    for p in (_TOKENS_CACHE_PATH, _INSTRUMENT_CACHE_PATH):
-        if not os.path.exists(p):
-            return False
-    import time as _t
-    age = _t.time() - os.path.getmtime(_TOKENS_CACHE_PATH)
-    return age < _CACHE_MAX_AGE_SEC
-
-
-def _load_from_cache() -> dict:
-    """Rebuild master from cached token map + return cached NFO dict."""
-    with open(_TOKENS_CACHE_PATH) as f:
-        tokens = json.load(f)
-    if os.path.exists(_LOTS_CACHE_PATH):
-        try:
-            _LOT_SIZE.update({k: int(v) for k, v in json.load(open(_LOTS_CACHE_PATH)).items()})
-        except Exception:
-            pass
-    _rebuild_master(tokens)
-    with open(_INSTRUMENT_CACHE_PATH) as f:
-        nfo = json.load(f)
-    print(f"[UNIVERSE] Loaded from cache | NSE tokens: {len(tokens)} | "
-          f"N50={len(get_stocks_for_index('NIFTY50'))}, "
-          f"N100={len(get_stocks_for_index('NIFTY100'))}, "
-          f"N200={len(get_stocks_for_index('NIFTY200'))}")
-    return nfo
-
-
-def _download_master(timeout_sec: int = 25):
-    """Download the master JSON with a hard wall-clock timeout (thread-based)."""
-    import threading
-    result = {}
-    def _worker():
-        try:
-            r = requests.get(_MASTER_URL, timeout=(10, timeout_sec))
-            r.raise_for_status()
-            result["data"] = r.json()
-        except Exception as e:
-            result["error"] = str(e)
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
-    t.join(timeout_sec)
-    if t.is_alive():
-        raise TimeoutError(f"master download exceeded {timeout_sec}s hard limit")
-    if "error" in result:
-        raise RuntimeError(result["error"])
-    return result["data"]
+_INSTRUMENT_CACHE_PATH = os.path.join(_BASE_DIR, "instrument_cache.json")  # NFO options
+_TOKENS_CACHE_PATH     = os.path.join(_BASE_DIR, "universe_tokens.json")   # symbol→token
+_LOTS_CACHE_PATH       = os.path.join(_BASE_DIR, "universe_lots.json")     # symbol→lot
 
 
 def refresh_instrument_list(force: bool = False) -> dict:
     """
-    Resolve the universe. Uses a local cache (refreshed at most once/20h) so
-    boot never re-downloads the ~20MB master and never hangs. On any download
-    failure, falls back to the existing NFO cache + seed tokens so the system
-    always boots.
+    Resolve the universe from Zerodha's instrument dump (requires a valid
+    access token). Maps each universe symbol to its NSE instrument_token,
+    captures F&O lot sizes, and caches NFO option contracts for ATM lookup.
+    Falls back to the on-disk cache if the API isn't available yet.
     Returns the NFO cache dict.
     """
-    # ── Fast path: fresh cache on disk ────────────────────────────────────────
-    if not force and _cache_fresh():
-        try:
-            return _load_from_cache()
-        except Exception as e:
-            print(f"[UNIVERSE] Cache load failed ({e}); will try download.")
+    from backend.core.broker import broker
+    if not broker.has_token():
+        # Not logged in yet — use cache if present
+        if os.path.exists(_TOKENS_CACHE_PATH):
+            _try_load_cache_at_import()
+            print("[UNIVERSE] No Zerodha token yet — using cached tokens.")
+        return _load_nfo_cache()
 
     try:
-        instruments = _download_master()
+        kite = broker.kite()
+        nse  = kite.instruments("NSE")
+        nfo  = kite.instruments("NFO")
+
+        # ── NSE equity token resolution ───────────────────────────────────────
+        resolved: Dict[str, str] = {}
+        for i in nse:
+            if i.get("instrument_type") == "EQ" and i.get("tradingsymbol") in SECTOR_OF:
+                resolved[i["tradingsymbol"]] = str(i["instrument_token"])
 
         # ── NFO cache + lot sizes ─────────────────────────────────────────────
-        nse_fo = {}
-        for i in instruments:
-            if i.get("exch_seg") == "NFO":
-                nse_fo[i["token"]] = {
-                    "symbol":         i["symbol"],
-                    "name":           i["name"],
-                    "expiry":         i.get("expiry", ""),
-                    "strike":         i.get("strike", ""),
-                    "lotsize":        i.get("lotsize", "1"),
-                    "instrumenttype": i.get("instrumenttype", ""),
-                    "exch_seg":       i.get("exch_seg", ""),
+        nfo_cache = {}
+        for i in nfo:
+            itype = i.get("instrument_type", "")
+            name  = i.get("name", "")
+            if name not in SECTOR_OF:
+                continue
+            if itype in ("CE", "PE"):
+                exp = i.get("expiry")
+                nfo_cache[str(i["instrument_token"])] = {
+                    "tradingsymbol":  i.get("tradingsymbol", ""),
+                    "name":           name,
+                    "expiry":         exp.isoformat() if hasattr(exp, "isoformat") else str(exp),
+                    "strike":         float(i.get("strike", 0)),
+                    "instrument_type": itype,
+                    "lot_size":       int(i.get("lot_size", 0)),
                 }
-                # Capture lot size for the underlying (FUT rows are cleanest)
-                name = i.get("name", "")
-                if name in SECTOR_OF and i.get("instrumenttype", "").startswith("FUT"):
-                    try:
-                        _LOT_SIZE[name] = int(i.get("lotsize", "0"))
-                    except ValueError:
-                        pass
-        with open(_INSTRUMENT_CACHE_PATH, "w") as f:
-            json.dump(nse_fo, f)
+            elif itype == "FUT":
+                try:
+                    _LOT_SIZE[name] = int(i.get("lot_size", 0))
+                except (ValueError, TypeError):
+                    pass
 
-        # ── NSE-cash token resolution ─────────────────────────────────────────
-        resolved: Dict[str, str] = {}
-        for i in instruments:
-            if i.get("exch_seg") == "NSE":
-                name   = i.get("name", "")
-                symbol = i.get("symbol", "")
-                # Equity series rows end with "-EQ"
-                if name in SECTOR_OF and symbol.upper().endswith("-EQ"):
-                    resolved[name] = i["token"]
+        _rebuild_master(resolved)
 
-        # Merge: start from seed, override with anything resolved live
-        merged = dict(_SEED_TOKENS)
-        merged.update(resolved)
-        _rebuild_master(merged)
-
-        # Persist caches so future boots skip the download
+        # Persist caches
         try:
-            with open(_TOKENS_CACHE_PATH, "w") as f:
-                json.dump(merged, f)
-            with open(_LOTS_CACHE_PATH, "w") as f:
-                json.dump(_LOT_SIZE, f)
+            json.dump(resolved,  open(_TOKENS_CACHE_PATH, "w"))
+            json.dump(_LOT_SIZE, open(_LOTS_CACHE_PATH, "w"))
+            json.dump(nfo_cache, open(_INSTRUMENT_CACHE_PATH, "w"))
         except Exception as e:
-            print(f"[UNIVERSE] Cache write warning: {e}")
+            print(f"[UNIVERSE] cache write warning: {e}")
 
-        print(f"[UNIVERSE] Master refreshed | NFO: {len(nse_fo)} | "
-              f"NSE tokens resolved: {len(resolved)} | "
-              f"Universe stocks: {len(STOCK_MASTER)} "
-              f"(N50={len(get_stocks_for_index('NIFTY50'))}, "
+        print(f"[UNIVERSE] Zerodha instruments loaded | NSE resolved: {len(resolved)} | "
+              f"NFO options: {len(nfo_cache)} | "
+              f"N50={len(get_stocks_for_index('NIFTY50'))}, "
               f"N100={len(get_stocks_for_index('NIFTY100'))}, "
-              f"N200={len(get_stocks_for_index('NIFTY200'))})")
-        return nse_fo
+              f"N200={len(get_stocks_for_index('NIFTY200'))}")
+        return nfo_cache
 
     except Exception as e:
-        print(f"[UNIVERSE] Download failed ({e}).")
-        # ── Fallback 1: stale token cache if present ──────────────────────────
-        if os.path.exists(_TOKENS_CACHE_PATH) and os.path.exists(_INSTRUMENT_CACHE_PATH):
-            try:
-                print("[UNIVERSE] Falling back to existing token cache.")
-                return _load_from_cache()
-            except Exception as e2:
-                print(f"[UNIVERSE] Cache fallback failed: {e2}")
-        # ── Fallback 2: seed tokens + existing NFO cache ──────────────────────
-        _rebuild_master(_SEED_TOKENS)
-        print(f"[UNIVERSE] Using seed tokens (N50={len(get_stocks_for_index('NIFTY50'))}).")
+        print(f"[UNIVERSE] Zerodha instrument load failed ({e}); using cache.")
+        _try_load_cache_at_import()
+        return _load_nfo_cache()
+
+
+def _load_nfo_cache() -> dict:
+    if os.path.exists(_INSTRUMENT_CACHE_PATH):
         try:
-            with open(_INSTRUMENT_CACHE_PATH) as f:
-                return json.load(f)
+            return json.load(open(_INSTRUMENT_CACHE_PATH))
         except Exception:
             return {}
+    return {}
 
 
 def load_instrument_cache() -> dict:
-    if os.path.exists(_INSTRUMENT_CACHE_PATH):
-        with open(_INSTRUMENT_CACHE_PATH) as f:
-            return json.load(f)
-    return refresh_instrument_list()
+    return _load_nfo_cache()
 
 
 def find_option_token(symbol: str, expiry: str, strike: float, option_type: str) -> Optional[str]:
-    """Find the NSE token for a specific option contract."""
-    cache = load_instrument_cache()
-    target_name   = symbol.upper()
-    target_expiry = expiry.upper()
-    target_strike = int(strike * 100)
-    target_type   = option_type.upper()
+    """Find the Kite instrument_token for a specific option contract.
+    expiry: ISO date 'YYYY-MM-DD'. option_type: CE / PE."""
+    cache = _load_nfo_cache()
     for token, meta in cache.items():
-        if (meta["name"] == target_name and
-            meta["expiry"] == target_expiry and
-            meta["instrumenttype"] == target_type and
-            int(float(meta.get("strike", 0))) == target_strike):
+        if (meta.get("name") == symbol.upper() and
+            meta.get("expiry") == expiry and
+            meta.get("instrument_type") == option_type.upper() and
+            abs(float(meta.get("strike", 0)) - strike) < 0.01):
             return token
     return None
+
+
+# Load cache at import (paths now defined)
+_try_load_cache_at_import()

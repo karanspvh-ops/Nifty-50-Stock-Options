@@ -93,20 +93,21 @@
 
   <script>
     const params = new URLSearchParams(window.location.search);
-    const token  = params.get("auth_token") || params.get("authtoken") || params.get("token");
+    // Zerodha Kite Connect returns ?request_token=XXX (also support legacy params)
+    const token  = params.get("request_token") || params.get("auth_token") || params.get("token");
 
     if (token) {
       document.getElementById("icon").textContent    = "✅";
-      document.getElementById("title").textContent   = "Authentication Successful";
-      document.getElementById("subtitle").textContent = "Copy the token below and paste it into your trading script.";
+      document.getElementById("title").textContent   = "Login Successful";
+      document.getElementById("subtitle").textContent = "Copy this request token and paste it into the dashboard's Login box.";
       document.getElementById("token-display").textContent = token;
       document.getElementById("token-section").style.display = "block";
     } else {
       document.getElementById("icon").textContent    = "❌";
       document.getElementById("title").textContent   = "No Token Found";
-      document.getElementById("subtitle").textContent = "The URL did not contain an auth_token parameter.";
+      document.getElementById("subtitle").textContent = "The URL did not contain a request_token parameter.";
       document.getElementById("error-msg").textContent =
-        "Expected: ?auth_token=YOUR_TOKEN\nReceived: " + (window.location.search || "(no query params)");
+        "Expected: ?request_token=YOUR_TOKEN\nReceived: " + (window.location.search || "(no query params)");
       document.getElementById("error-section").style.display = "block";
     }
 

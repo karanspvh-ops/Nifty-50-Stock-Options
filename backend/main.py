@@ -19,6 +19,8 @@ from backend.routers.risk_router     import router as risk_router
 from backend.routers.scanner_router  import router as scanner_router
 from backend.routers.trading_router  import router as trading_router
 from backend.routers.reports_router  import router as reports_router
+from backend.routers.broker_router   import router as broker_router
+from backend.core.broker             import broker
 from backend.core.tick_engine        import tick_engine
 from backend.core.risk_engine        import risk_engine
 from backend.core.trading_engine     import trading_engine
@@ -37,12 +39,15 @@ async def lifespan(app: FastAPI):
     init_db()
     print("[BOOT] Database ready.")
 
-    print("[BOOT] Refreshing instrument master...")
-    refresh_instrument_list()
-
-    print("[BOOT] Starting tick engine...")
-    tick_engine.start()
-    print("[BOOT] Tick engine running.")
+    if broker.has_token():
+        print("[BOOT] Zerodha token valid — loading instruments + starting feed...")
+        refresh_instrument_list(force=True)
+        tick_engine.start()
+        print("[BOOT] Tick engine running.")
+    else:
+        print("[BOOT] No Zerodha token for today. Feed/trading gated until login.")
+        print("[BOOT] Open the dashboard and complete the Zerodha login.")
+        refresh_instrument_list()   # loads cached universe if present
 
     print("[BOOT] Launching historical backfill (warms up indicators)...")
     from backend.core.backfill import start_backfill
@@ -107,6 +112,7 @@ app.include_router(scanner_router)
 app.include_router(trading_router)
 app.include_router(reports_router)
 app.include_router(strategy_router)
+app.include_router(broker_router)
 
 
 @app.get("/health")

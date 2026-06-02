@@ -1,8 +1,5 @@
-# Broker API
-smartapi-python
-pyotp
-logzero
-websocket-client
+# Broker API (Zerodha Kite Connect)
+kiteconnect
 
 # Backend server
 fastapi
