@@ -8,13 +8,15 @@ echo   Starting fresh session for today...
 echo ============================================================
 echo.
 
+set "PM2=C:\Users\karan\AppData\Roaming\npm\pm2.cmd"
 cd /d "C:\Users\karan\OneDrive\Desktop\Project\Algo Strategies\Nifty 50 Stock Options"
 
-echo [1/4] Ensuring services are running...
-call pm2 resurrect >nul 2>&1
+echo [1/4] Starting services (from config if not running)...
+call "%PM2%" start ecosystem.config.js
 
-echo [2/4] Restarting engine for a fresh Angel One login...
-call pm2 restart all --update-env >nul 2>&1
+echo [2/4] Restarting for a fresh Angel One login...
+call "%PM2%" restart all --update-env
+call "%PM2%" save
 
 echo [3/4] Waiting for login + market feed (15s)...
 timeout /t 15 /nobreak >nul
