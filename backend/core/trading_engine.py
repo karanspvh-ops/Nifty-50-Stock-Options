@@ -167,6 +167,8 @@ class TradingEngine:
                 if trade:
                     open_count += 1
                     self._state = "IN_TRADE"
+                    from backend.core.tradable_tracker import tradable_tracker
+                    tradable_tracker.mark_traded(candidate.symbol)
                     update_session_status(env, SessionStatus.ACTIVE)
             else:
                 print(f"[ENGINE] Watching {candidate.symbol} | Score: {signal.score}/8 — waiting")

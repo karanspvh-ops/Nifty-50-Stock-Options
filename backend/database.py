@@ -187,6 +187,35 @@ class Candle(Base):
     volume                = Column(Integer, default=0)
 
 
+# ── Table 8: Tradable Signals (viable-to-trade windows) ───────────────────────
+class TradableSignal(Base):
+    __tablename__ = "tradable_signals"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    date          = Column(String,  nullable=False, index=True)   # YYYY-MM-DD
+    env           = Column(Enum(TradeEnv), nullable=False)
+    symbol        = Column(String,  nullable=False)
+    token         = Column(String,  nullable=False)
+    sector        = Column(String,  nullable=True)
+    direction     = Column(Enum(TradeDirection), nullable=False)  # call / put
+
+    # Tradable window
+    opened_at     = Column(DateTime, nullable=False)              # entered window
+    closed_at     = Column(DateTime, nullable=True)              # left window (None = still active)
+    duration_sec  = Column(Integer,  nullable=True)
+
+    # Signal details at open
+    entry_score   = Column(Integer,  default=0)
+    max_score     = Column(Integer,  default=8)
+    ltp_at_open   = Column(Float,    nullable=True)
+    ltp_at_close  = Column(Float,    nullable=True)
+    sector_pct    = Column(Float,    nullable=True)
+    reason        = Column(Text,     nullable=True)
+
+    # Did we actually take a trade on it during this window?
+    was_traded    = Column(Boolean,  default=False)
+
+
 # ── Init: create all tables ───────────────────────────────────────────────────
 def init_db():
     Base.metadata.create_all(bind=engine)

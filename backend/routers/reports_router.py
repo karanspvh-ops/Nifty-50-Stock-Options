@@ -5,8 +5,30 @@ from typing import Optional
 from backend.database import TradeEnv
 from backend.agents.pnl_agent import pnl_agent
 from backend.agents.ml_agent  import ml_agent
+from backend.core.tradable_tracker import tradable_tracker
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+@router.get("/tradable/{env}")
+def get_tradable_report(env: str):
+    try:
+        trade_env = TradeEnv(env)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid env: {env}")
+    report = tradable_tracker.get_report(trade_env)
+    if not report:
+        return {"status": "no_report", "env": env}
+    return report
+
+
+@router.post("/tradable/{env}/generate")
+def generate_tradable_report(env: str):
+    try:
+        trade_env = TradeEnv(env)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid env: {env}")
+    return tradable_tracker.generate_report(trade_env)
 
 
 @router.get("/pnl/{env}")

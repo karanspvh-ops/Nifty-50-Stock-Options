@@ -7,6 +7,7 @@ import SectorHeatmap    from './components/dashboard/SectorHeatmap';
 import SectorBarChart   from './components/dashboard/SectorBarChart';
 import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
+import TradableSignals  from './components/dashboard/TradableSignals';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 
@@ -15,9 +16,10 @@ const API = 'http://localhost:8000';
 function Dashboard() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
+      <OpenTradesPanel />
       <SectorHeatmap />
       <SectorBarChart />
-      <OpenTradesPanel />
+      <TradableSignals />
       <StockRanking />
     </div>
   );

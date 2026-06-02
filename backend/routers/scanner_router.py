@@ -1,12 +1,30 @@
 """scanner_router.py — Endpoints for sector scanner & stock selection."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
 from backend.core.sector_scanner  import sector_scanner
 from backend.core.entry_engine    import check_entry
 from backend.core.indicators      import compute_indicators
 from backend.core.market_state    import market
+from backend.core.tradable_tracker import tradable_tracker
+from backend.database import TradeEnv
 
 router = APIRouter(prefix="/api/scanner", tags=["scanner"])
+
+
+@router.get("/tradable/active")
+def tradable_active():
+    """Stocks currently inside their tradable window (for the flashing panel)."""
+    return tradable_tracker.get_active()
+
+
+@router.get("/tradable/history")
+def tradable_history(env: str = Query("paper"), date: Optional[str] = Query(None)):
+    try:
+        trade_env = TradeEnv(env)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid env: {env}")
+    return tradable_tracker.get_history(trade_env, date)
 
 
 @router.get("/result")

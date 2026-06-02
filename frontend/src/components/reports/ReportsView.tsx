@@ -8,22 +8,25 @@ export default function ReportsView() {
   const env = settings.is_live ? 'live' : 'paper';
   const [pnl, setPnl] = useState<any>(null);
   const [ml,  setMl]  = useState<any>(null);
-  const [tab, setTab] = useState<'pnl' | 'ml'>('pnl');
+  const [trd, setTrd] = useState<any>(null);
+  const [tab, setTab] = useState<'pnl' | 'ml' | 'tradable'>('pnl');
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    const [r1, r2] = await Promise.all([
+    const [r1, r2, r3] = await Promise.all([
       fetch(`${API}/api/reports/pnl/${env}`).then(r => r.json()),
       fetch(`${API}/api/reports/ml/${env}`).then(r => r.json()),
+      fetch(`${API}/api/reports/tradable/${env}`).then(r => r.json()),
     ]);
-    setPnl(r1); setMl(r2); setLoading(false);
+    setPnl(r1); setMl(r2); setTrd(r3); setLoading(false);
   };
 
   const generate = async () => {
     setLoading(true);
-    await fetch(`${API}/api/reports/pnl/${env}/generate`, { method: 'POST' });
-    await fetch(`${API}/api/reports/ml/${env}/trigger`,   { method: 'POST' });
+    await fetch(`${API}/api/reports/pnl/${env}/generate`,      { method: 'POST' });
+    await fetch(`${API}/api/reports/ml/${env}/trigger`,        { method: 'POST' });
+    await fetch(`${API}/api/reports/tradable/${env}/generate`, { method: 'POST' });
     await load();
   };
 
@@ -41,11 +44,11 @@ export default function ReportsView() {
 
       {/* Tabs */}
       <div className="flex gap-2">
-        {(['pnl', 'ml'] as const).map(t => (
+        {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors
               ${tab === t ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-white'}`}>
-            {t === 'pnl' ? 'P&L Report' : 'ML Retrospective'}
+            {label}
           </button>
         ))}
       </div>
@@ -127,7 +130,74 @@ export default function ReportsView() {
         </div>
       )}
 
-      {(tab === 'pnl' && (!pnl || pnl.status)) && (
+      {/* ── Tradable Windows report ── */}
+      {tab === 'tradable' && trd && !trd.status && (
+        <div className="space-y-4">
+          <div className="bg-surface rounded-xl border border-border p-4 grid grid-cols-4 gap-4">
+            {[
+              { label: 'Total Windows',  val: trd.summary?.total_windows },
+              { label: 'Traded',         val: trd.summary?.windows_traded,  color: 'text-up' },
+              { label: 'Missed',         val: trd.summary?.windows_missed,  color: 'text-muted' },
+              { label: 'Avg Window',     val: `${trd.summary?.avg_window_seconds ?? 0}s` },
+            ].map(s => (
+              <div key={s.label} className="text-center">
+                <div className="text-muted text-xs uppercase mb-1">{s.label}</div>
+                <div className={`text-white font-bold text-lg ${s.color || ''}`}>{s.val}</div>
+              </div>
+            ))}
+          </div>
+          <div className="bg-surface rounded-xl border border-border p-4">
+            <h3 className="text-white font-semibold text-sm mb-3">Tradable Windows Log</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
+                    <th className="px-2 pb-2">Symbol</th>
+                    <th className="px-2 pb-2">Dir</th>
+                    <th className="px-2 pb-2">Sector</th>
+                    <th className="px-2 pb-2">Identified</th>
+                    <th className="px-2 pb-2">Until</th>
+                    <th className="px-2 pb-2">Duration</th>
+                    <th className="px-2 pb-2">Score</th>
+                    <th className="px-2 pb-2">Traded?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(trd.signals || []).map((s: any) => (
+                    <tr key={s.id} className="border-b border-border/40 hover:bg-border/20">
+                      <td className="px-2 py-1.5 text-white text-xs font-medium">{s.symbol}</td>
+                      <td className="px-2 py-1.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
+                          ${s.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
+                          {s.direction?.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-muted text-[11px]">{s.sector}</td>
+                      <td className="px-2 py-1.5 text-muted text-[11px]">
+                        {new Date(s.opened_at).toLocaleTimeString('en-IN', { hour12: false })}
+                      </td>
+                      <td className="px-2 py-1.5 text-muted text-[11px]">
+                        {s.closed_at ? new Date(s.closed_at).toLocaleTimeString('en-IN', { hour12: false })
+                          : <span className="text-up">active</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-white text-xs">
+                        {s.duration_sec != null ? `${s.duration_sec}s` : '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-accent text-xs">{s.entry_score}/{s.max_score}</td>
+                      <td className="px-2 py-1.5 text-xs">
+                        {s.was_traded ? <span className="text-up">✓</span> : <span className="text-muted">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {((tab === 'pnl' && (!pnl || pnl.status)) ||
+        (tab === 'tradable' && (!trd || trd.status))) && (
         <div className="bg-surface rounded-xl border border-border p-8 text-center">
           <p className="text-muted text-sm">No report available for today yet. Click Generate Now.</p>
         </div>
