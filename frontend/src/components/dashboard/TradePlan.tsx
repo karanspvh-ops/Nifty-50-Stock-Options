@@ -138,10 +138,12 @@ export default function TradePlan() {
                   <td className="px-2 py-1.5 text-muted text-xs">₹{s.ltp?.toFixed(1)}</td>
                   <td className="px-2 py-1.5 text-xs">
                     {s.entered
-                      ? <span className="text-up">● in trade</span>
+                      ? <span className={bullish ? 'text-up' : 'text-down'}>● in trade</span>
                       : s.eligible
-                        ? <span className="text-up">▲ triggered (≥1.5%)</span>
-                        : <span className="text-muted">waiting for 1.5%</span>}
+                        ? (bullish
+                            ? <span className="text-up">▲ triggered (≥1.5% up)</span>
+                            : <span className="text-down">▼ triggered (≥1.5% down)</span>)
+                        : <span className="text-muted">waiting for ±1.5%</span>}
                   </td>
                 </tr>
               ))}
