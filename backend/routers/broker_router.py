@@ -32,13 +32,17 @@ def login(payload: LoginPayload):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Login failed: {e}")
 
-    # Token acquired — bring the data feed up now
+    # Token acquired — (re)bring the data feed up with the NEW token.
+    # A fresh login invalidates any previous token, so the running feed must
+    # be restarted to rebuild KiteTicker with the new access token.
     try:
         from backend.core.stock_universe import refresh_instrument_list
         from backend.core.tick_engine     import tick_engine
         from backend.core.backfill         import start_backfill
         refresh_instrument_list(force=True)   # resolve Kite tokens
-        tick_engine.start()                   # start the live feed
+        tick_engine.stop()                    # drop any feed on the old token
+        import time as _t; _t.sleep(1)
+        tick_engine.start()                   # start fresh with the new token
         start_backfill()                      # warm up indicators (DB + Kite history)
     except Exception as e:
         print(f"[BROKER] post-login startup warning: {e}")
