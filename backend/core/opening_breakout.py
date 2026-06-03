@@ -370,9 +370,10 @@ class OpeningBreakout:
         finally:
             db.close()
 
+        from backend.core.order_executor import current_premium
         for t in ob_trades:
-            token = get_token(t.symbol)
-            ltp   = market.get_ltp(token) if token else None
+            # Track the OPTION premium, NOT the underlying stock price.
+            ltp = current_premium(t)
             if not ltp:
                 continue
             entry   = t.entry_price

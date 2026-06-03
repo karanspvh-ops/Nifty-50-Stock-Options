@@ -109,11 +109,7 @@ class RiskEngine:
         if (trade.entry_logic or "").startswith("[OB]"):
             return
 
-        token = self._get_token_for_symbol(trade.symbol)
-        if not token:
-            return
-
-        ltp = market.get_ltp(token)
+        ltp = self._trade_ltp(trade)   # OPTION premium, not the underlying
         if ltp is None:
             return
 
@@ -192,9 +188,10 @@ class RiskEngine:
         pnl     = (price - trade.entry_price) * trade.quantity * trade.lot_size
         pnl_pct = ((price - trade.entry_price) / trade.entry_price) * 100
 
+        from backend.core.clock import now_ist
         trade.status     = status
         trade.exit_price = price
-        trade.exited_at  = datetime.utcnow()
+        trade.exited_at  = now_ist()
         trade.pnl        = round(pnl, 2)
         trade.pnl_pct    = round(pnl_pct, 2)
         trade.exit_logic = reason
@@ -233,9 +230,7 @@ class RiskEngine:
                 .all()
             )
             for trade in open_trades:
-                token = self._get_token_for_symbol(trade.symbol)
-                ltp   = market.get_ltp(token) if token else trade.entry_price
-                ltp   = ltp or trade.entry_price
+                ltp = self._trade_ltp(trade) or trade.entry_price   # option premium
                 self._trigger_exit(db, trade, ltp, TradeStatus.KILLED, reason)
 
             update_session_status(env, SessionStatus.KILLED)
@@ -251,6 +246,12 @@ class RiskEngine:
         from backend.core.stock_universe import get_token
         return get_token(symbol)
 
+    @staticmethod
+    def _trade_ltp(trade: Trade) -> Optional[float]:
+        """Current price of the trade's OPTION premium (not the underlying)."""
+        from backend.core.order_executor import current_premium
+        return current_premium(trade)
+
     # ── Manual risk overrides (called from API) ───────────────────────────────
 
     def force_exit_trade(self, trade_id: int, reason: str = "Manual exit") -> dict:
@@ -262,10 +263,9 @@ class RiskEngine:
             if trade.status != TradeStatus.OPEN:
                 return {"error": f"Trade is already {trade.status}"}
 
-            token = self._get_token_for_symbol(trade.symbol)
-            ltp   = market.get_ltp(token) if token else None
+            ltp = self._trade_ltp(trade)            # OPTION premium
             if ltp is None:
-                return {"error": "LTP unavailable — feed may be disconnected"}
+                return {"error": "Option LTP unavailable — feed may be disconnected"}
 
             self._trigger_exit(db, trade, ltp, TradeStatus.CLOSED, reason)
             return {"status": "exited", "trade_id": trade_id, "exit_price": ltp}
@@ -279,8 +279,7 @@ class RiskEngine:
             open_trades = db.query(Trade).filter(Trade.status == TradeStatus.OPEN).all()
             result = []
             for t in open_trades:
-                token    = self._get_token_for_symbol(t.symbol)
-                ltp      = market.get_ltp(token) if token else None
+                ltp      = self._trade_ltp(t)        # OPTION premium
                 pnl_pct  = (((ltp or t.entry_price) - t.entry_price) / t.entry_price * 100) if ltp else 0
                 result.append({
                     "trade_id":       t.id,

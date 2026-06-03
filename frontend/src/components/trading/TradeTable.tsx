@@ -4,6 +4,7 @@ const API = 'http://localhost:8000';
 
 interface Trade {
   id: number; symbol: string; direction: string; option_symbol: string;
+  strike: number | null; expiry: string | null; option_type: string | null;
   entry_price: number; exit_price: number | null; pnl: number; pnl_pct: number;
   status: string; entered_at: string; exited_at: string | null;
   entry_logic: string; exit_logic: string;
@@ -59,6 +60,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                 <th className="px-3 pb-2">#</th>
                 <th className="px-3 pb-2">Symbol</th>
                 <th className="px-3 pb-2">Type</th>
+                <th className="px-3 pb-2">Contract</th>
                 <th className="px-3 pb-2">Entry</th>
                 <th className="px-3 pb-2">Exit</th>
                 <th className="px-3 pb-2">PnL</th>
@@ -81,6 +83,10 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                         ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
                         {t.direction?.toUpperCase()}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-white font-mono">
+                      {t.strike ? `${t.strike} ${t.option_type || ''}` : (t.option_symbol || '—')}
+                      {t.expiry && <span className="text-muted ml-1">{t.expiry.slice(5)}</span>}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted">₹{t.entry_price?.toFixed(2)}</td>
                     <td className="px-3 py-2 text-xs text-muted">
@@ -106,7 +112,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                   </tr>
                   {expanded === t.id && (
                     <tr key={`exp-${t.id}`} className="bg-bg/50">
-                      <td colSpan={8} className="px-4 py-3 text-xs text-muted leading-relaxed">
+                      <td colSpan={9} className="px-4 py-3 text-xs text-muted leading-relaxed">
                         <p><span className="text-white font-semibold">Entry logic: </span>{t.entry_logic || 'N/A'}</p>
                         <p className="mt-1"><span className="text-white font-semibold">Exit logic: </span>{t.exit_logic || 'N/A'}</p>
                       </td>

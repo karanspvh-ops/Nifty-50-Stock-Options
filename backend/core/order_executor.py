@@ -12,8 +12,9 @@ Rules:
 """
 
 import os, sys
-from datetime import datetime, date
+from datetime import date
 from typing import Optional, Tuple
+from backend.core.clock import now_ist
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
@@ -50,6 +51,13 @@ def option_premium(opt_token: str, opt_symbol: str) -> Optional[float]:
         return float(q[key]["last_price"])
     except Exception:
         return None
+
+
+def current_premium(trade) -> Optional[float]:
+    """Current premium of an OPEN trade's option (NOT the underlying)."""
+    from backend.core.stock_universe import get_option_token
+    tok = get_option_token(trade.option_symbol)
+    return option_premium(tok, trade.option_symbol)
 
 
 # ── ATM option selection (nearest expiry, strike closest to LTP) ──────────────
@@ -154,7 +162,7 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
             entry_price=entry_price, quantity=qty, lot_size=lot_size,
             trade_sl_pct=trade_sl_pct, trade_sl_price=trade_sl_price,
             target_price=target_price, entry_logic=entry_logic,
-            indicators_snapshot=indicators, entered_at=datetime.utcnow(),
+            indicators_snapshot=indicators, entered_at=now_ist(),
         )
         db.add(trade); db.commit(); db.refresh(trade)
         print(f"[ORDER] Trade #{trade.id} | {symbol} {direction.upper()} {opt_symbol} "

@@ -296,6 +296,16 @@ def _load_nfo_cache() -> dict:
     return {}
 
 
+def get_option_token(option_symbol: str) -> Optional[str]:
+    """Reverse-lookup the Kite instrument_token for an option tradingsymbol."""
+    if not option_symbol:
+        return None
+    for token, m in _load_nfo_cache().items():
+        if m.get("tradingsymbol") == option_symbol:
+            return token
+    return None
+
+
 def load_instrument_cache() -> dict:
     return _load_nfo_cache()
 
