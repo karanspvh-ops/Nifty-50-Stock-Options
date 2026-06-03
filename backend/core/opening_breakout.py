@@ -44,6 +44,7 @@ from backend.core.session_manager  import update_session_status, set_selected_st
 
 # ── Strategy parameters ───────────────────────────────────────────────────────
 SCAN_START      = dtime(9, 15)
+EARLY_ENTRY_FROM = dtime(9, 35)    # gap-accelerated entries may start here
 PREVIEW_FROM    = dtime(9, 35)
 SCAN_END        = dtime(9, 40)     # finalize sector/direction (25 min)
 ENTRY_DEADLINE  = dtime(9, 45)     # must enter by 30 min
@@ -53,6 +54,12 @@ MOVE_MIN_PCT        = 1.5          # opening breakout trigger
 MOVE_TARGET_PCT     = 2.0          # preferred move
 MAX_POSITIONS       = 3
 RFACTOR_MIN         = 0.8
+
+# ── Gap-acceleration fast-track ───────────────────────────────────────────────
+# A strong gap with confirming sector momentum may enter ~5 min early (9:35)
+# instead of waiting for the 9:40 finalize.
+GAP_MIN_PCT          = 3.0         # |today open vs prev close| gap
+EARLY_SECTOR_MIN_PCT = 1.0         # chosen sector must show real momentum
 
 HARD_SL_PCT         = 10.0         # option premium hard stop
 TARGET_PCT          = 50.0         # single-lot full-exit target
@@ -212,6 +219,9 @@ class OpeningBreakout:
         if t < SCAN_END:
             self._phase = "SCANNING" if t < PREVIEW_FROM else "PREVIEW"
             self._plan  = self._build_plan(status="scanning" if t < PREVIEW_FROM else "preview")
+            # Gap-acceleration: high-conviction gap setups may enter ~5 min early
+            if t >= EARLY_ENTRY_FROM and self._plan and self._plan.sector:
+                self._enter_positions(env, early_only=True)
             return
 
         # finalize plan at 09:40
@@ -317,8 +327,21 @@ class OpeningBreakout:
             generated_at=datetime.now().isoformat(),
         )
 
+    # ── Gap-acceleration qualifier ────────────────────────────────────────────
+    def _gap_qualifies(self, ps) -> bool:
+        """True if the stock gapped > 3% from prev close AND the chosen sector
+        shows strong momentum — allows entry ~5 min before the normal window."""
+        tick      = market.get_tick(ps.token)
+        open_ref  = self._open_ref.get(ps.token)
+        prev_close = tick.get("prev_close") if tick else None
+        if not prev_close or not open_ref:
+            return False
+        gap_pct = abs((open_ref - prev_close) / prev_close * 100)
+        sector_strong = abs(self._plan.sector_pct) >= EARLY_SECTOR_MIN_PCT
+        return gap_pct >= GAP_MIN_PCT and sector_strong
+
     # ── Entry ─────────────────────────────────────────────────────────────────
-    def _enter_positions(self, env: TradeEnv):
+    def _enter_positions(self, env: TradeEnv, early_only: bool = False):
         if not self._plan:
             return
         open_ob = self._count_open_ob(env)
@@ -338,10 +361,17 @@ class OpeningBreakout:
             move = self._opening_move(ps.token, ltp) if self._open_ref.get(ps.token) else ps.day_move
             if abs(move) < self._p("move_min_pct"):
                 continue
+            # Early window (9:35–9:40): only high-conviction gap setups qualify
+            early = False
+            if early_only:
+                if not self._gap_qualifies(ps):
+                    continue
+                early = True
             if market.is_trading_halted():
                 break
 
-            reason = (f"{OB_TAG} Opening breakout | {self._plan.trend} | sector {self._plan.sector} "
+            tag = "GAP-ACCEL early entry" if early else "Opening breakout"
+            reason = (f"{OB_TAG} {tag} | {self._plan.trend} | sector {self._plan.sector} "
                       f"({self._plan.sector_pct:+.2f}%) | {ps.symbol} moved {move:+.2f}% from open "
                       f"| R-factor {ps.r_factor} | ATM {self._plan.direction.upper()}")
             trade = place_entry_order(
