@@ -5,6 +5,8 @@ const API = 'http://localhost:8000';
 interface PlanStock {
   symbol: string; token: string; opening_move: number; day_move: number;
   r_factor: number; ltp: number; est_premium: number; eligible: boolean; entered: boolean;
+  confirmed: boolean; consec: number; vol_ratio: number;
+  vp_poc: number | null; vp_vah: number | null; vp_val: number | null;
 }
 interface Plan {
   status: string; phase: string; trend: string;
@@ -118,32 +120,42 @@ export default function TradePlan() {
               <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
                 <th className="px-2 pb-2">Stock</th>
                 <th className="px-2 pb-2">Open Move</th>
-                <th className="px-2 pb-2">Day %</th>
                 <th className="px-2 pb-2">R-Factor</th>
-                <th className="px-2 pb-2">LTP</th>
+                <th className="px-2 pb-2">Momentum</th>
+                <th className="px-2 pb-2">Volume</th>
+                <th className="px-2 pb-2">VP levels (POC / VAH / VAL)</th>
                 <th className="px-2 pb-2">Status</th>
               </tr>
             </thead>
             <tbody>
               {plan.stocks.map(s => (
                 <tr key={s.token} className="border-b border-border/40">
-                  <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}</td>
+                  <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}
+                    <span className="text-muted ml-1">₹{s.ltp?.toFixed(1)}</span>
+                  </td>
                   <td className={`px-2 py-1.5 text-xs font-semibold ${s.opening_move >= 0 ? 'text-up' : 'text-down'}`}>
                     {s.opening_move >= 0 ? '+' : ''}{s.opening_move.toFixed(2)}%
                   </td>
-                  <td className="px-2 py-1.5 text-muted text-xs">
-                    {s.day_move >= 0 ? '+' : ''}{s.day_move.toFixed(2)}%
-                  </td>
                   <td className="px-2 py-1.5 text-accent text-xs">{s.r_factor.toFixed(2)}</td>
-                  <td className="px-2 py-1.5 text-muted text-xs">₹{s.ltp?.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-xs">
+                    <span className={s.consec >= 2 ? (bullish ? 'text-up' : 'text-down') : 'text-muted'}>
+                      {s.consec} {bullish ? '↑↑' : '↓↓'}
+                    </span>
+                  </td>
+                  <td className={`px-2 py-1.5 text-xs ${s.vol_ratio >= 1.3 ? 'text-up' : 'text-muted'}`}>
+                    {s.vol_ratio?.toFixed(1)}×
+                  </td>
+                  <td className="px-2 py-1.5 text-[11px] text-muted font-mono">
+                    {s.vp_poc ? `${s.vp_poc} / ${s.vp_vah} / ${s.vp_val}` : '—'}
+                  </td>
                   <td className="px-2 py-1.5 text-xs">
                     {s.entered
                       ? <span className={bullish ? 'text-up' : 'text-down'}>● in trade</span>
-                      : s.eligible
-                        ? (bullish
-                            ? <span className="text-up">▲ triggered (≥1.5% up)</span>
-                            : <span className="text-down">▼ triggered (≥1.5% down)</span>)
-                        : <span className="text-muted">waiting for ±1.5%</span>}
+                      : s.confirmed
+                        ? <span className={bullish ? 'text-up' : 'text-down'}>✓ confirmed</span>
+                        : s.eligible
+                          ? <span className="text-yellow-400">moved, awaiting confirm</span>
+                          : <span className="text-muted">waiting for ±1.5%</span>}
                   </td>
                 </tr>
               ))}

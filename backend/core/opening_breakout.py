@@ -97,6 +97,13 @@ class PlanStock:
     est_premium:   float
     eligible:      bool           # has it moved >= MOVE_MIN_PCT?
     entered:       bool = False
+    # Breakout confirmation (candle momentum + volume + Volume Profile)
+    confirmed:     bool = False
+    consec:        int  = 0
+    vol_ratio:     float = 0.0
+    vp_poc:        Optional[float] = None
+    vp_vah:        Optional[float] = None
+    vp_val:        Optional[float] = None
 
 
 @dataclass
@@ -319,8 +326,23 @@ class OpeningBreakout:
         candidates.sort(key=lambda c: (c.eligible, abs(c.opening_move) * c.r_factor), reverse=True)
         top = candidates[:int(self._p("max_positions"))]
 
-        note = (f"Top {len(top)} {sector} stocks; entries trigger once a stock "
-                f"has moved ≥ {self._p('move_min_pct')}% from the open.")
+        # Attach breakout confirmation (momentum + volume + VP levels) to top picks
+        from backend.core.breakout_confirm import confirm_breakout
+        for c in top:
+            try:
+                bo = confirm_breakout(c.token, direction)
+                c.confirmed = bo.confirmed
+                c.consec    = bo.consec
+                c.vol_ratio = bo.vol_ratio
+                c.vp_poc    = bo.vp50.get("poc")
+                c.vp_vah    = bo.vp50.get("vah")
+                c.vp_val    = bo.vp50.get("val")
+            except Exception:
+                pass
+
+        note = (f"Top {len(top)} {sector} stocks; entry needs ≥{self._p('move_min_pct')}% move "
+                f"+ momentum (consecutive {'lower-lows' if direction=='put' else 'higher-highs'}) "
+                f"+ large volume + Volume-Profile value-area break.")
         return TradePlan(
             status=status, trend=trend, sector=sector, direction=direction,
             sector_pct=sector_pct, stocks=top, note=note,
@@ -370,14 +392,25 @@ class OpeningBreakout:
             if market.is_trading_halted():
                 break
 
+            # ── Breakout confirmation: candle momentum + volume + Volume Profile
+            from backend.core.breakout_confirm import confirm_breakout
+            bo = confirm_breakout(ps.token, self._plan.direction)
+            if not bo.confirmed:
+                print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
+                continue
+
             tag = "GAP-ACCEL early entry" if early else "Opening breakout"
             reason = (f"{OB_TAG} {tag} | {self._plan.trend} | sector {self._plan.sector} "
                       f"({self._plan.sector_pct:+.2f}%) | {ps.symbol} moved {move:+.2f}% from open "
-                      f"| R-factor {ps.r_factor} | ATM {self._plan.direction.upper()}")
+                      f"| R-factor {ps.r_factor} | ATM {self._plan.direction.upper()} "
+                      f"| CONFIRM: {bo.reason}")
             trade = place_entry_order(
                 env=env, symbol=ps.symbol, token=ps.token,
                 direction=self._plan.direction, session_id=session["id"],
-                entry_logic=reason, indicators={"opening_move": move, "r_factor": ps.r_factor},
+                entry_logic=reason,
+                indicators={"opening_move": move, "r_factor": ps.r_factor,
+                            "consec_candles": bo.consec, "vol_ratio": bo.vol_ratio,
+                            "vp20": bo.vp20, "vp50": bo.vp50},
                 sl_pct_override=self._p("hard_sl_pct"), target_pct_override=self._p("target_pct"),
             )
             if trade:
