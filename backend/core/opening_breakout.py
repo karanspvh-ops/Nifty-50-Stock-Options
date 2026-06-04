@@ -56,6 +56,7 @@ SQUARE_OFF      = dtime(15, 15)
 MOVE_MIN_PCT        = 1.5          # opening breakout trigger
 MOVE_TARGET_PCT     = 2.0          # preferred move
 MAX_POSITIONS       = 3
+CANDIDATE_POOL      = 10           # evaluate confirmation on the top-N; enter the first MAX_POSITIONS that confirm
 RFACTOR_MIN         = 0.8
 
 # Sector qualification (fixes the marginal-breadth flip + thin single-stock sectors)
@@ -370,9 +371,11 @@ class OpeningBreakout:
                 eligible=True,
             ))
 
-        # Rank globally by |move| * r_factor; take the best across all sectors/sides
+        # Rank globally by |move| * r_factor; keep a POOL (entries pick the first
+        # MAX_POSITIONS that actually confirm, so good setups aren't crowded out
+        # by big movers that fail confirmation).
         candidates.sort(key=lambda c: abs(c.opening_move) * c.r_factor, reverse=True)
-        top = candidates[:int(self._p("max_positions"))]
+        top = candidates[:CANDIDATE_POOL]
 
         # Attach breakout confirmation (momentum + volume + VP levels) to top picks
         from backend.core.breakout_confirm import confirm_breakout

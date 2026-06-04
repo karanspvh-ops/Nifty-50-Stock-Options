@@ -21,7 +21,7 @@ from backend.core.stock_universe  import get_tradable_universe, SECTOR_OF, load_
 from backend.core.volume_profile  import build_profile
 from backend.core.opening_breakout import (
     opening_breakout, MOVE_MIN_PCT, MIN_SECTOR_MOVERS, SECTOR_MIN_PCT, RFACTOR_MIN,
-    MAX_POSITIONS, GAP_MIN_PCT, EARLY_SECTOR_MIN_PCT, CLARITY_NET, BREADTH_MIN_PCT,
+    MAX_POSITIONS, CANDIDATE_POOL, GAP_MIN_PCT, EARLY_SECTOR_MIN_PCT, CLARITY_NET, BREADTH_MIN_PCT,
 )
 
 EARLY = dtime(9, 35); FINAL = dtime(9, 40); DEAD = dtime(9, 45); HARD = dtime(10, 30)
@@ -184,7 +184,7 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
             if rf < RFACTOR_MIN: continue
             cands.append((sym, sct, sd, dmove, rf, ref, pc, rows))
     cands.sort(key=lambda c: abs(c[3]) * c[4], reverse=True)
-    top = cands[:MAX_POSITIONS]
+    top = cands[:CANDIDATE_POOL]
 
     # find each candidate's first confirmed entry within 9:35–10:30
     entries = []
@@ -209,7 +209,7 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
     # window rule: if anything fired by 9:45 → take all primary; else take the
     # single earliest entry found in the 9:45–10:30 extension.
     primary = [e for e in entries if e["t"] <= DEAD]
-    selected = primary if primary else sorted(entries, key=lambda e: e["t"])[:1]
+    selected = primary[:MAX_POSITIONS] if primary else sorted(entries, key=lambda e: e["t"])[:1]
 
     trades = []
     for e in selected:
