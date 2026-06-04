@@ -32,7 +32,7 @@ interface MarketStore {
   stockMoves:   Record<string, StockMove>;
   openTrades:   OpenTrade[];
   settings:     Settings;
-  activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports';
+  activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'backtest';
   setFeedHealth:   (h: FeedHealth) => void;
   setHaltStatus:   (s: { halted: boolean; reason: string }) => void;
   setSectorMoves:  (s: Record<string, SectorData>) => void;

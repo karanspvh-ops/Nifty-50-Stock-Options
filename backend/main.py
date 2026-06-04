@@ -20,6 +20,7 @@ from backend.routers.scanner_router  import router as scanner_router
 from backend.routers.trading_router  import router as trading_router
 from backend.routers.reports_router  import router as reports_router
 from backend.routers.broker_router   import router as broker_router
+from backend.routers.backtest_router import router as backtest_router
 from backend.core.broker             import broker
 from backend.core.tick_engine        import tick_engine
 from backend.core.risk_engine        import risk_engine
@@ -113,6 +114,7 @@ app.include_router(trading_router)
 app.include_router(reports_router)
 app.include_router(strategy_router)
 app.include_router(broker_router)
+app.include_router(backtest_router)
 
 
 @app.get("/health")

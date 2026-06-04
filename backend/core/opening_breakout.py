@@ -90,7 +90,8 @@ _DEFAULT_PARAMS = {
     "trail_gap_pct":      TRAIL_GAP_PCT,
     "auto_tune_enabled":  True,    # ML may adjust trail_gap once >=50 trades
 }
-MIN_TRADES_TO_TUNE = 50            # don't auto-tune until enough history
+MIN_TRADES_TO_TUNE = 15            # start auto-tuning after a modest sample (acts sooner)
+RETUNE_EVERY       = 5             # then re-tune every 5 new completed trades
 
 
 @dataclass
@@ -640,13 +641,26 @@ class OpeningBreakout:
         return report
 
     def maybe_auto_tune(self):
-        """Called periodically (e.g. by the ML agent). Tunes at most once/day."""
-        today = str(datetime.now().date())
-        if self._last_tune == today:
+        """Called periodically by the ML agent. Re-tunes whenever the number of
+        completed trades has grown by RETUNE_EVERY since the last tune — so it
+        adapts continuously instead of only once a day."""
+        from backend.database import Session as _S, Trade as _T, TradeStatus as _TS
+        db = _S()
+        try:
+            n = (db.query(_T)
+                 .filter(_T.env == TradeEnv.PAPER, _T.status != _TS.OPEN,
+                         _T.entry_logic.like(f"{OB_TAG}%"))
+                 .count())
+        finally:
+            db.close()
+        if n < MIN_TRADES_TO_TUNE:
             return
-        self._last_tune = today
+        if n - getattr(self, "_last_tune_count", 0) < RETUNE_EVERY:
+            return
+        self._last_tune_count = n
         try:
             self.analyze_and_tune(TradeEnv.PAPER)
+            print(f"[OB] auto-tuned on {n} completed trades.")
         except Exception as e:
             print(f"[OB] auto-tune error: {e}")
 

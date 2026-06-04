@@ -12,6 +12,7 @@ import TradableSignals  from './components/dashboard/TradableSignals';
 import TradePlan        from './components/dashboard/TradePlan';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
+import BacktestView     from './components/backtest/BacktestView';
 
 const API = 'http://localhost:8000';
 
@@ -84,6 +85,7 @@ export default function App() {
             </div>
           )}
           {activeView === 'reports'       && <ReportsView />}
+          {activeView === 'backtest'      && <BacktestView />}
         </main>
       </div>
     </div>
