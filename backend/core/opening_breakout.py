@@ -104,6 +104,7 @@ class PlanStock:
     ltp:           float
     est_premium:   float
     eligible:      bool           # has it moved >= MOVE_MIN_PCT?
+    sector:        str  = ""      # the stock's own sector (may differ from lead sector)
     entered:       bool = False
     # Breakout confirmation (candle momentum + volume + Volume Profile)
     confirmed:     bool = False
@@ -323,43 +324,46 @@ class OpeningBreakout:
         sector_pct = data.get("pct_change", 0)
         candidates: List[PlanStock] = []
 
-        for s in get_stocks_in_sector(sector, "NIFTY200", fno_only=True):
+        # FIX #1 — bottom-up: scan ALL F&O stocks in the trade direction (not
+        # just the chosen sector). The lead sector still sets the direction, but
+        # the best individual breakouts can come from any sector. R-factor is
+        # measured against each stock's OWN sector average.
+        for s in get_stocks_for_index("NIFTY200", fno_only=True):
             token  = s["token"]
-            meta   = get_meta(token)
-            if meta.get("lot_size", 0) <= 0:
-                continue
+            stock_sector = s.get("sector", "")
             mv  = market.get_stock_move(token)
             if not mv:
                 continue
             ltp = mv.get("ltp") or 0
             day_move = mv.get("pct_change", 0)
-            # Direction filter — must align with the chosen side
+            # Direction filter — must align with the day's chosen side
             if direction == "call" and day_move <= 0:   continue
             if direction == "put"  and day_move >= 0:    continue
             opening_move = self._opening_move(token, ltp)
-            # Use opening move if we have a ref, else fall back to day move
             move = opening_move if self._open_ref.get(token) else day_move
-            sec_avg = abs(sector_pct) or 0.1
-            r_factor = round(abs(day_move) / sec_avg, 2)
+            if abs(move) < self._p("move_min_pct"):
+                continue
+            own_sec_avg = abs(sector_moves.get(stock_sector, {}).get("pct_change", 0)) or 0.1
+            r_factor = round(abs(day_move) / own_sec_avg, 2)
             if r_factor < RFACTOR_MIN:
                 continue
             est_premium = round(ltp * 0.015, 2)
             candidates.append(PlanStock(
-                symbol=s["symbol"], token=token,
+                symbol=s["symbol"], token=token, sector=stock_sector,
                 opening_move=move, day_move=day_move,
                 r_factor=r_factor, ltp=ltp, est_premium=est_premium,
-                eligible=abs(move) >= self._p("move_min_pct"),
+                eligible=True,
             ))
 
-        # Rank: prefer eligible (already moved), then by |move| * r_factor
-        candidates.sort(key=lambda c: (c.eligible, abs(c.opening_move) * c.r_factor), reverse=True)
+        # Rank globally by |move| * r_factor; take the best across all sectors
+        candidates.sort(key=lambda c: abs(c.opening_move) * c.r_factor, reverse=True)
         top = candidates[:int(self._p("max_positions"))]
 
         # Attach breakout confirmation (momentum + volume + VP levels) to top picks
         from backend.core.breakout_confirm import confirm_breakout
         for c in top:
             try:
-                bo = confirm_breakout(c.token, direction)
+                bo = confirm_breakout(c.token, direction, move_pct=c.opening_move)
                 c.confirmed = bo.confirmed
                 c.consec    = bo.consec
                 c.vol_ratio = bo.vol_ratio
@@ -369,9 +373,10 @@ class OpeningBreakout:
             except Exception:
                 pass
 
-        note = (f"Top {len(top)} {sector} stocks; entry needs ≥{self._p('move_min_pct')}% move "
-                f"+ momentum (consecutive {'lower-lows' if direction=='put' else 'higher-highs'}) "
-                f"+ large volume + Volume-Profile value-area break.")
+        secs = ", ".join(sorted({c.sector for c in top}))
+        note = (f"Lead sector {sector}; picks scanned across ALL sectors ({secs}). "
+                f"Entry needs ≥{self._p('move_min_pct')}% move + (momentum OR sharp "
+                f"high-volume thrust) + Volume-Profile value-area break.")
         return TradePlan(
             status=status, trend=trend, sector=sector, direction=direction,
             sector_pct=sector_pct, stocks=top, note=note,
@@ -423,7 +428,7 @@ class OpeningBreakout:
 
             # ── Breakout confirmation: candle momentum + volume + Volume Profile
             from backend.core.breakout_confirm import confirm_breakout
-            bo = confirm_breakout(ps.token, self._plan.direction)
+            bo = confirm_breakout(ps.token, self._plan.direction, move_pct=move)
             if not bo.confirmed:
                 print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
                 continue

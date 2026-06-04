@@ -166,19 +166,22 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
     chosen = max(qual, key=lambda k: abs(qual[k][0]))
     savg, direction = qual[chosen]
 
-    # top-3 candidates
+    # FIX #1 — bottom-up: candidates from ALL sectors in the trade direction,
+    # R-factor vs each stock's OWN sector. Lead sector only sets the direction.
     cands = []
-    for sym, dmove, ref, pc, rows in sec[chosen]:
-        if (direction == "call" and dmove <= 0) or (direction == "put" and dmove >= 0):
-            continue
-        rf = abs(dmove) / (abs(savg) or 0.1)
-        if rf < RFACTOR_MIN: continue
-        cands.append((sym, dmove, rf, ref, pc, rows))
-    cands.sort(key=lambda c: abs(c[1]) * c[2], reverse=True)
+    for sct, stocks in sec.items():
+        own = abs(sec_avg.get(sct, 0)) or 0.1
+        for sym, dmove, ref, pc, rows in stocks:
+            if (direction == "call" and dmove <= 0) or (direction == "put" and dmove >= 0):
+                continue
+            rf = abs(dmove) / own
+            if rf < RFACTOR_MIN: continue
+            cands.append((sym, sct, dmove, rf, ref, pc, rows))
+    cands.sort(key=lambda c: abs(c[2]) * c[3], reverse=True)
     top = cands[:MAX_POSITIONS]
 
     trades = []
-    for sym, dmove, rf, ref, pc, rows in top:
+    for sym, sct, dmove, rf, ref, pc, rows in top:
         gap = abs((ref - pc) / pc * 100)
         entry = None
         for r in today(rows):
@@ -191,7 +194,10 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
             if tt < FINAL and not (gap >= GAP_MIN_PCT and abs(savg) >= EARLY_SECTOR_MIN_PCT):
                 continue
             cc, vr, vb = _confirm(rows, r["date"], direction)
-            if cc >= 2 and vr >= 1.3 and vb:
+            # FIX #2 — confirm via momentum OR a sharp high-volume thrust
+            momentum_ok = (cc >= 2 and vr >= 1.3)
+            spike_ok    = (abs(mv) >= 2.0 and vr >= 2.0)
+            if vb and (momentum_ok or spike_ok):
                 entry = (r, cc, vr); break
         if not entry:
             continue
@@ -205,7 +211,7 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
         if not sim:
             continue
         trades.append({
-            "date": day.isoformat(), "symbol": sym, "sector": chosen, "direction": direction,
+            "date": day.isoformat(), "symbol": sym, "sector": sct, "direction": direction,
             "strike": ostrike, "option_symbol": osym,
             "entry_time": r["date"].strftime("%H:%M"), "entry_premium": round(sim["entry"], 1),
             "exit_time": sim["exit_time"], "exit_premium": round(sim["exit"], 1),

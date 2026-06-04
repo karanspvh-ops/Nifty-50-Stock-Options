@@ -5,6 +5,7 @@ const API = 'http://localhost:8000';
 interface PlanStock {
   symbol: string; token: string; opening_move: number; day_move: number;
   r_factor: number; ltp: number; est_premium: number; eligible: boolean; entered: boolean;
+  sector: string;
   confirmed: boolean; consec: number; vol_ratio: number;
   vp_poc: number | null; vp_vah: number | null; vp_val: number | null;
 }
@@ -133,6 +134,7 @@ export default function TradePlan() {
                 <tr key={s.token} className="border-b border-border/40">
                   <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}
                     <span className="text-muted ml-1">₹{s.ltp?.toFixed(1)}</span>
+                    <span className="block text-[9px] text-muted font-normal">{s.sector}</span>
                   </td>
                   <td className={`px-2 py-1.5 text-xs font-semibold ${s.opening_move >= 0 ? 'text-up' : 'text-down'}`}>
                     {s.opening_move >= 0 ? '+' : ''}{s.opening_move.toFixed(2)}%

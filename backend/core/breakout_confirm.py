@@ -29,6 +29,10 @@ VOL_MULT   = 1.3    # breakout candle volume vs 20-candle average
 RECENT_N   = 4      # candles inspected for the momentum streak
 VP_SHORT   = 20     # short Volume-Profile window
 VP_LONG    = 50     # long  Volume-Profile window
+# Fix #2 — sharp-move override: a decisive thrust (big move + high volume)
+# confirms even without 2 consecutive stair-step candles.
+SPIKE_MOVE_PCT = 2.0
+SPIKE_VOL_MULT = 2.0
 
 
 @dataclass
@@ -43,7 +47,7 @@ class BreakoutSignal:
     reason:         str  = ""
 
 
-def confirm_breakout(token: str, direction: str) -> BreakoutSignal:
+def confirm_breakout(token: str, direction: str, move_pct: float = 0.0) -> BreakoutSignal:
     candles = market.get_candles(token, n=VP_LONG)
     if len(candles) < CONSEC_MIN + 1:
         return BreakoutSignal(False, 0, 0.0, False, False,
@@ -82,13 +86,18 @@ def confirm_breakout(token: str, direction: str) -> BreakoutSignal:
 
     bshort, blong = breaking(vp20), breaking(vp50)
 
-    confirmed = (consec >= CONSEC_MIN) and vol_strong and (bshort or blong)
+    # Confirmation: value-area break PLUS either
+    #   (a) >=2 consecutive momentum candles on >=1.3x volume, OR
+    #   (b) Fix #2 sharp thrust: move >=2% on >=2x volume (momentum may be 1)
+    momentum_path = (consec >= CONSEC_MIN) and vol_strong
+    spike_path    = (abs(move_pct) >= SPIKE_MOVE_PCT) and (vol_ratio >= SPIKE_VOL_MULT)
+    confirmed = (bshort or blong) and (momentum_path or spike_path)
 
     arrow = "lower-lows" if direction == "put" else "higher-highs"
+    path  = "spike" if (spike_path and not momentum_path) else "momentum"
     reason = (
-        f"{consec} consec {arrow}; vol x{vol_ratio} (need x{VOL_MULT}); "
+        f"[{path}] {consec} consec {arrow}; vol x{vol_ratio}; move {move_pct:+.1f}%; "
         f"break VA20={bshort} VA50={blong} | "
-        f"VP20 POC {vp20.get('poc')} VAH {vp20.get('vah')} VAL {vp20.get('val')} | "
         f"VP50 POC {vp50.get('poc')} VAH {vp50.get('vah')} VAL {vp50.get('val')}"
     )
     return BreakoutSignal(
