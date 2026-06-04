@@ -5,7 +5,7 @@ const API = 'http://localhost:8000';
 interface PlanStock {
   symbol: string; token: string; opening_move: number; day_move: number;
   r_factor: number; ltp: number; est_premium: number; eligible: boolean; entered: boolean;
-  sector: string;
+  sector: string; direction: string;
   confirmed: boolean; consec: number; vol_ratio: number;
   vp_poc: number | null; vp_vah: number | null; vp_val: number | null;
 }
@@ -100,19 +100,21 @@ export default function TradePlan() {
           {/* Decision banner */}
           <div className="flex items-center gap-3 mb-3 flex-wrap">
             <span className={`text-xs px-2 py-1 rounded font-bold
-              ${bullish ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
-              {plan.trend.toUpperCase()} → {bullish ? 'BUY CALLS' : 'BUY PUTS'}
+              ${plan.trend === 'mixed' ? 'bg-yellow-500/20 text-yellow-400'
+                : bullish ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
+              {plan.trend.toUpperCase()}
+              {plan.trend === 'mixed' ? ' — best setups BOTH sides' : (bullish ? ' → BUY CALLS' : ' → BUY PUTS')}
             </span>
             <span className="text-xs text-white">
-              Sector: <span className="font-semibold">{plan.sector}</span>
+              Lead sector: <span className="font-semibold">{plan.sector}</span>
               <span className={`ml-1 ${plan.sector_pct >= 0 ? 'text-up' : 'text-down'}`}>
                 {plan.sector_pct >= 0 ? '+' : ''}{plan.sector_pct.toFixed(2)}%
               </span>
             </span>
             <span className="text-[10px] ml-auto">
               {windowOpen
-                ? <span className="text-up">🟢 Entry window OPEN (primary ≤9:45, extends to 10:00 if unfilled)</span>
-                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Below is the current breakout picture for reference.</span>}
+                ? <span className="text-up">🟢 Entry window OPEN (≤9:45; if nothing fires, extends to 10:30)</span>
+                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Current breakout picture below.</span>}
             </span>
           </div>
 
@@ -130,9 +132,10 @@ export default function TradePlan() {
               </tr>
             </thead>
             <tbody>
-              {plan.stocks.map(s => (
+              {plan.stocks.map(s => { const b = s.direction === 'call'; return (
                 <tr key={s.token} className="border-b border-border/40">
                   <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}
+                    <span className={`ml-1 text-[10px] px-1 rounded ${b ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>{b ? 'CE' : 'PE'}</span>
                     <span className="text-muted ml-1">₹{s.ltp?.toFixed(1)}</span>
                     <span className="block text-[9px] text-muted font-normal">{s.sector}</span>
                   </td>
@@ -141,8 +144,8 @@ export default function TradePlan() {
                   </td>
                   <td className="px-2 py-1.5 text-accent text-xs">{s.r_factor.toFixed(2)}</td>
                   <td className="px-2 py-1.5 text-xs">
-                    <span className={s.consec >= 2 ? (bullish ? 'text-up' : 'text-down') : 'text-muted'}>
-                      {s.consec} {bullish ? '↑↑' : '↓↓'}
+                    <span className={s.consec >= 2 ? (b ? 'text-up' : 'text-down') : 'text-muted'}>
+                      {s.consec} {b ? '↑↑' : '↓↓'}
                     </span>
                   </td>
                   <td className={`px-2 py-1.5 text-xs ${s.vol_ratio >= 1.3 ? 'text-up' : 'text-muted'}`}>
@@ -153,15 +156,15 @@ export default function TradePlan() {
                   </td>
                   <td className="px-2 py-1.5 text-xs">
                     {s.entered
-                      ? <span className={bullish ? 'text-up' : 'text-down'}>● in trade</span>
+                      ? <span className={b ? 'text-up' : 'text-down'}>● in trade</span>
                       : s.confirmed
-                        ? <span className={bullish ? 'text-up' : 'text-down'}>✓ confirmed</span>
+                        ? <span className={b ? 'text-up' : 'text-down'}>✓ confirmed</span>
                         : s.eligible
                           ? <span className="text-yellow-400">moved, awaiting confirm</span>
                           : <span className="text-muted">waiting for ±1.5%</span>}
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
           <p className="text-[10px] text-muted mt-2">{plan.note} · SL 10% · target 50% · positional</p>

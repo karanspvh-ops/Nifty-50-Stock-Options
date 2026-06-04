@@ -21,10 +21,10 @@ from backend.core.stock_universe  import get_tradable_universe, SECTOR_OF, load_
 from backend.core.volume_profile  import build_profile
 from backend.core.opening_breakout import (
     opening_breakout, MOVE_MIN_PCT, MIN_SECTOR_MOVERS, SECTOR_MIN_PCT, RFACTOR_MIN,
-    MAX_POSITIONS, GAP_MIN_PCT, EARLY_SECTOR_MIN_PCT,
+    MAX_POSITIONS, GAP_MIN_PCT, EARLY_SECTOR_MIN_PCT, CLARITY_NET, BREADTH_MIN_PCT,
 )
 
-EARLY = dtime(9, 35); FINAL = dtime(9, 40); DEAD = dtime(9, 45); HARD = dtime(10, 0)
+EARLY = dtime(9, 35); FINAL = dtime(9, 40); DEAD = dtime(9, 45); HARD = dtime(10, 30)
 
 _status = {"running": False, "phase": "idle", "done_days": 0, "total_days": 0, "note": ""}
 _result: dict = {}
@@ -138,85 +138,94 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
             if r["date"].time() <= cut: last = r
         return last
 
-    # sector picture @9:40
+    # sector picture @9:45
     sec = defaultdict(list)
     for sym, rows in sdata.items():
         if sym not in SECTOR_OF: continue
         t = today(rows)
         if not t: continue
-        pc = prevc(rows); ref = t[0]["open"]; c = at(rows, 9, 40)
+        pc = prevc(rows); ref = t[0]["open"]; c = at(rows, 9, 45)
         if not pc or not c: continue
         sec[SECTOR_OF[sym]].append((sym, (c["close"] - pc) / pc * 100, ref, pc, rows))
     if not sec:
         return []
     sec_avg = {k: sum(m for _, m, _, _, _ in v) / len(v) for k, v in sec.items()}
 
-    # qualifying sectors → strongest absolute
+    # SMART DIRECTION — clarity from breadth
+    ups   = sum(1 for v in sec.values() for _, m, _, _, _ in v if m >=  BREADTH_MIN_PCT)
+    downs = sum(1 for v in sec.values() for _, m, _, _, _ in v if m <= -BREADTH_MIN_PCT)
+    tot   = ups + downs; net = (ups - downs) / tot if tot else 0
+    if   net >=  CLARITY_NET: allowed = {"call"}
+    elif net <= -CLARITY_NET: allowed = {"put"}
+    else:                     allowed = {"call", "put"}
+
+    # qualifying sectors in the allowed direction(s)
     qual = {}
     for k, v in sec.items():
         sp = sec_avg[k]
         if abs(sp) < SECTOR_MIN_PCT: continue
         sd = "call" if sp > 0 else "put"
+        if sd not in allowed: continue
         movers = sum(1 for _, m, _, _, _ in v
                      if (sd == "call" and m >= MOVE_MIN_PCT) or (sd == "put" and m <= -MOVE_MIN_PCT))
         if movers >= MIN_SECTOR_MOVERS:
             qual[k] = (sp, sd)
     if not qual:
         return []
-    chosen = max(qual, key=lambda k: abs(qual[k][0]))
-    savg, direction = qual[chosen]
 
-    # FIX #1 — bottom-up: candidates from ALL sectors in the trade direction,
-    # R-factor vs each stock's OWN sector. Lead sector only sets the direction.
+    # candidates: ALL stocks, each its OWN side, restricted to allowed direction(s)
     cands = []
     for sct, stocks in sec.items():
         own = abs(sec_avg.get(sct, 0)) or 0.1
         for sym, dmove, ref, pc, rows in stocks:
-            if (direction == "call" and dmove <= 0) or (direction == "put" and dmove >= 0):
-                continue
+            sd = "call" if dmove > 0 else "put"
+            if sd not in allowed: continue
             rf = abs(dmove) / own
             if rf < RFACTOR_MIN: continue
-            cands.append((sym, sct, dmove, rf, ref, pc, rows))
-    cands.sort(key=lambda c: abs(c[2]) * c[3], reverse=True)
+            cands.append((sym, sct, sd, dmove, rf, ref, pc, rows))
+    cands.sort(key=lambda c: abs(c[3]) * c[4], reverse=True)
     top = cands[:MAX_POSITIONS]
 
-    trades = []
-    for sym, sct, dmove, rf, ref, pc, rows in top:
+    # find each candidate's first confirmed entry within 9:35–10:30
+    entries = []
+    for sym, sct, sd, dmove, rf, ref, pc, rows in top:
         gap = abs((ref - pc) / pc * 100)
-        entry = None
         for r in today(rows):
             tt = r["date"].time()
             if tt < EARLY: continue
             if tt > HARD: break
             mv = (r["close"] - ref) / ref * 100
-            if (direction == "put" and mv > -MOVE_MIN_PCT) or (direction == "call" and mv < MOVE_MIN_PCT):
+            if (sd == "put" and mv > -MOVE_MIN_PCT) or (sd == "call" and mv < MOVE_MIN_PCT):
                 continue
-            if tt < FINAL and not (gap >= GAP_MIN_PCT and abs(savg) >= EARLY_SECTOR_MIN_PCT):
+            if tt < FINAL and not (gap >= GAP_MIN_PCT and abs(sec_avg.get(sct, 0)) >= EARLY_SECTOR_MIN_PCT):
                 continue
-            cc, vr, vb = _confirm(rows, r["date"], direction)
-            # FIX #2 — confirm via momentum OR a sharp high-volume thrust
+            cc, vr, vb = _confirm(rows, r["date"], sd)
             momentum_ok = (cc >= 2 and vr >= 1.3)
             spike_ok    = (abs(mv) >= 2.0 and vr >= 2.0)
             if vb and (momentum_ok or spike_ok):
-                entry = (r, cc, vr); break
-        if not entry:
-            continue
-        r, cc, vr = entry
-        opt = _atm(cache, sym, r["close"], direction, day)
-        if not opt:
-            continue
+                entries.append({"sym": sym, "sct": sct, "sd": sd, "row": r,
+                                "cc": cc, "vr": vr, "t": tt}); break
+
+    # window rule: if anything fired by 9:45 → take all primary; else take the
+    # single earliest entry found in the 9:45–10:30 extension.
+    primary = [e for e in entries if e["t"] <= DEAD]
+    selected = primary if primary else sorted(entries, key=lambda e: e["t"])[:1]
+
+    trades = []
+    for e in selected:
+        r = e["row"]; sd = e["sd"]
+        opt = _atm(cache, e["sym"], r["close"], sd, day)
+        if not opt: continue
         otok, ostrike, osym = opt
-        oc = opt_hist(otok, day)
-        sim = _sim_option(oc, r["date"], sl_pct, tgt_pct, activate, trail_gap)
-        if not sim:
-            continue
+        sim = _sim_option(opt_hist(otok, day), r["date"], sl_pct, tgt_pct, activate, trail_gap)
+        if not sim: continue
         trades.append({
-            "date": day.isoformat(), "symbol": sym, "sector": sct, "direction": direction,
+            "date": day.isoformat(), "symbol": e["sym"], "sector": e["sct"], "direction": sd,
             "strike": ostrike, "option_symbol": osym,
             "entry_time": r["date"].strftime("%H:%M"), "entry_premium": round(sim["entry"], 1),
             "exit_time": sim["exit_time"], "exit_premium": round(sim["exit"], 1),
             "pnl_pct": round(sim["pnl"], 1), "peak_pct": round(sim["peak"], 1),
-            "exit_reason": sim["reason"], "momentum": cc, "vol_ratio": vr,
+            "exit_reason": sim["reason"], "momentum": e["cc"], "vol_ratio": e["vr"],
         })
     return trades
 

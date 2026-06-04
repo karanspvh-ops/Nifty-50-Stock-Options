@@ -48,9 +48,9 @@ EARLY_ENTRY_FROM = dtime(9, 35)    # gap-accelerated entries may start here
 PREVIEW_FROM    = dtime(9, 35)
 SCAN_END        = dtime(9, 40)     # finalize sector/direction (25 min)
 ENTRY_DEADLINE  = dtime(9, 45)     # primary entry deadline (30 min)
-# If positions aren't filled by 9:45, keep watching for a good trade in
-# 5-min extensions (9:50 → 9:55 → 10:00) before giving up for the day.
-ENTRY_HARD_DEADLINE = dtime(10, 0)
+# If NO trade fired by 9:45, keep hunting for one good trade until 10:30.
+# (If at least one trade was already taken by 9:45, we do NOT extend.)
+ENTRY_HARD_DEADLINE = dtime(10, 30)
 SQUARE_OFF      = dtime(15, 15)
 
 MOVE_MIN_PCT        = 1.5          # opening breakout trigger
@@ -61,6 +61,13 @@ RFACTOR_MIN         = 0.8
 # Sector qualification (fixes the marginal-breadth flip + thin single-stock sectors)
 MIN_SECTOR_MOVERS   = 2            # a sector needs >=2 stocks that broke out >=1.5%
 SECTOR_MIN_PCT      = 0.5          # and a meaningful average move (ignore noise)
+
+# Smart direction: only lock to one side when market breadth is decisive.
+# net breadth = (#up - #down) / (#up + #down) of stocks moving >=0.5%.
+#   >= +CLARITY_NET → bullish (calls only) ; <= -CLARITY_NET → bearish (puts only)
+#   otherwise → MIXED: take the best breakouts on EITHER side.
+CLARITY_NET         = 0.30
+BREADTH_MIN_PCT     = 0.5          # |move| to count a stock as up/down
 
 # ── Gap-acceleration fast-track ───────────────────────────────────────────────
 # A strong gap with confirming sector momentum may enter ~5 min early (9:35)
@@ -105,6 +112,7 @@ class PlanStock:
     est_premium:   float
     eligible:      bool           # has it moved >= MOVE_MIN_PCT?
     sector:        str  = ""      # the stock's own sector (may differ from lead sector)
+    direction:     str  = "call"  # this stock's own side (call/put) — set per stock
     entered:       bool = False
     # Breakout confirmation (candle momentum + volume + Volume Profile)
     confirmed:     bool = False
@@ -255,7 +263,8 @@ class OpeningBreakout:
         open_ob   = self._count_open_ob(env)
         max_pos   = int(self._p("max_positions"))
         in_primary  = t <= ENTRY_DEADLINE
-        in_extended = (ENTRY_DEADLINE < t <= ENTRY_HARD_DEADLINE) and open_ob < max_pos
+        # Extend only if NOTHING fired by 9:45 — then hunt one trade until 10:30
+        in_extended = (ENTRY_DEADLINE < t <= ENTRY_HARD_DEADLINE) and open_ob == 0
         if (in_primary or in_extended) and self._plan and self._plan.sector:
             self._plan.status = "entering"
             self._phase = "ENTERING_EXT" if in_extended else "ENTERING"
@@ -288,46 +297,52 @@ class OpeningBreakout:
                              note="Waiting for market data…",
                              generated_at=datetime.now().isoformat())
 
-        # ── Pick the STRONGEST-MOVING qualifying sector (fixes #1 & #2) ──────
-        # FIX #1: don't decide direction from marginal net breadth — pick the
-        #   sector with the biggest absolute move; its own sign sets direction.
-        # FIX #2: a sector must have >= MIN_SECTOR_MOVERS breakout stocks
-        #   (disqualifies thin single-stock sectors like AVIATION) and a
-        #   meaningful average move (SECTOR_MIN_PCT) to avoid noise.
+        # ── SMART DIRECTION: only lock a side when breadth is decisive ───────
+        ups = downs = 0
+        for d in sector_moves.values():
+            for s in d.get("stocks", []):
+                m = s.get("pct_change", 0)
+                if   m >=  BREADTH_MIN_PCT: ups += 1
+                elif m <= -BREADTH_MIN_PCT: downs += 1
+        total_breadth = ups + downs
+        net = (ups - downs) / total_breadth if total_breadth else 0.0
+        if   net >=  CLARITY_NET: market, allowed = "bullish", {"call"}
+        elif net <= -CLARITY_NET: market, allowed = "bearish", {"put"}
+        else:                     market, allowed = "mixed",   {"call", "put"}
+
+        # ── Qualifying sectors (>=MIN_SECTOR_MOVERS breakout movers), in the
+        #    allowed direction(s). Lead sector = strongest absolute (display). ──
         qual = {}
         for sec, d in sector_moves.items():
             sp = d.get("pct_change", 0)
             if abs(sp) < SECTOR_MIN_PCT:
                 continue
-            sdir   = "call" if sp > 0 else "put"
-            stocks = d.get("stocks", [])
+            sdir = "call" if sp > 0 else "put"
+            if sdir not in allowed:
+                continue
             movers = sum(
-                1 for s in stocks
+                1 for s in d.get("stocks", [])
                 if (sdir == "call" and s.get("pct_change", 0) >=  MOVE_MIN_PCT)
                 or (sdir == "put"  and s.get("pct_change", 0) <= -MOVE_MIN_PCT)
             )
             if movers >= MIN_SECTOR_MOVERS:
-                qual[sec] = (sp, sdir, movers)
+                qual[sec] = (sp, sdir)
 
         if not qual:
-            return TradePlan(status=status, trend="neutral", sector=None, direction=None,
+            return TradePlan(status=status, trend=market, sector=None, direction=None,
                              sector_pct=0.0,
-                             note=(f"No sector with ≥{MIN_SECTOR_MOVERS} breakout movers — "
-                                   f"no broad-based move to trade. Sitting out."),
+                             note=(f"Market {market} (breadth {net:+.0%}); no qualifying "
+                                   f"sector with ≥{MIN_SECTOR_MOVERS} breakout movers. Sitting out."),
                              generated_at=datetime.now().isoformat())
 
-        sector              = max(qual, key=lambda k: abs(qual[k][0]))
-        sector_pct_, direction, n_movers = qual[sector]
-        data  = sector_moves[sector]
-        trend = "bullish" if direction == "call" else "bearish"
+        sector     = max(qual, key=lambda k: abs(qual[k][0]))
+        sector_pct = sector_moves[sector].get("pct_change", 0)
+        trend      = market
+        direction  = qual[sector][1]            # lead direction (for the banner)
 
-        sector_pct = data.get("pct_change", 0)
+        # ── Candidates: scan ALL F&O stocks; each takes its OWN side (call/put),
+        #    restricted to the allowed direction(s) for the day. ───────────────
         candidates: List[PlanStock] = []
-
-        # FIX #1 — bottom-up: scan ALL F&O stocks in the trade direction (not
-        # just the chosen sector). The lead sector still sets the direction, but
-        # the best individual breakouts can come from any sector. R-factor is
-        # measured against each stock's OWN sector average.
         for s in get_stocks_for_index("NIFTY200", fno_only=True):
             token  = s["token"]
             stock_sector = s.get("sector", "")
@@ -336,9 +351,9 @@ class OpeningBreakout:
                 continue
             ltp = mv.get("ltp") or 0
             day_move = mv.get("pct_change", 0)
-            # Direction filter — must align with the day's chosen side
-            if direction == "call" and day_move <= 0:   continue
-            if direction == "put"  and day_move >= 0:    continue
+            sdir = "call" if day_move > 0 else "put"
+            if sdir not in allowed:
+                continue
             opening_move = self._opening_move(token, ltp)
             move = opening_move if self._open_ref.get(token) else day_move
             if abs(move) < self._p("move_min_pct"):
@@ -349,13 +364,13 @@ class OpeningBreakout:
                 continue
             est_premium = round(ltp * 0.015, 2)
             candidates.append(PlanStock(
-                symbol=s["symbol"], token=token, sector=stock_sector,
+                symbol=s["symbol"], token=token, sector=stock_sector, direction=sdir,
                 opening_move=move, day_move=day_move,
                 r_factor=r_factor, ltp=ltp, est_premium=est_premium,
                 eligible=True,
             ))
 
-        # Rank globally by |move| * r_factor; take the best across all sectors
+        # Rank globally by |move| * r_factor; take the best across all sectors/sides
         candidates.sort(key=lambda c: abs(c.opening_move) * c.r_factor, reverse=True)
         top = candidates[:int(self._p("max_positions"))]
 
@@ -363,7 +378,7 @@ class OpeningBreakout:
         from backend.core.breakout_confirm import confirm_breakout
         for c in top:
             try:
-                bo = confirm_breakout(c.token, direction, move_pct=c.opening_move)
+                bo = confirm_breakout(c.token, c.direction, move_pct=c.opening_move)
                 c.confirmed = bo.confirmed
                 c.consec    = bo.consec
                 c.vol_ratio = bo.vol_ratio
@@ -393,7 +408,8 @@ class OpeningBreakout:
         if not prev_close or not open_ref:
             return False
         gap_pct = abs((open_ref - prev_close) / prev_close * 100)
-        sector_strong = abs(self._plan.sector_pct) >= EARLY_SECTOR_MIN_PCT
+        own_sec_pct = market.get_sector_moves().get(ps.sector, {}).get("pct_change", 0)
+        sector_strong = abs(own_sec_pct) >= EARLY_SECTOR_MIN_PCT
         return gap_pct >= GAP_MIN_PCT and sector_strong
 
     # ── Entry ─────────────────────────────────────────────────────────────────
@@ -428,19 +444,18 @@ class OpeningBreakout:
 
             # ── Breakout confirmation: candle momentum + volume + Volume Profile
             from backend.core.breakout_confirm import confirm_breakout
-            bo = confirm_breakout(ps.token, self._plan.direction, move_pct=move)
+            bo = confirm_breakout(ps.token, ps.direction, move_pct=move)
             if not bo.confirmed:
                 print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
                 continue
 
             tag = "GAP-ACCEL early entry" if early else "Opening breakout"
-            reason = (f"{OB_TAG} {tag} | {self._plan.trend} | sector {self._plan.sector} "
-                      f"({self._plan.sector_pct:+.2f}%) | {ps.symbol} moved {move:+.2f}% from open "
-                      f"| R-factor {ps.r_factor} | ATM {self._plan.direction.upper()} "
-                      f"| CONFIRM: {bo.reason}")
+            reason = (f"{OB_TAG} {tag} | market {self._plan.trend} | {ps.symbol} ({ps.sector}) "
+                      f"moved {move:+.2f}% from open | R-factor {ps.r_factor} "
+                      f"| ATM {ps.direction.upper()} | CONFIRM: {bo.reason}")
             trade = place_entry_order(
                 env=env, symbol=ps.symbol, token=ps.token,
-                direction=self._plan.direction, session_id=session["id"],
+                direction=ps.direction, session_id=session["id"],
                 entry_logic=reason,
                 indicators={"opening_move": move, "r_factor": ps.r_factor,
                             "consec_candles": bo.consec, "vol_ratio": bo.vol_ratio,
