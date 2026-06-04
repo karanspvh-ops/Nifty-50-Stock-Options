@@ -58,6 +58,10 @@ MOVE_TARGET_PCT     = 2.0          # preferred move
 MAX_POSITIONS       = 3
 RFACTOR_MIN         = 0.8
 
+# Sector qualification (fixes the marginal-breadth flip + thin single-stock sectors)
+MIN_SECTOR_MOVERS   = 2            # a sector needs >=2 stocks that broke out >=1.5%
+SECTOR_MIN_PCT      = 0.5          # and a meaningful average move (ignore noise)
+
 # ── Gap-acceleration fast-track ───────────────────────────────────────────────
 # A strong gap with confirming sector momentum may enter ~5 min early (9:35)
 # instead of waiting for the 9:40 finalize.
@@ -282,20 +286,38 @@ class OpeningBreakout:
                              note="Waiting for market data…",
                              generated_at=datetime.now().isoformat())
 
-        # Overall market trend from breadth (avg of all sectors)
-        avg = sum(d.get("pct_change", 0) for d in sector_moves.values()) / max(len(sector_moves), 1)
-        trend = "bullish" if avg > 0 else ("bearish" if avg < 0 else "neutral")
+        # ── Pick the STRONGEST-MOVING qualifying sector (fixes #1 & #2) ──────
+        # FIX #1: don't decide direction from marginal net breadth — pick the
+        #   sector with the biggest absolute move; its own sign sets direction.
+        # FIX #2: a sector must have >= MIN_SECTOR_MOVERS breakout stocks
+        #   (disqualifies thin single-stock sectors like AVIATION) and a
+        #   meaningful average move (SECTOR_MIN_PCT) to avoid noise.
+        qual = {}
+        for sec, d in sector_moves.items():
+            sp = d.get("pct_change", 0)
+            if abs(sp) < SECTOR_MIN_PCT:
+                continue
+            sdir   = "call" if sp > 0 else "put"
+            stocks = d.get("stocks", [])
+            movers = sum(
+                1 for s in stocks
+                if (sdir == "call" and s.get("pct_change", 0) >=  MOVE_MIN_PCT)
+                or (sdir == "put"  and s.get("pct_change", 0) <= -MOVE_MIN_PCT)
+            )
+            if movers >= MIN_SECTOR_MOVERS:
+                qual[sec] = (sp, sdir, movers)
 
-        if trend == "bullish":
-            sector, data = max(sector_moves.items(), key=lambda x: x[1].get("pct_change", 0))
-            direction = "call"
-        elif trend == "bearish":
-            sector, data = min(sector_moves.items(), key=lambda x: x[1].get("pct_change", 0))
-            direction = "put"
-        else:
+        if not qual:
             return TradePlan(status=status, trend="neutral", sector=None, direction=None,
-                             sector_pct=0.0, note="Market flat — no directional edge.",
+                             sector_pct=0.0,
+                             note=(f"No sector with ≥{MIN_SECTOR_MOVERS} breakout movers — "
+                                   f"no broad-based move to trade. Sitting out."),
                              generated_at=datetime.now().isoformat())
+
+        sector              = max(qual, key=lambda k: abs(qual[k][0]))
+        sector_pct_, direction, n_movers = qual[sector]
+        data  = sector_moves[sector]
+        trend = "bullish" if direction == "call" else "bearish"
 
         sector_pct = data.get("pct_change", 0)
         candidates: List[PlanStock] = []
