@@ -26,16 +26,10 @@ export default function Header() {
       {/* Feed indicator */}
       <div className={`w-2 h-2 rounded-full shrink-0 ${feedHealth.connected ? 'bg-up' : 'bg-down'} animate-pulse`} />
 
-      {/* Index selector */}
-      <select
-        value={settings.active_index}
-        onChange={e => patch('active_index', e.target.value)}
-        className="bg-bg border border-border text-xs text-white rounded px-2 py-1 shrink-0"
-      >
-        <option value="NIFTY50">NIFTY 50</option>
-        <option value="NIFTY100">NIFTY 100</option>
-        <option value="NIFTY200">NIFTY 200</option>
-      </select>
+      {/* Combined universe (all three indexes, F&O only) */}
+      <span className="bg-bg border border-border text-[11px] text-white rounded px-2 py-1 shrink-0 whitespace-nowrap">
+        NIFTY 50 + 100 + 200 · F&O
+      </span>
 
       <div className="flex-1 min-w-2" />
 

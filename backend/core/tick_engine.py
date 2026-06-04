@@ -119,12 +119,12 @@ class TickEngine:
     def _sector_loop(self):
         while self._running:
             try:
-                index   = get_active_index()
-                sectors = get_sectors_for_index(index)
+                index   = "NIFTY200"            # combined universe…
+                sectors = get_sectors_for_index(index, fno_only=True)   # …F&O only
                 result  = {}
                 moves   = market.get_all_stock_moves()
                 for sector in sectors:
-                    stocks, pcts, lst = get_stocks_in_sector(sector, index), [], []
+                    stocks, pcts, lst = get_stocks_in_sector(sector, index, fno_only=True), [], []
                     for s in stocks:
                         mv = moves.get(s["token"])
                         if mv:

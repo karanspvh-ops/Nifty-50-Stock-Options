@@ -182,23 +182,36 @@ def _try_load_cache_at_import():
         pass
 
 
+# The whole system now operates on ONE combined universe: the NIFTY200
+# superset (which already contains every NIFTY 50 / 100 stock, deduped by
+# token), filtered to F&O (options-tradable) names. No index dropdown.
+TRADABLE_INDEX = "NIFTY200"
+
+
 # ── Public query API ──────────────────────────────────────────────────────────
-def get_stocks_for_index(index: str) -> List[dict]:
-    return [
+def get_stocks_for_index(index: str, fno_only: bool = False) -> List[dict]:
+    out = [
         {"token": token, **meta}
         for token, meta in STOCK_MASTER.items()
         if index in meta["indices"]
     ]
+    if fno_only:
+        out = [s for s in out if s.get("lot_size", 0) > 0]
+    return out
 
-def get_tokens_for_index(index: str) -> List[str]:
-    return [s["token"] for s in get_stocks_for_index(index)]
+def get_tokens_for_index(index: str, fno_only: bool = False) -> List[str]:
+    return [s["token"] for s in get_stocks_for_index(index, fno_only)]
 
-def get_sectors_for_index(index: str) -> List[str]:
-    return sorted({s["sector"] for s in get_stocks_for_index(index)})
+def get_sectors_for_index(index: str, fno_only: bool = False) -> List[str]:
+    return sorted({s["sector"] for s in get_stocks_for_index(index, fno_only)})
 
-def get_stocks_in_sector(sector: str, index: str = "NIFTY50") -> List[dict]:
-    return [s for s in get_stocks_for_index(index)
+def get_stocks_in_sector(sector: str, index: str = "NIFTY50", fno_only: bool = False) -> List[dict]:
+    return [s for s in get_stocks_for_index(index, fno_only)
             if s["sector"].upper() == sector.upper()]
+
+def get_tradable_universe() -> List[dict]:
+    """All options-tradable stocks across NIFTY 50/100/200, deduped."""
+    return get_stocks_for_index(TRADABLE_INDEX, fno_only=True)
 
 def get_meta(token: str) -> dict:
     return STOCK_MASTER.get(token, {})

@@ -61,8 +61,7 @@ def get_candles(token: str, n: int = Query(50, le=100)):
 
 @router.get("/stocks")
 def list_stocks(index: Optional[str] = Query(None)):
-    idx = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("NIFTY200", fno_only=True)   # combined F&O universe
     moves   = market.get_all_stock_moves()
     result  = []
     for s in stocks:
@@ -96,8 +95,7 @@ def stock_ranking(
     order="most_likely"  → strongest movers first (best to trade)
     order="least_likely" → weakest / flattest first
     """
-    idx     = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("NIFTY200", fno_only=True)   # combined F&O universe
     moves   = market.get_all_stock_moves()
     sectors_live = market.get_sector_moves()
 

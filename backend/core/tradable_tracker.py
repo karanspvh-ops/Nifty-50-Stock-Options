@@ -71,8 +71,7 @@ class TradableTracker:
             return
 
         env          = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
-        index        = get_active_index()
-        stocks       = get_stocks_for_index(index)
+        stocks       = get_stocks_for_index("NIFTY200", fno_only=True)  # combined F&O universe
         moves        = market.get_all_stock_moves()
         sector_moves = market.get_sector_moves()
 

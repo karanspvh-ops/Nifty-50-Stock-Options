@@ -47,7 +47,10 @@ SCAN_START      = dtime(9, 15)
 EARLY_ENTRY_FROM = dtime(9, 35)    # gap-accelerated entries may start here
 PREVIEW_FROM    = dtime(9, 35)
 SCAN_END        = dtime(9, 40)     # finalize sector/direction (25 min)
-ENTRY_DEADLINE  = dtime(9, 45)     # must enter by 30 min
+ENTRY_DEADLINE  = dtime(9, 45)     # primary entry deadline (30 min)
+# If positions aren't filled by 9:45, keep watching for a good trade in
+# 5-min extensions (9:50 → 9:55 → 10:00) before giving up for the day.
+ENTRY_HARD_DEADLINE = dtime(10, 0)
 SQUARE_OFF      = dtime(15, 15)
 
 MOVE_MIN_PCT        = 1.5          # opening breakout trigger
@@ -219,7 +222,7 @@ class OpeningBreakout:
             return
 
         # ── Capture 09:15 opening reference prices ────────────────────────────
-        if SCAN_START <= t <= ENTRY_DEADLINE:
+        if SCAN_START <= t <= ENTRY_HARD_DEADLINE:
             self._capture_open_refs()
 
         # ── SCAN / PREVIEW / FINALIZE ─────────────────────────────────────────
@@ -241,20 +244,24 @@ class OpeningBreakout:
                 print(f"[OB] PLAN FINAL | {self._plan.trend.upper()} | sector {self._plan.sector} "
                       f"| {self._plan.direction} | stocks: {[s.symbol for s in self._plan.stocks]}")
 
-        # ── ENTER (until 09:45) ───────────────────────────────────────────────
-        if t <= ENTRY_DEADLINE and self._plan and self._plan.sector:
+        # ── ENTER (primary 9:40–9:45; extended in 5-min steps to 10:00 if a
+        #    slot is still open and no good trade has been taken yet) ──────────
+        open_ob   = self._count_open_ob(env)
+        max_pos   = int(self._p("max_positions"))
+        in_primary  = t <= ENTRY_DEADLINE
+        in_extended = (ENTRY_DEADLINE < t <= ENTRY_HARD_DEADLINE) and open_ob < max_pos
+        if (in_primary or in_extended) and self._plan and self._plan.sector:
             self._plan.status = "entering"
-            self._phase = "ENTERING"
+            self._phase = "ENTERING_EXT" if in_extended else "ENTERING"
             self._enter_positions(env)
 
         # ── MANAGE open OB trades ─────────────────────────────────────────────
         self._manage(env)
-        if self._phase not in ("ENTERING",):
+        if self._phase not in ("ENTERING", "ENTERING_EXT"):
             self._phase = "MANAGING"
 
     # ── Opening reference capture ─────────────────────────────────────────────
     def _capture_open_refs(self):
-        index  = get_active_index()
         moves  = market.get_all_stock_moves()
         for token, mv in moves.items():
             if token not in self._open_ref and mv.get("ltp"):
@@ -291,10 +298,9 @@ class OpeningBreakout:
                              generated_at=datetime.now().isoformat())
 
         sector_pct = data.get("pct_change", 0)
-        index      = get_active_index()
         candidates: List[PlanStock] = []
 
-        for s in get_stocks_in_sector(sector, index):
+        for s in get_stocks_in_sector(sector, "NIFTY200", fno_only=True):
             token  = s["token"]
             meta   = get_meta(token)
             if meta.get("lot_size", 0) <= 0:
@@ -628,7 +634,7 @@ class OpeningBreakout:
     # ── Public API ────────────────────────────────────────────────────────────
     def _entry_window_open(self) -> bool:
         t = datetime.now().time()
-        return SCAN_START <= t <= ENTRY_DEADLINE
+        return SCAN_START <= t <= ENTRY_HARD_DEADLINE
 
     def get_plan(self) -> dict:
         """Return the current plan; build an on-demand preview if none yet."""

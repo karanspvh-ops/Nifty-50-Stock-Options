@@ -22,7 +22,8 @@ interface Tune {
 
 const PHASE_LABEL: Record<string, string> = {
   IDLE: 'Pre-market', SCANNING: 'Scanning (9:15–9:35)', PREVIEW: 'Preview (9:35–9:40)',
-  PLANNED: 'Plan finalised', ENTERING: 'Entering (≤9:45)', MANAGING: 'Managing positions',
+  PLANNED: 'Plan finalised', ENTERING: 'Entering (≤9:45)',
+  ENTERING_EXT: 'Entering — EXTENDED (≤10:00)', MANAGING: 'Managing positions',
   DONE: 'Done for today', KILLED: 'Halted',
 };
 
@@ -109,7 +110,7 @@ export default function TradePlan() {
             </span>
             <span className="text-[10px] ml-auto">
               {windowOpen
-                ? <span className="text-up">🟢 Entry window OPEN (≤9:45)</span>
+                ? <span className="text-up">🟢 Entry window OPEN (primary ≤9:45, extends to 10:00 if unfilled)</span>
                 : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Below is the current breakout picture for reference.</span>}
             </span>
           </div>
