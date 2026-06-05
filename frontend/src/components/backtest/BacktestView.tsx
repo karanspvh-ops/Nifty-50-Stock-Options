@@ -92,7 +92,17 @@ export default function BacktestView() {
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-muted">Params used: trail gap {sum.params.trail_gap_pct}% · SL {sum.params.hard_sl_pct}% · target {sum.params.target_pct}%</p>
+          <p className="text-[10px] text-muted">
+            Params: trail gap {sum.params.trail_gap_pct}% · SL {sum.params.hard_sl_pct}% · target {sum.params.target_pct}%
+            {' · '}<span className="text-up">{sum.real_trades} real-price</span>,{' '}
+            <span className="text-yellow-400">{sum.modelled_trades} modelled</span> trades
+          </p>
+          {sum.modelled_trades > 0 && (
+            <p className="text-[10px] text-yellow-400/80">
+              ⚠ Older dates use a delta-modelled premium because the real front-month option
+              contract has expired and is no longer available from Zerodha. Recent dates use real prices.
+            </p>
+          )}
 
           {/* Trade log */}
           <div className="bg-surface rounded-xl border border-border p-4">
@@ -119,6 +129,9 @@ export default function BacktestView() {
                         <td className="px-2 py-1.5 text-white text-xs font-semibold">{t.symbol}</td>
                         <td className="px-2 py-1.5 text-[11px] font-mono text-muted">
                           {t.strike} {t.direction === 'call' ? 'CE' : 'PE'}
+                          {t.modelled
+                            ? <span className="ml-1 text-[9px] text-yellow-400" title="modelled premium">~</span>
+                            : <span className="ml-1 text-[9px] text-up" title="real option price">●</span>}
                         </td>
                         <td className="px-2 py-1.5 text-xs text-muted">{t.entry_time} ₹{t.entry_premium}</td>
                         <td className="px-2 py-1.5 text-xs text-muted">{t.exit_time} ₹{t.exit_premium}</td>

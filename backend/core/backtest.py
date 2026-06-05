@@ -119,6 +119,8 @@ def _run(from_str, to_str):
         "total_pnl_pct":round(sum(t["pnl_pct"] for t in all_trades), 1),
         "best":  round(max((t["pnl_pct"] for t in all_trades), default=0), 1),
         "worst": round(min((t["pnl_pct"] for t in all_trades), default=0), 1),
+        "real_trades":     sum(1 for t in all_trades if not t.get("modelled")),
+        "modelled_trades": sum(1 for t in all_trades if t.get("modelled")),
         "params": {"trail_gap_pct": trail_gap, "hard_sl_pct": sl_pct, "target_pct": tgt_pct},
     }
     global _result
@@ -204,7 +206,7 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
             spike_ok    = (abs(mv) >= 2.0 and vr >= 2.0)
             if vb and (momentum_ok or spike_ok):
                 entries.append({"sym": sym, "sct": sct, "sd": sd, "row": r,
-                                "cc": cc, "vr": vr, "t": tt}); break
+                                "rows": rows, "cc": cc, "vr": vr, "t": tt}); break
 
     # window rule: if anything fired by 9:45 → take all primary; else take the
     # single earliest entry found in the 9:45–10:30 extension.
@@ -215,13 +217,23 @@ def _sim_day(day, sdata, cache, opt_hist, trail_gap, sl_pct, tgt_pct, activate):
     for e in selected:
         r = e["row"]; sd = e["sd"]
         opt = _atm(cache, e["sym"], r["close"], sd, day)
-        if not opt: continue
-        otok, ostrike, osym = opt
-        sim = _sim_option(opt_hist(otok, day), r["date"], sl_pct, tgt_pct, activate, trail_gap)
-        if not sim: continue
+        ostrike = opt[1] if opt else round(r["close"])
+        osym    = opt[2] if opt else f"{e['sym']}-{sd.upper()}"
+
+        # Use REAL option prices only if the resolved contract is the front-month
+        # for this day (<=40d). For older backtest dates the real front-month is
+        # expired/unavailable, so model the premium from the real underlying move.
+        sim, modelled = None, True
+        if opt and (date.fromisoformat(cache[opt[0]]["expiry"]) - day).days <= 40:
+            sim = _sim_option(opt_hist(opt[0], day), r["date"], sl_pct, tgt_pct, activate, trail_gap)
+            modelled = sim is None
+        if sim is None:
+            sim = _sim_modelled(e["rows"], r["date"], sd, sl_pct, tgt_pct, activate, trail_gap)
+        if sim is None:
+            continue
         trades.append({
             "date": day.isoformat(), "symbol": e["sym"], "sector": e["sct"], "direction": sd,
-            "strike": ostrike, "option_symbol": osym,
+            "strike": ostrike, "option_symbol": osym, "modelled": modelled,
             "entry_time": r["date"].strftime("%H:%M"), "entry_premium": round(sim["entry"], 1),
             "exit_time": sim["exit_time"], "exit_premium": round(sim["exit"], 1),
             "pnl_pct": round(sim["pnl"], 1), "peak_pct": round(sim["peak"], 1),
@@ -273,6 +285,36 @@ def _sim_option(oc, e_time, sl, tgt, activate, gap):
             ex = (c["date"], c["close"], pnl, f"SL -{sl:.0f}%" if tstop == -sl else f"Trail (lock {tstop:+.0f}%)")
     if ep is None:
         return None
+    if not ex:
+        ex = (last[0], last[1], last[2], "Square-off / EOD")
+    return {"entry": ep, "exit": ex[1], "exit_time": ex[0].strftime("%H:%M"),
+            "pnl": ex[2], "peak": peak, "reason": ex[3]}
+
+
+# ── Modelled premium (when the real front-month contract is expired/unavailable)
+_MODEL_PREMIUM_PCT = 0.02   # ATM premium ≈ 2% of stock price
+_MODEL_DELTA       = 0.5    # ATM delta
+
+def _sim_modelled(rows, e_time, direction, sl, tgt, activate, gap):
+    """Delta-model the option P&L from the REAL underlying candles when the
+    real front-month option isn't available (past-month backtests)."""
+    after = [r for r in rows if r["date"] >= e_time and r["date"].date() == e_time.date()]
+    if not after:
+        return None
+    s0   = after[0]["close"]
+    ep   = s0 * _MODEL_PREMIUM_PCT
+    peak = -1e9; ex = None; last = None
+    for r in after:
+        sp   = r["close"]
+        prem = ep + _MODEL_DELTA * (sp - s0 if direction == "call" else s0 - sp)
+        prem = max(prem, 0.05)
+        pnl  = (prem - ep) / ep * 100; peak = max(peak, pnl); last = (r["date"], prem, pnl)
+        if ex: continue
+        tstop = -sl if peak < activate else max(-sl, peak - gap)
+        if pnl >= tgt:
+            ex = (r["date"], prem, pnl, f"Target +{tgt:.0f}%")
+        elif pnl <= tstop:
+            ex = (r["date"], prem, pnl, f"SL -{sl:.0f}%" if tstop == -sl else f"Trail (lock {tstop:+.0f}%)")
     if not ex:
         ex = (last[0], last[1], last[2], "Square-off / EOD")
     return {"entry": ep, "exit": ex[1], "exit_time": ex[0].strftime("%H:%M"),

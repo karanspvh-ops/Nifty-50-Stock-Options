@@ -307,9 +307,9 @@ class OpeningBreakout:
                 elif m <= -BREADTH_MIN_PCT: downs += 1
         total_breadth = ups + downs
         net = (ups - downs) / total_breadth if total_breadth else 0.0
-        if   net >=  CLARITY_NET: market, allowed = "bullish", {"call"}
-        elif net <= -CLARITY_NET: market, allowed = "bearish", {"put"}
-        else:                     market, allowed = "mixed",   {"call", "put"}
+        if   net >=  CLARITY_NET: market_trend, allowed = "bullish", {"call"}
+        elif net <= -CLARITY_NET: market_trend, allowed = "bearish", {"put"}
+        else:                     market_trend, allowed = "mixed",   {"call", "put"}
 
         # ── Qualifying sectors (>=MIN_SECTOR_MOVERS breakout movers), in the
         #    allowed direction(s). Lead sector = strongest absolute (display). ──
@@ -330,15 +330,15 @@ class OpeningBreakout:
                 qual[sec] = (sp, sdir)
 
         if not qual:
-            return TradePlan(status=status, trend=market, sector=None, direction=None,
+            return TradePlan(status=status, trend=market_trend, sector=None, direction=None,
                              sector_pct=0.0,
-                             note=(f"Market {market} (breadth {net:+.0%}); no qualifying "
+                             note=(f"Market {market_trend} (breadth {net:+.0%}); no qualifying "
                                    f"sector with ≥{MIN_SECTOR_MOVERS} breakout movers. Sitting out."),
                              generated_at=datetime.now().isoformat())
 
         sector     = max(qual, key=lambda k: abs(qual[k][0]))
         sector_pct = sector_moves[sector].get("pct_change", 0)
-        trend      = market
+        trend      = market_trend
         direction  = qual[sector][1]            # lead direction (for the banner)
 
         # ── Candidates: scan ALL F&O stocks; each takes its OWN side (call/put),

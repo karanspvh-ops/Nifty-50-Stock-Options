@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 const API = 'http://localhost:8000';
 
@@ -31,17 +31,32 @@ const PHASE_LABEL: Record<string, string> = {
 export default function TradePlan() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [tune, setTune] = useState<Tune | null>(null);
-  const [gap, setGap]   = useState<number>(20);
+  const [gap, setGap]   = useState<number | null>(null);   // null until loaded from server
+  const lastEdit = useRef<number>(0);                       // ms timestamp of last local drag
 
   useEffect(() => {
     const load = async () => {
+      // 1) Persisted slider value — authoritative, independent of the plan endpoint.
+      //    Skip applying the remote value briefly after a local drag so the slider
+      //    never "fights" the user mid-interaction.
       try {
-        const [p, t] = await Promise.all([
-          fetch(`${API}/api/strategy/plan`).then(r => r.json()),
-          fetch(`${API}/api/strategy/tune`).then(r => r.json()),
-        ]);
-        setPlan(p); setTune(t);
-        if (typeof p.trail_gap_pct === 'number') setGap(p.trail_gap_pct);
+        const r = await fetch(`${API}/api/strategy/params`);
+        if (r.ok) {
+          const params = await r.json();
+          if (typeof params.trail_gap_pct === 'number' &&
+              Date.now() - lastEdit.current > 2500) {
+            setGap(params.trail_gap_pct);
+          }
+        }
+      } catch { /* offline */ }
+      // 2) Plan + tune are best-effort; a failure here must NOT touch the slider.
+      try {
+        const r = await fetch(`${API}/api/strategy/plan`);
+        if (r.ok) setPlan(await r.json());
+      } catch { /* offline */ }
+      try {
+        const r = await fetch(`${API}/api/strategy/tune`);
+        if (r.ok) setTune(await r.json());
       } catch { /* offline */ }
     };
     load();
@@ -58,6 +73,7 @@ export default function TradePlan() {
   };
 
   const saveGap = async (v: number) => {
+    lastEdit.current = Date.now();
     setGap(v);
     await fetch(`${API}/api/strategy/params`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -175,10 +191,11 @@ export default function TradePlan() {
       <div className="mt-3 pt-3 border-t border-border flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted uppercase tracking-wider">Trailing gap</span>
-          <input type="range" min={8} max={35} step={1} value={gap}
+          <input type="range" min={8} max={35} step={1} value={gap ?? 20}
+            disabled={gap === null}
             onChange={e => saveGap(parseInt(e.target.value))}
-            className="w-28 accent-accent" />
-          <span className="text-xs text-white font-semibold w-10">{gap}%</span>
+            className="w-28 accent-accent disabled:opacity-40" />
+          <span className="text-xs text-white font-semibold w-10">{gap === null ? '…' : `${gap}%`}</span>
         </div>
 
         {tune && tune.status === 'insufficient_data' && (
