@@ -32,7 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, ROOT)
 
 from backend.core.market_state     import market
-from backend.core.stock_universe   import get_meta, get_stocks_in_sector, get_token
+from backend.core.stock_universe   import get_meta, get_stocks_in_sector, get_token, get_stocks_for_index
 from backend.core.settings_manager import is_live_mode, get_active_index
 from backend.core.session_manager  import get_or_create_session, check_portfolio_sl
 from backend.core.order_executor   import place_entry_order
@@ -143,6 +143,7 @@ class OpeningBreakout:
         self._enabled   = True
         self._today     = None
         self._open_ref: Dict[str, float] = {}      # token -> 09:15 open price
+        self._open_ref_final: set = set()          # tokens whose ref is the true 09:15 candle open
         self._plan:     Optional[TradePlan] = None
         self._phase     = "IDLE"
         self._params    = self._load_params()
@@ -212,6 +213,7 @@ class OpeningBreakout:
         if self._today != now.date():
             self._today = now.date()
             self._open_ref.clear()
+            self._open_ref_final.clear()
             self._plan  = None
             self._phase = "IDLE"
 
@@ -249,8 +251,18 @@ class OpeningBreakout:
                 self._enter_positions(env, early_only=True)
             return
 
-        # finalize plan at 09:40
-        if self._plan is None or self._plan.status in ("scanning", "preview"):
+        # finalize plan at 09:40 — and keep re-evaluating while the entry window
+        # is still open if we don't yet have a qualifying sector. This handles a
+        # late feed/sector warm-up or a mid-session restart after 09:40, where the
+        # first finalize tick can otherwise lock in an empty "no data" plan for
+        # the whole day.
+        need_plan = (
+            self._plan is None
+            or self._plan.status in ("scanning", "preview")
+            or (t <= ENTRY_HARD_DEADLINE
+                and not (self._plan.sector and self._plan.stocks))
+        )
+        if need_plan:
             self._plan = self._build_plan(status="final")
             self._phase = "PLANNED"
             if self._plan and self._plan.sector:
@@ -278,10 +290,39 @@ class OpeningBreakout:
 
     # ── Opening reference capture ─────────────────────────────────────────────
     def _capture_open_refs(self):
-        moves  = market.get_all_stock_moves()
+        """Lock each stock's 09:15 session-open as the reference for opening-move
+        %. Prefer the TRUE 09:15 candle open from history (so a mid-session
+        restart still measures from 09:15, since candles are backfilled from the
+        open); fall back to the first live price seen only if no candle exists."""
+        today = datetime.now().date()
+        moves = market.get_all_stock_moves()
         for token, mv in moves.items():
-            if token not in self._open_ref and mv.get("ltp"):
+            if token in self._open_ref_final:
+                continue
+            ref = self._session_open_from_candles(token, today)
+            if ref is not None:
+                # True 09:15 open found — lock it in (upgrading any provisional ref).
+                self._open_ref[token] = ref
+                self._open_ref_final.add(token)
+            elif token not in self._open_ref and mv.get("ltp"):
+                # No candle yet (backfill still loading) — provisional ref so the
+                # stock isn't ignored; it gets upgraded once its 09:15 candle lands.
                 self._open_ref[token] = mv["ltp"]
+
+    def _session_open_from_candles(self, token: str, day) -> Optional[float]:
+        """Return the open of the first 5-min candle at/after 09:15 today, or
+        None if no such candle is in memory yet."""
+        for c in market.get_candles(token, n=260):
+            ts = c.get("ts")
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts)
+            except (ValueError, TypeError):
+                continue
+            if dt.date() == day and dt.time() >= SCAN_START:
+                return c.get("open")
+        return None
 
     def _opening_move(self, token: str, ltp: float) -> float:
         ref = self._open_ref.get(token)
