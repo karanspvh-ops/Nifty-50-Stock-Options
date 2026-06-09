@@ -210,7 +210,7 @@ class PnLAgent:
         stmt = (
             f"Bought {direction} on {t.symbol} at ₹{t.entry_price:.2f}. "
             f"Entry reason: {entry_reason[:120]}. "
-            f"Exited at ₹{t.exit_price:.2f if t.exit_price else 0:.2f}. "
+            f"Exited at ₹{(t.exit_price if t.exit_price else 0):.2f}. "
             f"Exit reason: {exit_reason[:120]}. "
             f"Result: ₹{pnl_val:.2f} {pnl_sign} ({t.pnl_pct:.1f}%)."
         )
