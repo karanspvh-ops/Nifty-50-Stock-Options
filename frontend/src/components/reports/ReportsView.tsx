@@ -11,11 +11,25 @@ export default function ReportsView() {
   const [trd, setTrd] = useState<any>(null);
   const [tab, setTab] = useState<'pnl' | 'ml' | 'tradable'>('pnl');
   const [loading, setLoading] = useState(false);
+  const [dates, setDates] = useState<string[]>([]);   // available report days (newest first)
+  const [date,  setDate]  = useState<string>('');      // selected day ('' = today/latest)
 
-  const load = async () => {
+  // Refresh the list of available report days whenever the env changes.
+  const loadDates = async (selectLatest = true) => {
+    try {
+      const d = await fetch(`${API}/api/reports/pnl/${env}/list`).then(r => r.json());
+      const ds: string[] = d.dates || [];
+      setDates(ds);
+      if (selectLatest) setDate(ds[0] || '');
+      return ds;
+    } catch { return []; }
+  };
+
+  const load = async (d = date) => {
     setLoading(true);
+    const pnlUrl = d ? `${API}/api/reports/pnl/${env}?date=${d}` : `${API}/api/reports/pnl/${env}`;
     const [r1, r2, r3] = await Promise.all([
-      fetch(`${API}/api/reports/pnl/${env}`).then(r => r.json()),
+      fetch(pnlUrl).then(r => r.json()),
       fetch(`${API}/api/reports/ml/${env}`).then(r => r.json()),
       fetch(`${API}/api/reports/tradable/${env}`).then(r => r.json()),
     ]);
@@ -27,20 +41,41 @@ export default function ReportsView() {
     await fetch(`${API}/api/reports/pnl/${env}/generate`,      { method: 'POST' });
     await fetch(`${API}/api/reports/ml/${env}/trigger`,        { method: 'POST' });
     await fetch(`${API}/api/reports/tradable/${env}/generate`, { method: 'POST' });
+    await loadDates();   // today's report may be new → refresh the day list
     await load();
   };
 
-  useEffect(() => { load(); }, [env]);
+  // env change → refresh day list (selecting the latest day)
+  useEffect(() => { loadDates(); }, [env]);
+  // selected day change → load that day's report
+  useEffect(() => { load(date); }, [env, date]);
 
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-white font-bold text-lg">Reports</h1>
-        <button onClick={generate} disabled={loading}
-          className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
-          {loading ? 'Generating…' : 'Generate Now'}
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted uppercase tracking-wider">Day</span>
+          <select value={date} onChange={e => setDate(e.target.value)}
+            className="bg-surface border border-border text-white text-xs rounded-lg px-2 py-2 min-w-[130px]">
+            {dates.length === 0 && <option value="">Today</option>}
+            {dates.map((d, i) => (
+              <option key={d} value={d}>{d}{i === 0 ? ' (latest)' : ''}</option>
+            ))}
+          </select>
+          <button onClick={generate} disabled={loading}
+            className="px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+            {loading ? 'Generating…' : 'Generate Today'}
+          </button>
+        </div>
       </div>
+      {tab === 'pnl' && (
+        <p className="text-[10px] text-muted -mt-2">
+          P&amp;L report shown for <b className="text-white">{date || 'today'}</b>
+          {dates.length ? ` · ${dates.length} day(s) available` : ''}.
+          ML &amp; Tradable tabs show the latest available.
+        </p>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-2">
@@ -199,7 +234,10 @@ export default function ReportsView() {
       {((tab === 'pnl' && (!pnl || pnl.status)) ||
         (tab === 'tradable' && (!trd || trd.status))) && (
         <div className="bg-surface rounded-xl border border-border p-8 text-center">
-          <p className="text-muted text-sm">No report available for today yet. Click Generate Now.</p>
+          <p className="text-muted text-sm">
+            No {tab === 'pnl' ? 'P&L' : 'Tradable'} report for {date || 'today'}.
+            {dates.length ? ' Pick another day above, or ' : ' '}click Generate Today.
+          </p>
         </div>
       )}
     </div>
