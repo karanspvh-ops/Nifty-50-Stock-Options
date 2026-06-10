@@ -13,6 +13,23 @@ router = APIRouter(prefix="/api/trades", tags=["trades"])
 
 
 def _trade_to_dict(t: Trade) -> dict:
+    # For OPEN trades the stored pnl/pnl_pct are stale (only written on exit),
+    # so overlay live numbers from the OPTION premium feed. Best-effort: any
+    # failure falls back to the stored values.
+    live_ltp = None
+    live_pnl = t.pnl
+    live_pnl_pct = t.pnl_pct
+    if str(t.status).lower() == "open" and t.entry_price:
+        try:
+            from backend.core.order_executor import current_premium
+            live_ltp = current_premium(t)
+            if live_ltp:
+                live_pnl_pct = round((live_ltp - t.entry_price) / t.entry_price * 100, 2)
+                qty_total    = (t.quantity or 0) * (t.lot_size or 0)
+                live_pnl     = round((live_ltp - t.entry_price) * qty_total, 2)
+        except Exception:
+            pass
+
     return {
         "id":                t.id,
         "session_id":        t.session_id,
@@ -26,6 +43,7 @@ def _trade_to_dict(t: Trade) -> dict:
         "option_type":       t.option_type,
         "entry_price":       t.entry_price,
         "exit_price":        t.exit_price,
+        "live_ltp":          live_ltp,                  # null when closed
         "quantity":          t.quantity,
         "lot_size":          t.lot_size,
         "trade_sl_pct":      t.trade_sl_pct,
@@ -33,8 +51,8 @@ def _trade_to_dict(t: Trade) -> dict:
         "dynamic_sl_price":  t.dynamic_sl_price,
         "target_price":      t.target_price,
         "highest_price":     t.highest_price,
-        "pnl":               t.pnl,
-        "pnl_pct":           t.pnl_pct,
+        "pnl":               live_pnl,
+        "pnl_pct":           live_pnl_pct,
         "entry_logic":       t.entry_logic,
         "exit_logic":        t.exit_logic,
         "indicators_snapshot": t.indicators_snapshot,

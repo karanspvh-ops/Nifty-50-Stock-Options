@@ -13,10 +13,14 @@ export interface FeedHealth {
   connected: boolean; last_tick: string | null; error: string;
 }
 export interface OpenTrade {
-  trade_id: number; symbol: string; direction: string; env: string;
-  entry: number; ltp: number | null; pnl_pct: number;
+  trade_id: number; symbol: string; option_symbol?: string;
+  direction: string; env: string;
+  entry: number; ltp: number | null;
+  pnl_pct: number; pnl?: number;
+  quantity?: number | null; lot_size?: number | null;
   hard_sl: number; dynamic_sl: number | null; target: number | null;
   status: string; highest_price: number | null;
+  entered_at?: string | null;
 }
 export interface Settings {
   is_live: boolean; available_funds: number;

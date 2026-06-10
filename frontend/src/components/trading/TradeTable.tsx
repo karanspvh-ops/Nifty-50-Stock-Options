@@ -5,9 +5,19 @@ const API = 'http://localhost:8000';
 interface Trade {
   id: number; symbol: string; direction: string; option_symbol: string;
   strike: number | null; expiry: string | null; option_type: string | null;
-  entry_price: number; exit_price: number | null; pnl: number; pnl_pct: number;
+  entry_price: number; exit_price: number | null;
+  live_ltp: number | null;                         // live option premium while open
+  quantity: number | null; lot_size: number | null;
+  pnl: number; pnl_pct: number;
   status: string; entered_at: string; exited_at: string | null;
   entry_logic: string; exit_logic: string;
+}
+
+// "YYYY-MM-DD HH:MM:SS.ffffff" (server-side naive IST) -> "HH:MM:SS"
+function fmtTime(s: string | null | undefined) {
+  if (!s) return '—';
+  const m = s.match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : '—';
 }
 
 export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
@@ -61,11 +71,13 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                 <th className="px-3 pb-2">Symbol</th>
                 <th className="px-3 pb-2">Type</th>
                 <th className="px-3 pb-2">Contract</th>
+                <th className="px-3 pb-2">Qty</th>
                 <th className="px-3 pb-2">Entry</th>
-                <th className="px-3 pb-2">Exit</th>
+                <th className="px-3 pb-2">LTP / Exit</th>
                 <th className="px-3 pb-2">PnL</th>
                 <th className="px-3 pb-2">Status</th>
-                <th className="px-3 pb-2">Time</th>
+                <th className="px-3 pb-2">Entry time</th>
+                <th className="px-3 pb-2">Exit time</th>
               </tr>
             </thead>
             <tbody>
@@ -88,9 +100,18 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                       {t.strike ? `${t.strike} ${t.option_type || ''}` : (t.option_symbol || '—')}
                       {t.expiry && <span className="text-muted ml-1">{t.expiry.slice(5)}</span>}
                     </td>
+                    <td className="px-3 py-2 text-[11px] text-white font-mono">
+                      {t.quantity != null && t.lot_size != null
+                        ? <>{t.quantity}×{t.lot_size}<span className="text-muted ml-1">={t.quantity * t.lot_size}</span></>
+                        : '—'}
+                    </td>
                     <td className="px-3 py-2 text-xs text-muted">₹{t.entry_price?.toFixed(2)}</td>
-                    <td className="px-3 py-2 text-xs text-muted">
-                      {t.exit_price ? `₹${t.exit_price.toFixed(2)}` : '—'}
+                    <td className="px-3 py-2 text-xs">
+                      {t.status === 'open'
+                        ? (t.live_ltp != null
+                            ? <span className="text-white">₹{t.live_ltp.toFixed(2)} <span className="text-[9px] text-accent">live</span></span>
+                            : <span className="text-muted">—</span>)
+                        : (t.exit_price != null ? <span className="text-muted">₹{t.exit_price.toFixed(2)}</span> : '—')}
                     </td>
                     <td className={`px-3 py-2 text-xs font-semibold ${(t.pnl || 0) >= 0 ? 'text-up' : 'text-down'}`}>
                       {(t.pnl || 0) >= 0 ? '+' : ''}₹{(t.pnl || 0).toFixed(2)}
@@ -106,13 +127,12 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                         {t.status}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-muted text-[10px]">
-                      {new Date(t.entered_at).toLocaleTimeString()}
-                    </td>
+                    <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.entered_at)}</td>
+                    <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.exited_at)}</td>
                   </tr>
                   {expanded === t.id && (
                     <tr key={`exp-${t.id}`} className="bg-bg/50">
-                      <td colSpan={9} className="px-4 py-3 text-xs text-muted leading-relaxed">
+                      <td colSpan={11} className="px-4 py-3 text-xs text-muted leading-relaxed">
                         <p><span className="text-white font-semibold">Entry logic: </span>{t.entry_logic || 'N/A'}</p>
                         <p className="mt-1"><span className="text-white font-semibold">Exit logic: </span>{t.exit_logic || 'N/A'}</p>
                       </td>
