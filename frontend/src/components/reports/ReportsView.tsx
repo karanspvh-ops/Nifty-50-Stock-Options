@@ -107,17 +107,50 @@ export default function ReportsView() {
           {/* Trade list */}
           <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
             <h3 className="text-white font-semibold text-sm">Trade Log</h3>
-            {(pnl.trades || []).map((t: any) => (
-              <div key={t.id} className="border border-border rounded-lg p-3 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-white font-semibold">{t.symbol} {t.direction?.toUpperCase()}</span>
-                  <span className={`font-semibold ${(t.pnl || 0) >= 0 ? 'text-up' : 'text-down'}`}>
-                    {(t.pnl || 0) >= 0 ? '+' : ''}₹{(t.pnl || 0).toFixed(2)}
-                  </span>
+            {(pnl.trades || []).map((t: any) => {
+              const fmtT = (s?: string | null) => {
+                if (!s) return '—';
+                const m = String(s).match(/(\d{2}:\d{2}:\d{2})/);
+                return m ? m[1] : '—';
+              };
+              const peakCls = (t.peak_pct ?? 0) >= 0 ? 'text-up' : 'text-down';
+              return (
+                <div key={t.id} className="border border-border rounded-lg p-3 text-xs space-y-2">
+                  {/* header line */}
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-semibold">{t.symbol}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
+                        ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
+                        {t.direction?.toUpperCase()}
+                      </span>
+                      {t.strike != null && (
+                        <span className="text-[11px] font-mono text-white bg-bg/60 px-1.5 py-0.5 rounded">
+                          {t.strike} {t.option_type || ''}
+                          {t.expiry && <span className="text-muted ml-1">{String(t.expiry).slice(5)}</span>}
+                        </span>
+                      )}
+                      {t.qty != null && t.lot_size != null && (
+                        <span className="text-[10px] text-muted font-mono">{t.qty}×{t.lot_size}={t.qty * t.lot_size}</span>
+                      )}
+                    </div>
+                    <span className={`font-semibold ${(t.pnl || 0) >= 0 ? 'text-up' : 'text-down'}`}>
+                      {(t.pnl || 0) >= 0 ? '+' : ''}₹{(t.pnl || 0).toFixed(2)}
+                      <span className="text-muted ml-1 text-[10px]">({(t.pnl_pct || 0).toFixed(1)}%)</span>
+                    </span>
+                  </div>
+                  {/* metrics line */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-x-3 gap-y-1 text-[11px]">
+                    <div><span className="text-muted">Entry @ </span><span className="text-white">₹{t.entry?.toFixed(2)}</span></div>
+                    <div><span className="text-muted">Exit @ </span><span className="text-white">{t.exit != null ? `₹${t.exit.toFixed(2)}` : '—'}</span></div>
+                    <div><span className="text-muted">Peak </span><span className={peakCls}>{t.peak != null ? `₹${t.peak.toFixed(2)}` : '—'}</span>{t.peak_pct != null && <span className={`ml-1 ${peakCls}`}>({t.peak_pct >= 0 ? '+' : ''}{t.peak_pct.toFixed(1)}%)</span>}</div>
+                    <div><span className="text-muted">Entered </span><span className="text-white font-mono">{fmtT(t.entered_at)}</span></div>
+                    <div><span className="text-muted">Exited </span><span className="text-white font-mono">{fmtT(t.exited_at)}</span></div>
+                  </div>
+                  <p className="text-muted leading-relaxed">{t.trade_statement}</p>
                 </div>
-                <p className="text-muted leading-relaxed">{t.trade_statement}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

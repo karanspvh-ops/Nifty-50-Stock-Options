@@ -107,13 +107,23 @@ class PnLAgent:
             # ── Per-trade summaries ───────────────────────────────────────────
             trade_rows = []
             for t in trades:
+                peak = t.highest_price
+                peak_pct = (
+                    round((peak - t.entry_price) / t.entry_price * 100, 2)
+                    if peak and t.entry_price else None
+                )
                 trade_rows.append({
                     "id":           t.id,
                     "symbol":       t.symbol,
                     "option":       t.option_symbol,
+                    "strike":       t.strike,
+                    "expiry":       t.expiry,
+                    "option_type":  t.option_type,
                     "direction":    t.direction,
                     "entry":        t.entry_price,
                     "exit":         t.exit_price,
+                    "peak":         peak,
+                    "peak_pct":     peak_pct,
                     "qty":          t.quantity,
                     "lot_size":     t.lot_size,
                     "pnl":          t.pnl,
@@ -207,11 +217,32 @@ class PnLAgent:
         pnl_sign = "profit" if (t.pnl or 0) > 0 else "loss"
         pnl_val  = abs(t.pnl or 0)
 
+        # Compact contract label, e.g. "1520 CE 2026-06-30"
+        contract = ""
+        if t.strike and t.option_type:
+            contract = f" — strike {t.strike:g} {t.option_type}"
+            if t.expiry:
+                contract += f" (expiry {t.expiry})"
+
+        # HH:MM:SS time helpers (server-side naive IST)
+        def _t(s):
+            if not s: return "—"
+            s = str(s)
+            return s.split(" ")[1].split(".")[0] if " " in s else s
+
+        peak = t.highest_price
+        peak_blurb = ""
+        if peak and t.entry_price:
+            pp = (peak - t.entry_price) / t.entry_price * 100
+            peak_blurb = f" Peak premium ₹{peak:.2f} ({pp:+.1f}%)."
+
         stmt = (
-            f"Bought {direction} on {t.symbol} at ₹{t.entry_price:.2f}. "
-            f"Entry reason: {entry_reason[:120]}. "
-            f"Exited at ₹{(t.exit_price if t.exit_price else 0):.2f}. "
-            f"Exit reason: {exit_reason[:120]}. "
+            f"Bought {direction} on {t.symbol}{contract} at ₹{t.entry_price:.2f} "
+            f"[{_t(t.entered_at)} IST]. "
+            f"Entry reason: {entry_reason[:140]}. "
+            f"Exited at ₹{(t.exit_price if t.exit_price else 0):.2f} "
+            f"[{_t(t.exited_at)} IST]. "
+            f"Exit reason: {exit_reason[:140]}.{peak_blurb} "
             f"Result: ₹{pnl_val:.2f} {pnl_sign} ({t.pnl_pct:.1f}%)."
         )
         if ind.get("rsi"):
