@@ -90,6 +90,20 @@ SECTOR_OF: Dict[str, str] = {
     "IRCTC": "RETAIL", "IRB": "INFRA", "ABCAPITAL": "FIN SERVICE",
     "HUDCO": "FIN SERVICE", "BSE": "FIN SERVICE", "CDSL": "FIN SERVICE",
     "KEI": "CAPITAL GOODS", "SUPREMEIND": "CAPITAL GOODS", "ASTRAL": "CAPITAL GOODS",
+    # ── F&O EXTRAS (beyond NIFTY 200, ~36 names with options on NSE) ──
+    "360ONE": "FIN SERVICE", "AMBER": "CONSUMER DURABLES", "CAMS": "FIN SERVICE",
+    "ETERNAL": "RETAIL", "FORCEMOT": "AUTO", "FORTIS": "PHARMA",
+    "GODFRYPHLP": "FMCG", "GVT&D": "CAPITAL GOODS", "HDFCAMC": "FIN SERVICE",
+    "HINDPETRO": "ENERGY", "HYUNDAI": "AUTO", "IEX": "ENERGY",
+    "INOXWIND": "ENERGY", "KAYNES": "CAPITAL GOODS", "KFINTECH": "FIN SERVICE",
+    "LTF": "FIN SERVICE", "LTM": "OTHER", "MANAPPURAM": "FIN SERVICE",
+    "MAXHEALTH": "PHARMA", "MCX": "FIN SERVICE", "MOTILALOFS": "FIN SERVICE",
+    "NAM-INDIA": "FIN SERVICE", "NBCC": "INFRA", "NYKAA": "RETAIL",
+    "PGEL": "CAPITAL GOODS", "PNBHOUSING": "FIN SERVICE",
+    "POWERINDIA": "CAPITAL GOODS", "PREMIERENE": "ENERGY",
+    "RADICO": "FMCG", "RVNL": "INFRA", "SAMMAANCAP": "FIN SERVICE",
+    "SOLARINDS": "CHEMICALS", "SWIGGY": "RETAIL", "TMPV": "AUTO",
+    "VMM": "RETAIL", "WAAREEENER": "ENERGY",
 }
 
 # ── Index membership (symbol lists) ───────────────────────────────────────────
@@ -130,19 +144,35 @@ NIFTY_MIDCAP_SYMBOLS = [
     "ABCAPITAL","HUDCO","BSE","CDSL","KEI","SUPREMEIND","ASTRAL",
 ]
 
+# F&O extras — stocks WITH listed options on NSE but NOT part of NIFTY 200.
+# This bucket plus NIFTY 200 forms the full set of options-tradable underlyings
+# (resolved live against Kite's NFO instrument dump on startup).
+NIFTY_FNO_EXTRAS = [
+    "360ONE","AMBER","CAMS","ETERNAL","FORCEMOT","FORTIS","GODFRYPHLP","GVT&D",
+    "HDFCAMC","HINDPETRO","HYUNDAI","IEX","INOXWIND","KAYNES","KFINTECH","LTF",
+    "LTM","MANAPPURAM","MAXHEALTH","MCX","MOTILALOFS","NAM-INDIA","NBCC","NYKAA",
+    "PGEL","PNBHOUSING","POWERINDIA","PREMIERENE","RADICO","RVNL","SAMMAANCAP",
+    "SOLARINDS","SWIGGY","TMPV","VMM","WAAREEENER",
+]
+
 _N50  = set(NIFTY50_SYMBOLS)
 _N100 = _N50 | set(NIFTY_NEXT50_SYMBOLS)
 _N200 = _N100 | set(NIFTY_MIDCAP_SYMBOLS)
+_FNO  = _N200 | set(NIFTY_FNO_EXTRAS)   # full F&O-tradable superset (~211)
 
 
 def _membership(symbol: str) -> List[str]:
+    """Indices a symbol belongs to. Every F&O-tradable name is in 'FNO'
+    (the scan universe); the NIFTY 50/100/200 labels still apply correctly."""
     out = []
     if symbol in _N50:
-        out = ["NIFTY50", "NIFTY100", "NIFTY200"]
+        out = ["NIFTY50", "NIFTY100", "NIFTY200", "FNO"]
     elif symbol in _N100:
-        out = ["NIFTY100", "NIFTY200"]
+        out = ["NIFTY100", "NIFTY200", "FNO"]
     elif symbol in _N200:
-        out = ["NIFTY200"]
+        out = ["NIFTY200", "FNO"]
+    elif symbol in _FNO:
+        out = ["FNO"]
     return out
 
 
@@ -182,10 +212,10 @@ def _try_load_cache_at_import():
         pass
 
 
-# The whole system now operates on ONE combined universe: the NIFTY200
-# superset (which already contains every NIFTY 50 / 100 stock, deduped by
-# token), filtered to F&O (options-tradable) names. No index dropdown.
-TRADABLE_INDEX = "NIFTY200"
+# The whole system now operates on ONE combined universe: every NSE stock
+# that has listed options (the "FNO" superset = NIFTY 200 + ~36 mid/small-cap
+# F&O extras), filtered to F&O lot_size > 0. No index dropdown.
+TRADABLE_INDEX = "FNO"
 
 
 # ── Public query API ──────────────────────────────────────────────────────────

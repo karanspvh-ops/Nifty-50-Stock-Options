@@ -26,9 +26,9 @@ export default function Header() {
       {/* Feed indicator */}
       <div className={`w-2 h-2 rounded-full shrink-0 ${feedHealth.connected ? 'bg-up' : 'bg-down'} animate-pulse`} />
 
-      {/* Combined universe (all three indexes, F&O only) */}
+      {/* Combined universe — every NSE stock with listed options (NIFTY 200 + ~36 extras) */}
       <span className="bg-bg border border-border text-[11px] text-white rounded px-2 py-1 shrink-0 whitespace-nowrap">
-        NIFTY 50 + 100 + 200 · F&O
+        NSE F&O · all options-tradable (~211)
       </span>
 
       <div className="flex-1 min-w-2" />

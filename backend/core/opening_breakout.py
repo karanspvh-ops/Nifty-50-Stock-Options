@@ -385,7 +385,7 @@ class OpeningBreakout:
         # ── Candidates: scan ALL F&O stocks; each takes its OWN side (call/put),
         #    restricted to the allowed direction(s) for the day. ───────────────
         candidates: List[PlanStock] = []
-        for s in get_stocks_for_index("NIFTY200", fno_only=True):
+        for s in get_stocks_for_index("FNO", fno_only=True):
             token  = s["token"]
             stock_sector = s.get("sector", "")
             mv  = market.get_stock_move(token)

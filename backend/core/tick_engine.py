@@ -39,8 +39,8 @@ class TickEngine:
 
     # ── Token list ────────────────────────────────────────────────────────────
     def _stock_tokens(self) -> list:
-        # Always stream the full NIFTY200 superset; index switch is a view filter.
-        stocks = get_stocks_for_index("NIFTY200")
+        # Stream the full F&O-tradable universe (NIFTY 200 + extras = ~211 stocks).
+        stocks = get_stocks_for_index("FNO")
         toks = []
         for s in stocks:
             try:
@@ -119,7 +119,7 @@ class TickEngine:
     def _sector_loop(self):
         while self._running:
             try:
-                index   = "NIFTY200"            # combined universe…
+                index   = "FNO"                 # combined F&O-tradable universe…
                 sectors = get_sectors_for_index(index, fno_only=True)   # …F&O only
                 result  = {}
                 moves   = market.get_all_stock_moves()
