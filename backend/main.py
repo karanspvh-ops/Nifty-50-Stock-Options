@@ -36,7 +36,9 @@ from backend.core.risk_engine        import risk_engine
 from backend.core.trading_engine     import trading_engine
 from backend.core.tradable_tracker   import tradable_tracker
 from backend.core.opening_breakout    import opening_breakout
+from backend.core.early_scalp         import early_scalp
 from backend.routers.strategy_router import router as strategy_router
+from backend.routers.early_scalp_router import router as early_scalp_router
 from backend.core.stock_universe     import refresh_instrument_list
 from backend.agents.pnl_agent        import pnl_agent
 from backend.agents.ml_agent         import ml_agent
@@ -76,6 +78,9 @@ async def lifespan(app: FastAPI):
     print("[BOOT] Starting Opening Breakout strategy...")
     opening_breakout.start()
     print("[BOOT] Opening Breakout strategy running.")
+    print("[BOOT] Starting Early Scalp strategy...")
+    early_scalp.start()
+    print("[BOOT] Early Scalp strategy running.")
     print("[BOOT] Starting PnL agent...")
     pnl_agent.start()
     print("[BOOT] Starting ML agent...")
@@ -85,6 +90,7 @@ async def lifespan(app: FastAPI):
     # ── Shutdown ─────────────────────────────────────────────────
     ml_agent.stop()
     pnl_agent.stop()
+    early_scalp.stop()
     opening_breakout.stop()
     tradable_tracker.stop()
     print("[SHUTDOWN] Stopping trading engine...")
@@ -122,6 +128,7 @@ app.include_router(scanner_router)
 app.include_router(trading_router)
 app.include_router(reports_router)
 app.include_router(strategy_router)
+app.include_router(early_scalp_router)
 app.include_router(broker_router)
 app.include_router(backtest_router)
 

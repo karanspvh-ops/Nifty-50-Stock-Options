@@ -12,7 +12,7 @@ Rules:
 """
 
 import os, sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional, Tuple
 from backend.core.clock import now_ist
 
@@ -58,6 +58,35 @@ def current_premium(trade) -> Optional[float]:
     from backend.core.stock_universe import get_option_token
     tok = get_option_token(trade.option_symbol)
     return option_premium(tok, trade.option_symbol)
+
+
+# ── Liquidity guard ─────────────────────────────────────────────────────────
+MIN_OPTION_VOLUME_LOTS = 3   # require >=3 lots traded across the last LIQUIDITY_LOOKBACK_MIN minutes
+LIQUIDITY_LOOKBACK_MIN = 10
+
+def _has_liquidity(opt_token: str, opt_symbol: str, lot_size: int) -> bool:
+    """Reject contracts with near-zero recent trading (stale-quote risk).
+
+    A single illiquid print can move the LTP 20-40% with no real market behind
+    it (e.g. KAYNES26JUN3200CE sat at volume=0 for 18 straight 1-min candles,
+    then one 1-lot trade re-priced it -35% instantly). Require real recent
+    volume before trusting the quote enough to enter.
+    """
+    try:
+        kite = broker.kite()
+        end   = now_ist()
+        start = end - timedelta(minutes=LIQUIDITY_LOOKBACK_MIN)
+        candles = kite.historical_data(int(opt_token), start, end, "minute")
+        total_vol = sum(c.get("volume", 0) for c in candles)
+        min_required = MIN_OPTION_VOLUME_LOTS * max(lot_size, 1)
+        if total_vol < min_required:
+            print(f"[ORDER] Liquidity check FAILED {opt_symbol} | "
+                  f"vol={total_vol} in last {LIQUIDITY_LOOKBACK_MIN}m < {min_required}")
+            return False
+        return True
+    except Exception as e:
+        print(f"[ORDER] Liquidity check error {opt_symbol}: {e} — allowing (fail-open)")
+        return True
 
 
 # ── ATM option selection (nearest expiry, strike closest to LTP) ──────────────
@@ -130,6 +159,11 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
 
     meta     = get_meta(token)
     lot_size = meta.get("lot_size", 1) or 1
+
+    if not _has_liquidity(opt_token, opt_symbol, lot_size):
+        print(f"[ORDER] REJECTED — {opt_symbol} too illiquid to trade safely")
+        return None
+
     qty      = calc_quantity(available_funds, premium, lot_size)
     trade_sl_price = round(premium * (1 - trade_sl_pct / 100), 2)
     target_price   = round(premium * (1 + target_pct / 100), 2) if target_pct > 0 else None

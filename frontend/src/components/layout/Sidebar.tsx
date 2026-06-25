@@ -2,6 +2,7 @@ import { useMarketStore } from '../../store/marketStore';
 
 const NAV = [
   { id: 'dashboard',    icon: '▦', label: 'Dashboard'     },
+  { id: 'early_scalp',  icon: '⚡', label: 'Early Scalp'  },
   { id: 'testing_lab',  icon: '⚗', label: 'Testing Lab'   },
   { id: 'battle_ground',icon: '⚔', label: 'Battle Ground' },
   { id: 'reports',      icon: '📊', label: 'Reports'       },

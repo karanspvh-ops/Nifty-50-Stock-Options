@@ -90,6 +90,9 @@ import json
 _PARAMS_PATH = os.path.join(ROOT, "ob_params.json")
 _DEFAULT_PARAMS = {
     "move_min_pct":       MOVE_MIN_PCT,
+    "move_max_pct":       3.5,     # skip stocks that moved >3.5% — move already extended
+    "vol_ratio_min":      6.0,     # require 6x volume; 3–6x bucket has only 10% win rate
+    "consec_max":         3,       # skip if 4+ consecutive candles — entering at exhaustion
     "max_positions":      MAX_POSITIONS,
     "hard_sl_pct":        HARD_SL_PCT,
     "target_pct":         TARGET_PCT,
@@ -276,8 +279,11 @@ class OpeningBreakout:
         open_ob   = self._count_open_ob(env)
         max_pos   = int(self._p("max_positions"))
         in_primary  = t <= ENTRY_DEADLINE
-        # Extend only if NOTHING fired by 9:45 — then hunt one trade until 10:30
-        in_extended = (ENTRY_DEADLINE < t <= ENTRY_HARD_DEADLINE) and open_ob == 0
+        # Extend only if NOTHING fired by 9:45 — then hunt one trade until 10:30.
+        # Guard: if any OB trade was already taken today (open OR closed), the
+        # extended hunt must NOT re-activate just because all positions exited.
+        ever_traded = self._count_ob_today(env) > 0
+        in_extended = (ENTRY_DEADLINE < t <= ENTRY_HARD_DEADLINE) and open_ob == 0 and not ever_traded
         if (in_primary or in_extended) and self._plan and self._plan.sector:
             self._plan.status = "entering"
             self._phase = "ENTERING_EXT" if in_extended else "ENTERING"
@@ -412,10 +418,14 @@ class OpeningBreakout:
                 eligible=True,
             ))
 
-        # Rank globally by |move| * r_factor; keep a POOL (entries pick the first
-        # MAX_POSITIONS that actually confirm, so good setups aren't crowded out
-        # by big movers that fail confirmation).
-        candidates.sort(key=lambda c: abs(c.opening_move) * c.r_factor, reverse=True)
+        # Rank by sector strength × individual move: stocks from the leading sector
+        # come first regardless of R-factor, so we don't pick stocks outperforming
+        # a flat sector over stocks riding the actual momentum wave of the day.
+        sector_strength = {sec: abs(d.get("pct_change", 0)) for sec, d in sector_moves.items()}
+        candidates.sort(
+            key=lambda c: sector_strength.get(c.sector, 0) * abs(c.opening_move),
+            reverse=True
+        )
         top = candidates[:CANDIDATE_POOL]
 
         # Attach breakout confirmation (momentum + volume + VP levels) to top picks
@@ -477,6 +487,9 @@ class OpeningBreakout:
             move = self._opening_move(ps.token, ltp) if self._open_ref.get(ps.token) else ps.day_move
             if abs(move) < self._p("move_min_pct"):
                 continue
+            if abs(move) > float(self._p("move_max_pct")):
+                print(f"[OB] {ps.symbol} skipped — move {move:+.2f}% > max {self._p('move_max_pct')}% (exhausted)")
+                continue
             # Early window (9:35–9:40): only high-conviction gap setups qualify
             early = False
             if early_only:
@@ -491,6 +504,12 @@ class OpeningBreakout:
             bo = confirm_breakout(ps.token, ps.direction, move_pct=move)
             if not bo.confirmed:
                 print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
+                continue
+            if bo.vol_ratio < float(self._p("vol_ratio_min")):
+                print(f"[OB] {ps.symbol} skipped — vol {bo.vol_ratio:.1f}x < min {self._p('vol_ratio_min')}x")
+                continue
+            if bo.consec > int(self._p("consec_max")):
+                print(f"[OB] {ps.symbol} skipped — {bo.consec} consec candles > max {self._p('consec_max')} (exhausted)")
                 continue
 
             tag = "GAP-ACCEL early entry" if early else "Opening breakout"
@@ -593,6 +612,20 @@ class OpeningBreakout:
             trades = db.query(Trade).filter(
                 Trade.status == TradeStatus.OPEN, Trade.env == env).all()
             return sum(1 for t in trades if (t.entry_logic or "").startswith(OB_TAG))
+        finally:
+            db.close()
+
+    def _count_ob_today(self, env: TradeEnv) -> int:
+        """Count ALL OB trades entered today (open or closed) to guard the extended hunt."""
+        from datetime import date
+        today = date.today().isoformat()
+        db = DBSession()
+        try:
+            return db.query(Trade).filter(
+                Trade.env == env,
+                Trade.entry_logic.like(f"%{OB_TAG}%"),
+                Trade.entered_at >= today,
+            ).count()
         finally:
             db.close()
 

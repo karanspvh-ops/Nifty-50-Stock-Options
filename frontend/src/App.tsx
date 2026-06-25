@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, Component, type ReactNode } from 'react';
 import { useMarketSocket } from './hooks/useMarketSocket';
 import { useMarketStore } from './store/marketStore';
 import Sidebar      from './components/layout/Sidebar';
@@ -13,6 +13,30 @@ import TradePlan        from './components/dashboard/TradePlan';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 import BacktestView     from './components/backtest/BacktestView';
+import EarlyScalpView  from './components/scalp/EarlyScalpView';
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-8 text-down">
+          <div className="font-bold mb-2">Render error</div>
+          <pre className="text-xs text-muted whitespace-pre-wrap">
+            {(this.state.error as Error).message}
+            {'\n\n'}
+            {(this.state.error as Error).stack}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const API = 'http://localhost:8000';
 
@@ -66,6 +90,7 @@ export default function App() {
         <EngineStatus />
         <main className="flex-1 overflow-hidden">
           {activeView === 'dashboard'     && <Dashboard />}
+          {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (
             <div className="p-6 overflow-y-auto h-full">
               <h1 className="text-white font-bold text-lg mb-4">
