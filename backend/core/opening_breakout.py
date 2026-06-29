@@ -91,7 +91,13 @@ _PARAMS_PATH = os.path.join(ROOT, "ob_params.json")
 _DEFAULT_PARAMS = {
     "move_min_pct":       MOVE_MIN_PCT,
     "move_max_pct":       3.5,     # skip stocks that moved >3.5% — move already extended
-    "vol_ratio_min":      6.0,     # require 6x volume; 3–6x bucket has only 10% win rate
+    "ob_spike_vol":       6.0,     # refill override: vol_ratio >= 6x qualifies as spike
+    "ob_spike_rfactor":   3.0,     # refill override: R-factor >= 3.0 (stock massively outrunning sector)
+    "ob_spike_move":      2.5,     # refill override: move >= 2.5% required alongside high R-factor
+    "vol_ratio_min":      1.5,     # floor only (not a hard ceiling) — 1.5x = some momentum exists;
+                                   # high-vol spikes still rank first via scoring, but sector-drift
+                                   # trades (e.g. broad AUTO rally at 0.2x) are no longer blocked.
+                                   # Hard liquidity guards (spread, OI, recent vol) live in order_executor.
     "consec_max":         3,       # skip if 4+ consecutive candles — entering at exhaustion
     "max_positions":      MAX_POSITIONS,
     "hard_sl_pct":        HARD_SL_PCT,
@@ -442,6 +448,23 @@ class OpeningBreakout:
             except Exception:
                 pass
 
+        # Re-rank within top picks using vol_ratio as a signal-strength multiplier.
+        # High vol_ratio (spike/concentrated buying) floats to the top of the entry queue;
+        # low vol_ratio (sector drift, thin volume) still enters but goes last in the 3 slots.
+        # Formula: score × clamp(vol_ratio/3, 0.5, 2.0)
+        #   vol 6x → 2.0× weight  (spike — prioritise)
+        #   vol 3x → 1.0× weight  (normal)
+        #   vol 1.5x → 0.5× weight (drift — enters if slots remain)
+        #   vol 0.1x → 0.5× weight (floor — still allowed; hard guards in order_executor)
+        top.sort(
+            key=lambda c: (
+                sector_strength.get(c.sector, 0)
+                * abs(c.opening_move)
+                * max(0.5, min(2.0, (c.vol_ratio or 0) / 3.0))
+            ),
+            reverse=True
+        )
+
         secs = ", ".join(sorted({c.sector for c in top}))
         note = (f"Lead sector {sector}; picks scanned across ALL sectors ({secs}). "
                 f"Entry needs ≥{self._p('move_min_pct')}% move + (momentum OR sharp "
@@ -451,6 +474,57 @@ class OpeningBreakout:
             sector_pct=sector_pct, stocks=top, note=note,
             generated_at=datetime.now().isoformat(),
         )
+
+    # ── Entry-time re-validation (refill guard) ───────────────────────────────
+    def _revalidate_ob(self, ps: "PlanStock", current_move: float) -> "tuple[bool, str]":
+        """Re-validate an OB candidate at the moment of entry.
+
+        The plan is built at 09:35-09:40. For refill slots that fire at 09:50+
+        the market may have partially reversed. Three checks catch that:
+
+        1. Move retention  — current spot move must be >=60% of what the plan
+           recorded. If a stock broke +3% at 09:40 and is now +0.8%, the
+           breakout thesis has collapsed even though it still clears move_min.
+
+        2. Immediate candle — the most recent candle must still be in the trade
+           direction. One red candle in an uptrend = don't enter right now.
+
+        3. Multi-candle reversal — if 2 of the last 3 candles are against the
+           trade direction, momentum has shifted. A single noisy candle is
+           allowed; a majority says the trend is gone.
+        """
+        # 1. Move retention
+        if ps.opening_move:
+            need = abs(ps.opening_move) * 0.6
+            if abs(current_move) < need:
+                return False, (f"move faded {current_move:+.2f}% vs plan {ps.opening_move:+.2f}% "
+                               f"(need >={need:.1f}%, 60% retention)")
+
+        # 2+3. Candle direction checks
+        try:
+            candles = market.get_candles(ps.token, n=3)
+            if candles:
+                # Most recent candle must be in direction (immediate signal)
+                lc        = candles[-1]
+                last_bull = lc.get("close", 0) >= lc.get("open", 0)
+                if ps.direction == "call" and not last_bull:
+                    return False, "last candle RED — immediate reversal, skip"
+                if ps.direction == "put" and last_bull:
+                    return False, "last candle GREEN — immediate reversal, skip"
+
+                # Majority: 2+ of last 3 candles against direction = trend gone
+                if len(candles) >= 2:
+                    against = sum(
+                        1 for c in candles
+                        if (ps.direction == "call" and c.get("close", 0) < c.get("open", 0))
+                        or (ps.direction == "put"  and c.get("close", 0) > c.get("open", 0))
+                    )
+                    if against >= 2:
+                        return False, f"{against}/3 recent candles reversed — momentum gone"
+        except Exception as e:
+            print(f"[OB] {ps.symbol} reval candle error: {e}")
+
+        return True, f"reval pass — move {current_move:+.2f}% retained"
 
     # ── Gap-acceleration qualifier ────────────────────────────────────────────
     def _gap_qualifies(self, ps) -> bool:
@@ -473,6 +547,11 @@ class OpeningBreakout:
         open_ob = self._count_open_ob(env)
         session = get_or_create_session(env)
         max_pos = int(self._p("max_positions"))
+
+        # Pre-compute refill context once (avoids repeated DB hits per candidate).
+        # total_ob_today >= max_pos means we are filling a REFILL slot (not initial).
+        total_ob_today = self._count_ob_today(env)
+        net_ob_pnl     = self._ob_net_pnl_today(env) if total_ob_today >= max_pos else 0.0
 
         for ps in self._plan.stocks:
             if open_ob >= max_pos:
@@ -505,11 +584,35 @@ class OpeningBreakout:
             if not bo.confirmed:
                 print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
                 continue
-            if bo.vol_ratio < float(self._p("vol_ratio_min")):
-                print(f"[OB] {ps.symbol} skipped — vol {bo.vol_ratio:.1f}x < min {self._p('vol_ratio_min')}x")
+            vol_floor = float(self._p("vol_ratio_min"))  # 1.5 — floor, not a ceiling
+            if bo.vol_ratio < vol_floor:
+                print(f"[OB] {ps.symbol} SKIP — vol {bo.vol_ratio:.1f}x below floor {vol_floor}x (no momentum signal)")
                 continue
+            if bo.vol_ratio < 3.0:
+                print(f"[OB] {ps.symbol} LOW VOL {bo.vol_ratio:.1f}x — sector drift trade, liquidity check in executor")
             if bo.consec > int(self._p("consec_max")):
                 print(f"[OB] {ps.symbol} skipped — {bo.consec} consec candles > max {self._p('consec_max')} (exhausted)")
+                continue
+
+            # Refill guard: if the initial MAX_POSITIONS slots are done and day OB
+            # net PnL is already positive, protect those gains — only allow a refill
+            # for extreme-conviction setups (vol spike OR very high R-factor + strong move).
+            # Net is calculated from CLOSED trades only; open positions don't count.
+            if total_ob_today >= max_pos and net_ob_pnl > 0:
+                if not self._is_extreme_conviction(ps, bo, move):
+                    print(f"[OB] {ps.symbol} REFILL BLOCK — "
+                          f"day net +Rs.{net_ob_pnl:,.0f} after {total_ob_today} trades, "
+                          f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} not spike-level")
+                    continue
+                print(f"[OB] {ps.symbol} EXTREME CONVICTION REFILL — "
+                      f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} / move {move:+.2f}% "
+                      f"(day net +Rs.{net_ob_pnl:,.0f})")
+
+            # Entry-time re-validation: move retention + multi-candle reversal check.
+            # Catches plan candidates whose thesis has faded or reversed since 09:40.
+            ok, reval_why = self._revalidate_ob(ps, move)
+            if not ok:
+                print(f"[OB] {ps.symbol} REVAL SKIP — {reval_why}")
                 continue
 
             tag = "GAP-ACCEL early entry" if early else "Opening breakout"
@@ -628,6 +731,39 @@ class OpeningBreakout:
             ).count()
         finally:
             db.close()
+
+    def _ob_net_pnl_today(self, env: TradeEnv) -> float:
+        """Net PnL of all CLOSED OB trades today (open positions excluded)."""
+        from datetime import date
+        today = date.today().isoformat()
+        db = DBSession()
+        try:
+            trades = db.query(Trade).filter(
+                Trade.env == env,
+                Trade.entry_logic.like(f"%{OB_TAG}%"),
+                Trade.entered_at >= today,
+                Trade.status != TradeStatus.OPEN,
+            ).all()
+            return sum((t.pnl or 0) for t in trades)
+        finally:
+            db.close()
+
+    def _is_extreme_conviction(self, ps: "PlanStock", bo: "BreakoutSignal",
+                                current_move: float) -> bool:
+        """True when the setup is an outlier that justifies a refill even on a
+        profitable day — either a concentrated-volume spike OR a stock massively
+        outperforming/underperforming its sector with strong price action.
+
+        Examples that qualify:
+          - PAGEIND (+2.2% move, vol x6.0)          → vol spike
+          - VEDL (R-factor 3.4, -2.9% counter-trend) → high R-factor + strong move
+        """
+        spike_vol  = float(self._p("ob_spike_vol"))
+        spike_rf   = float(self._p("ob_spike_rfactor"))
+        spike_move = float(self._p("ob_spike_move"))
+        vol_spike  = bo.vol_ratio >= spike_vol
+        rf_spike   = ps.r_factor >= spike_rf and abs(current_move) >= spike_move
+        return vol_spike or rf_spike
 
     def _already_in(self, env: TradeEnv, symbol: str) -> bool:
         db = DBSession()

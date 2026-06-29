@@ -67,7 +67,7 @@ _DEFAULT_PARAMS = {
     "gap_min_pct":        0.5,    # min gap from prev close
     "move_min_pct":       1.0,    # min move from 9:15 open
     "vol_ratio_min":      1.3,    # min volume vs 20-bar average
-    "max_positions":      3,
+    "max_positions":      5,      # simultaneous open ES slots
     "hard_sl_pct":        5.0,
     "target_pct":         12.0,
     "trail_activate_pct": 8.0,
@@ -563,9 +563,83 @@ class EarlyScalp:
                 Trade.entry_logic.like(f"%{ES_TAG}%"),
             ).count()
 
+    def _count_today(self, env: TradeEnv) -> int:
+        """Total ES trades entered today (open + closed)."""
+        today = date.today().isoformat()
+        with DBSession() as db:
+            return db.query(Trade).filter(
+                Trade.env == env,
+                Trade.entry_logic.like(f"%{ES_TAG}%"),
+                Trade.entered_at >= today,
+            ).count()
+
+    def _net_pnl_today(self, env: TradeEnv) -> float:
+        """Cumulative ES PnL today (closed trades only)."""
+        today = date.today().isoformat()
+        with DBSession() as db:
+            trades = db.query(Trade).filter(
+                Trade.env == env,
+                Trade.entry_logic.like(f"%{ES_TAG}%"),
+                Trade.entered_at >= today,
+                Trade.status != TradeStatus.OPEN,
+            ).all()
+        return sum((t.pnl or 0) for t in trades)
+
+    def _refills_blocked(self, env: TradeEnv) -> bool:
+        """After 5 ES trades have been entered, block further refills if net PnL is positive
+        (protect the gain — no need to push for more)."""
+        if self._count_today(env) < 5:
+            return False
+        return self._net_pnl_today(env) > 0
+
+    def _revalidate(self, c: "ScalpCandidate") -> tuple[bool, str]:
+        """Re-check criteria at entry time against the LATEST candle and LTP.
+        Returns (ok, reason). The plan can be 30-60s stale by the time a slot
+        opens, so we don't trust c.confirmed alone — the market may have turned."""
+        mv  = market.get_stock_move(c.token)
+        ltp = mv.get("ltp") if mv else None
+        if not ltp:
+            return False, "no LTP"
+
+        gap     = self._gap_pct(c.token, ltp)
+        op_move = self._opening_move(c.token, ltp)
+        move_min = float(self._p("move_min_pct"))
+        gap_min  = float(self._p("gap_min_pct"))
+
+        # Direction must still match
+        live_dir = "call" if gap > 0 else "put"
+        if live_dir != c.direction:
+            return False, f"direction flipped (was {c.direction}, now {live_dir})"
+
+        if abs(gap) < gap_min:
+            return False, f"gap {gap:+.2f}% < {gap_min}%"
+        if abs(op_move) < move_min:
+            return False, f"move {op_move:+.2f}% < {move_min}% (faded)"
+
+        # Most recent 1-min candle must still be in trade direction
+        candles_1m = self._candle_cache.get(c.symbol, [])
+        if candles_1m:
+            last = candles_1m[-1]
+            last_bull = last.get("close", 0) >= last.get("open", 0)
+            if c.direction == "call" and not last_bull:
+                return False, "last 1m candle is RED (reversal)"
+            if c.direction == "put" and last_bull:
+                return False, "last 1m candle is GREEN (reversal)"
+
+            consec_1m = self._consec_candles(candles_1m, c.direction)
+            if consec_1m < 2:
+                return False, f"1m-consec={consec_1m}<2 (momentum lost)"
+
+        return True, "fresh criteria pass"
+
     def _enter_positions(self, env: TradeEnv):
         if not self._plan:
             return
+
+        # Day-total guard: once 5 ES trades fired and PnL is positive, stop refilling
+        if self._refills_blocked(env):
+            return
+
         max_pos = int(self._p("max_positions"))
         open_n  = self._count_open(env)
         if open_n >= max_pos:
@@ -581,11 +655,18 @@ class EarlyScalp:
             if not c.confirmed or c.entered or c.symbol in entered:
                 continue
 
+            # Re-validate at entry — plan may be stale
+            ok, why = self._revalidate(c)
+            if not ok:
+                print(f"[ES] {c.symbol} REVAL SKIP — {why}")
+                continue
+
             reason = (
                 f"{ES_TAG} Early Scalp | gap {c.gap_pct:+.1f}% from prev close | "
                 f"opening move {c.opening_move:+.1f}% from 9:15 | "
                 f"1m-consec={c.consec_1m} 3m-consec={c.consec_3m} | "
-                f"vol {c.vol_ratio:.1f}x | OI={c.oi_signal} | score={c.score:.2f}"
+                f"vol {c.vol_ratio:.1f}x | OI={c.oi_signal} | score={c.score:.2f} | "
+                f"REVAL: {why}"
             )
             try:
                 trade = place_entry_order(

@@ -61,32 +61,72 @@ def current_premium(trade) -> Optional[float]:
 
 
 # ── Liquidity guard ─────────────────────────────────────────────────────────
-MIN_OPTION_VOLUME_LOTS = 3   # require >=3 lots traded across the last LIQUIDITY_LOOKBACK_MIN minutes
+MIN_OPTION_VOLUME_LOTS = 3   # require >=3 lots traded in the last LIQUIDITY_LOOKBACK_MIN minutes
 LIQUIDITY_LOOKBACK_MIN = 10
+MAX_SPREAD_PCT         = 20.0  # max bid-ask spread as % of mid — wider = can't exit cleanly
+MIN_OI                 = 300   # minimum open interest contracts — below this, one trade moves the market
 
 def _has_liquidity(opt_token: str, opt_symbol: str, lot_size: int) -> bool:
-    """Reject contracts with near-zero recent trading (stale-quote risk).
+    """Reject contracts where entry or exit would be dangerously illiquid.
 
-    A single illiquid print can move the LTP 20-40% with no real market behind
-    it (e.g. KAYNES26JUN3200CE sat at volume=0 for 18 straight 1-min candles,
-    then one 1-lot trade re-priced it -35% instantly). Require real recent
-    volume before trusting the quote enough to enter.
+    Three checks:
+    1. Recent volume  — at least 3 lots traded in the last 10 min (rules out stale
+       markets where volume=0 and one odd-lot print re-prices the LTP by 30%+,
+       as happened with KAYNES26JUN3200CE on 2026-06-16).
+    2. Bid-ask spread — max 20% of mid. A wide spread means the market-maker is
+       pricing in low conviction; exiting at SL will cost 10%+ on the spread alone.
+    3. Open Interest  — min 300 contracts. Below this the book is thin enough that
+       our own lot can move the price against us on entry or block us on exit.
     """
+    kite = broker.kite()
+
+    # ── 1. Recent volume (last 10 min candles) ────────────────────────────────
     try:
-        kite = broker.kite()
         end   = now_ist()
         start = end - timedelta(minutes=LIQUIDITY_LOOKBACK_MIN)
-        candles = kite.historical_data(int(opt_token), start, end, "minute")
+        candles   = kite.historical_data(int(opt_token), start, end, "minute")
         total_vol = sum(c.get("volume", 0) for c in candles)
-        min_required = MIN_OPTION_VOLUME_LOTS * max(lot_size, 1)
-        if total_vol < min_required:
-            print(f"[ORDER] Liquidity check FAILED {opt_symbol} | "
-                  f"vol={total_vol} in last {LIQUIDITY_LOOKBACK_MIN}m < {min_required}")
+        min_req   = MIN_OPTION_VOLUME_LOTS * max(lot_size, 1)
+        if total_vol < min_req:
+            print(f"[ORDER] Liquidity FAIL {opt_symbol} | "
+                  f"vol={total_vol} last {LIQUIDITY_LOOKBACK_MIN}m < {min_req} (stale market)")
             return False
-        return True
     except Exception as e:
-        print(f"[ORDER] Liquidity check error {opt_symbol}: {e} — allowing (fail-open)")
-        return True
+        print(f"[ORDER] Volume check error {opt_symbol}: {e} — skipping volume check")
+
+    # ── 2. Bid-ask spread + OI from live quote ────────────────────────────────
+    try:
+        key  = f"NFO:{opt_symbol}"
+        q    = kite.quote([key])
+        data = q.get(key, {})
+        oi   = data.get("oi", 0)
+        depth     = data.get("depth", {})
+        best_bid  = (depth.get("buy",  [{}]) or [{}])[0].get("price", 0)
+        best_ask  = (depth.get("sell", [{}]) or [{}])[0].get("price", 0)
+
+        # OI check: below 300 contracts the book is too thin
+        if oi < MIN_OI:
+            print(f"[ORDER] Liquidity FAIL {opt_symbol} | OI={oi} < {MIN_OI} (thin market)")
+            return False
+
+        # No bids at all = no exit possible
+        if not best_bid or best_bid <= 0:
+            print(f"[ORDER] Liquidity FAIL {opt_symbol} | no bids (cannot sell — avoid)")
+            return False
+
+        # Spread check: wide spread means exiting will bleed us dry
+        if best_ask and best_ask > best_bid:
+            mid        = (best_bid + best_ask) / 2
+            spread_pct = (best_ask - best_bid) / mid * 100
+            if spread_pct > MAX_SPREAD_PCT:
+                print(f"[ORDER] Liquidity FAIL {opt_symbol} | "
+                      f"spread {spread_pct:.1f}% > {MAX_SPREAD_PCT}% (wide — exit risk)")
+                return False
+
+    except Exception as e:
+        print(f"[ORDER] Spread/OI check error {opt_symbol}: {e} — allowing (fail-open)")
+
+    return True
 
 
 # ── ATM option selection (nearest expiry, strike closest to LTP) ──────────────
