@@ -163,7 +163,7 @@ def email_report(payload: EmailReportPayload):
                 "symbol":    t.symbol,
                 "direction": t.direction,
                 "strike":    t.strike,
-                "qty":       t.qty,
+                "qty":       t.quantity,
                 "lot_size":  t.lot_size,
                 "entry":     t.entry_price,
                 "exit":      t.exit_price,

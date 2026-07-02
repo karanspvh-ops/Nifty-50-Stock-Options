@@ -283,11 +283,32 @@ export default function ReportsView() {
   const [loading, setLoading] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
 
-  // Load all trades for live stats
+  // Load all trades for live stats — map API field names to our interface
   const loadTrades = useCallback(() => {
     fetch(`${API}/api/trades?env=${env}&all=true`)
       .then(r => r.json())
-      .then(setAllTrades)
+      .then((raw: any[]) => setAllTrades(raw.map(t => ({
+        id:              t.id,
+        symbol:          t.symbol,
+        direction:       t.direction,
+        strike:          t.strike,
+        option_type:     t.option_type,
+        expiry:          t.expiry,
+        qty:             t.quantity,
+        lot_size:        t.lot_size,
+        entry:           t.entry_price,
+        exit:            t.exit_price,
+        peak:            t.highest_price,
+        peak_pct:        t.entry_price && t.highest_price
+                           ? +((t.highest_price - t.entry_price) / t.entry_price * 100).toFixed(1)
+                           : undefined,
+        pnl:             t.pnl,
+        pnl_pct:         t.pnl_pct,
+        entered_at:      t.entered_at,
+        exited_at:       t.exited_at,
+        entry_logic:     t.entry_logic,
+        trade_statement: t.trade_statement,
+      }))))
       .catch(() => {});
   }, [env]);
 
