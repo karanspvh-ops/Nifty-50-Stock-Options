@@ -42,6 +42,7 @@ from backend.routers.early_scalp_router import router as early_scalp_router
 from backend.core.stock_universe     import refresh_instrument_list
 from backend.agents.pnl_agent        import pnl_agent
 from backend.agents.ml_agent         import ml_agent
+from backend.core.daily_report_scheduler import daily_report_scheduler
 
 
 @asynccontextmanager
@@ -85,9 +86,12 @@ async def lifespan(app: FastAPI):
     pnl_agent.start()
     print("[BOOT] Starting ML agent...")
     ml_agent.start()
+    print("[BOOT] Starting daily report scheduler...")
+    daily_report_scheduler.start()
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
+    daily_report_scheduler.stop()
     ml_agent.stop()
     pnl_agent.stop()
     early_scalp.stop()
