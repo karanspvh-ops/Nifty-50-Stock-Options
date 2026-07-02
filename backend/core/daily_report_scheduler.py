@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 IST = timezone(timedelta(hours=5, minutes=30))
 SEND_HOUR = 15
 SEND_MINUTE = 15
-RECIPIENT = "sujayprakash24@gmail.com"
+RECIPIENTS = ["sujayprakash24@gmail.com", "saurav.prakash@bpaconsulting.in"]
 
 
 class DailyReportScheduler:
@@ -25,7 +25,7 @@ class DailyReportScheduler:
     def start(self):
         self._stopped = False
         self._schedule_next()
-        print(f"[REPORT] Daily report scheduler started — emails {RECIPIENT} at {SEND_HOUR}:{SEND_MINUTE:02d} IST")
+        print(f"[REPORT] Daily report scheduler started — emails {', '.join(RECIPIENTS)} at {SEND_HOUR}:{SEND_MINUTE:02d} IST")
 
     def stop(self):
         self._stopped = True
@@ -87,7 +87,7 @@ class DailyReportScheduler:
             if not today_trades:
                 print(f"[REPORT] Skipping — no trades today ({today_date})")
                 return
-            print(f"[REPORT] {len(today_trades)} trades today — sending report to {RECIPIENT}...")
+            print(f"[REPORT] {len(today_trades)} trades today — sending report to {', '.join(RECIPIENTS)}...")
 
             closed = (
                 db.query(Trade)
@@ -156,15 +156,15 @@ class DailyReportScheduler:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"SPVH AMC Daily Report — {today_str} — {subject_pnl}"
         msg["From"] = smtp_user
-        msg["To"] = RECIPIENT
+        msg["To"] = ", ".join(RECIPIENTS)
         msg.attach(MIMEText(html_body, "html"))
 
         with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
             server.starttls()
             server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_user, RECIPIENT, msg.as_string())
+            server.sendmail(smtp_user, RECIPIENTS, msg.as_string())
 
-        print(f"[REPORT] Daily report sent to {RECIPIENT} — {all_s['n']} trades, net {all_s['net']:+,.0f}")
+        print(f"[REPORT] Daily report sent to {', '.join(RECIPIENTS)} — {all_s['n']} trades, net {all_s['net']:+,.0f}")
 
 
 daily_report_scheduler = DailyReportScheduler()
