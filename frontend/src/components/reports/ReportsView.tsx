@@ -285,7 +285,7 @@ export default function ReportsView() {
 
   // Load all trades for live stats
   const loadTrades = useCallback(() => {
-    fetch(`${API}/api/trades?env=${env}`)
+    fetch(`${API}/api/trades?env=${env}&all=true`)
       .then(r => r.json())
       .then(setAllTrades)
       .catch(() => {});

@@ -21,11 +21,6 @@ function fmtTime(s: string | null | undefined) {
   return m ? m[1] : '—';
 }
 
-function fmtDate(s: string) {
-  const d = new Date(s);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-}
-
 function getStrategy(entry_logic: string): 'ES' | 'OB' | 'TE' {
   if (entry_logic?.startsWith('[ES]')) return 'ES';
   if (entry_logic?.startsWith('[OB]')) return 'OB';
@@ -69,24 +64,6 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
     return trades.filter(t => t.entered_at && new Date(t.entered_at) >= cutoff);
   }, [trades]);
 
-  // ── Per-day breakdown ──────────────────────────────────────────────────────
-  const byDay = useMemo(() => {
-    const map: Record<string, { es: number; ob: number; te: number; net: number; esN: number; obN: number; teN: number; wins: number; total: number }> = {};
-    rangedTrades.forEach(t => {
-      const date = t.entered_at?.slice(0, 10) ?? 'unknown';
-      if (!map[date]) map[date] = { es: 0, ob: 0, te: 0, net: 0, esN: 0, obN: 0, teN: 0, wins: 0, total: 0 };
-      const pnl = t.pnl || 0;
-      const strat = getStrategy(t.entry_logic);
-      if (strat === 'ES') { map[date].es += pnl; map[date].esN++; }
-      else if (strat === 'OB') { map[date].ob += pnl; map[date].obN++; }
-      else { map[date].te += pnl; map[date].teN++; }
-      map[date].net += pnl;
-      map[date].total++;
-      if (pnl > 0) map[date].wins++;
-    });
-    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [rangedTrades]);
-
   // ── Strategy-level totals (for the stat cards) ────────────────────────────
   const esTrades = rangedTrades.filter(t => getStrategy(t.entry_logic) === 'ES');
   const obTrades = rangedTrades.filter(t => getStrategy(t.entry_logic) === 'OB');
@@ -119,50 +96,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
         </div>
       </div>
 
-      {/* ── Per-day breakdown (7d + all) ── */}
-      {range !== 'today' && byDay.length > 0 && (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-muted text-[10px] uppercase tracking-wider bg-border/20 border-b border-border">
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2 text-purple-400">ES PnL</th>
-                <th className="px-3 py-2 text-blue-400">OB PnL</th>
-                <th className="px-3 py-2">Net</th>
-                <th className="px-3 py-2">Trades</th>
-                <th className="px-3 py-2">Win%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byDay.map(([date, d]) => (
-                <tr key={date} className="border-b border-border/40 hover:bg-border/10 text-xs">
-                  <td className="px-3 py-2 text-white font-medium">{fmtDate(date)}</td>
-                  <td className={`px-3 py-2 font-mono font-semibold ${pnlColor(d.es)}`}>
-                    {d.esN > 0 ? fmtPnL(d.es) : <span className="text-muted">—</span>}
-                    {d.esN > 0 && <span className="text-muted ml-1 font-normal text-[10px]">{d.esN}t</span>}
-                  </td>
-                  <td className={`px-3 py-2 font-mono font-semibold ${pnlColor(d.ob)}`}>
-                    {d.obN > 0 ? fmtPnL(d.ob) : <span className="text-muted">—</span>}
-                    {d.obN > 0 && <span className="text-muted ml-1 font-normal text-[10px]">{d.obN}t</span>}
-                  </td>
-                  <td className={`px-3 py-2 font-mono font-bold ${pnlColor(d.net)}`}>{fmtPnL(d.net)}</td>
-                  <td className="px-3 py-2 text-muted">{d.total}</td>
-                  <td className="px-3 py-2 text-muted">{d.total ? Math.round(d.wins / d.total * 100) : 0}%</td>
-                </tr>
-              ))}
-              {/* Totals row */}
-              <tr className="bg-border/20 text-xs font-bold border-t border-border">
-                <td className="px-3 py-2 text-muted uppercase tracking-wider text-[10px]">Total</td>
-                <td className={`px-3 py-2 font-mono ${pnlColor(esPnL)}`}>{fmtPnL(esPnL)}</td>
-                <td className={`px-3 py-2 font-mono ${pnlColor(obPnL)}`}>{fmtPnL(obPnL)}</td>
-                <td className={`px-3 py-2 font-mono ${pnlColor(netPnL)}`}>{fmtPnL(netPnL)}</td>
-                <td className="px-3 py-2 text-muted">{rangedTrades.length}</td>
-                <td className="px-3 py-2 text-muted">{rangedTrades.length ? Math.round(wins / rangedTrades.length * 100) : 0}%</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Per-day breakdown removed — this view always shows today only */}
 
       {/* ── Strategy filter tabs ── */}
       <div className="flex gap-2">
@@ -205,7 +139,6 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                 <th className="px-3 pb-2">LTP / Exit</th>
                 <th className="px-3 pb-2">PnL</th>
                 <th className="px-3 pb-2">Status</th>
-                {range !== 'today' && <th className="px-3 pb-2">Date</th>}
                 <th className="px-3 pb-2">In</th>
                 <th className="px-3 pb-2">Out</th>
               </tr>
@@ -267,15 +200,12 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                           {t.status}
                         </span>
                       </td>
-                      {range !== 'today' && (
-                        <td className="px-3 py-2 text-muted text-[10px]">{fmtDate(t.entered_at)}</td>
-                      )}
                       <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.entered_at)}</td>
                       <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.exited_at)}</td>
                     </tr>
                     {expanded === t.id && (
                       <tr key={`exp-${t.id}`} className="bg-bg/50">
-                        <td colSpan={range !== 'today' ? 13 : 12} className="px-4 py-3 text-xs text-muted leading-relaxed">
+                        <td colSpan={12} className="px-4 py-3 text-xs text-muted leading-relaxed">
                           <p><span className="text-white font-semibold">Entry logic: </span>{t.entry_logic || 'N/A'}</p>
                           <p className="mt-1"><span className="text-white font-semibold">Exit logic: </span>{t.exit_logic || 'N/A'}</p>
                         </td>

@@ -65,18 +65,14 @@ def _trade_to_dict(t: Trade) -> dict:
 def list_trades(
     env:    Optional[str] = Query("paper", description="paper or live"),
     date_:  Optional[str] = Query(None,    alias="date"),
+    all_:   Optional[bool] = Query(False,  alias="all"),
     status: Optional[str] = Query(None),
     db:     DBSession      = Depends(get_db),
 ):
-    trade_date = date_ or date.today().isoformat()
-    query = (
-        db.query(Trade)
-        .join(TradingSession)
-        .filter(
-            TradingSession.date == trade_date,
-            Trade.env == TradeEnv(env)
-        )
-    )
+    query = db.query(Trade).filter(Trade.env == TradeEnv(env))
+    if not all_:
+        trade_date = date_ or date.today().isoformat()
+        query = query.join(TradingSession).filter(TradingSession.date == trade_date)
     if status:
         query = query.filter(Trade.status == status)
     trades = query.order_by(Trade.entered_at.desc()).all()
