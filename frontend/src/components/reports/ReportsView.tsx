@@ -93,63 +93,78 @@ function generatePDFWindow(
     period === 'custom' ? `${customFrom} to ${customTo}` :
     'All Time';
 
-  const esNet  = esTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-  const obNet  = obTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-  const net    = allTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-  const wins   = allTrades.filter(t => (t.pnl || 0) > 0).length;
-  const esWins = esTrades.filter(t => (t.pnl || 0) > 0).length;
-  const obWins = obTrades.filter(t => (t.pnl || 0) > 0).length;
-  const avgCap = allTrades.length
-    ? allTrades.reduce((s, t) => s + capitalUsed(t), 0) / allTrades.length
-    : 0;
-  const esAvgCap = esTrades.length
-    ? esTrades.reduce((s, t) => s + capitalUsed(t), 0) / esTrades.length : 0;
-  const obAvgCap = obTrades.length
-    ? obTrades.reduce((s, t) => s + capitalUsed(t), 0) / obTrades.length : 0;
-  const pf = profitFactor(allTrades);
-  const esPF = profitFactor(esTrades);
-  const obPF  = profitFactor(obTrades);
+  const calcStats = (ts: Trade[]) => {
+    const net    = ts.reduce((s, t) => s + (t.pnl || 0), 0);
+    const wins   = ts.filter(t => (t.pnl || 0) > 0).length;
+    const caps   = ts.map(capitalUsed).filter(Boolean);
+    const avgCap = caps.length ? Math.round(caps.reduce((a, b) => a + b, 0) / caps.length) : 0;
+    const pf     = profitFactor(ts);
+    return { n: ts.length, net, wins, winPct: ts.length ? Math.round(wins / ts.length * 100) : 0, pf, avgCap };
+  };
+  const all = calcStats(allTrades);
+  const es  = calcStats(esTrades);
+  const ob  = calcStats(obTrades);
 
-  const tradeRows = (trades: Trade[]) => trades.map(t => {
-    const cap = capitalUsed(t);
-    const pnlColor = (t.pnl || 0) >= 0 ? '#22c55e' : '#ef4444';
-    return `<tr>
-      <td>${t.symbol}</td>
-      <td>${t.direction?.toUpperCase() || '—'}</td>
-      <td>${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
-      <td>${t.qty ?? '—'}</td>
-      <td>${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
-      <td>${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
-      <td>${cap ? fmtRs(cap) : '—'}</td>
-      <td style="color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
-      <td style="color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
-      <td>${fmtTime(t.entered_at)}</td>
-      <td>${fmtTime(t.exited_at)}</td>
-    </tr>`;
-  }).join('');
+  const statsRow = (s: ReturnType<typeof calcStats>) => {
+    const pnlColor = s.net >= 0 ? '#22c55e' : '#ef4444';
+    return `<table cellpadding="0" cellspacing="0" style="width:100%;margin:8px 0">
+      <tr>
+        <td style="padding:4px 20px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Total Trades</div>
+          <div style="font-size:20px;font-weight:700">${s.n}</div>
+        </td>
+        <td style="padding:4px 20px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Win Rate</div>
+          <div style="font-size:20px;font-weight:700">${s.winPct}%</div>
+        </td>
+        <td style="padding:4px 20px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Net PnL</div>
+          <div style="font-size:20px;font-weight:700;color:${pnlColor}">${fmtPnL(s.net)}</div>
+        </td>
+        <td style="padding:4px 20px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Profit Factor</div>
+          <div style="font-size:20px;font-weight:700">${isFinite(s.pf) ? s.pf : '∞'}</div>
+        </td>
+        <td style="padding:4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Avg Capital</div>
+          <div style="font-size:20px;font-weight:700">${s.avgCap ? fmtRs(s.avgCap) : '—'}</div>
+        </td>
+      </tr>
+    </table>`;
+  };
 
-  const sectionHTML = (title: string, trades: Trade[], snet: number, swins: number, spf: number, savgCap: number, color: string) => `
-    <div class="section">
-      <div class="section-header" style="background:${color}15;border-top:3px solid ${color}">
-        <span style="color:${color};font-weight:700;font-size:16px">${title}</span>
-        <div class="stats-row">
-          <div class="stat"><div class="stat-label">Trades</div><div class="stat-val">${trades.length}</div></div>
-          <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-val">${trades.length ? Math.round(swins/trades.length*100) : 0}%</div></div>
-          <div class="stat"><div class="stat-label">Net PnL</div><div class="stat-val" style="color:${snet>=0?'#22c55e':'#ef4444'}">${fmtPnL(snet)}</div></div>
-          <div class="stat"><div class="stat-label">Profit Factor</div><div class="stat-val">${isFinite(spf) ? spf : '∞'}</div></div>
-          <div class="stat"><div class="stat-label">Avg Capital</div><div class="stat-val">${savgCap ? fmtRs(savgCap) : '—'}</div></div>
-        </div>
-      </div>
-      ${trades.length ? `
-      <table>
-        <thead><tr>
-          <th>Symbol</th><th>Dir</th><th>Strike</th><th>Qty</th>
-          <th>Entry</th><th>Exit</th><th>Capital</th>
-          <th>PnL</th><th>PnL%</th><th>In</th><th>Out</th>
-        </tr></thead>
-        <tbody>${tradeRows(trades)}</tbody>
-      </table>` : '<p style="color:#888;padding:8px">No trades in this period.</p>'}
-    </div>`;
+  const tradeTable = (trades: Trade[]) => {
+    if (!trades.length) return '<p style="color:#888;padding:8px;font-size:12px">No trades in this period.</p>';
+    const thStyle = 'padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#666;letter-spacing:.5px;border-bottom:2px solid #e5e7eb;background:#f3f4f6';
+    let rows = '';
+    trades.forEach((t, i) => {
+      const cap = capitalUsed(t);
+      const pnlColor = (t.pnl || 0) >= 0 ? '#22c55e' : '#ef4444';
+      const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+      rows += `<tr style="background:${bg}">
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:500">${t.symbol}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.direction?.toUpperCase() || '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.qty ?? '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${cap ? fmtRs(cap) : '—'}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.entered_at)}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.exited_at)}</td>
+      </tr>`;
+    });
+    return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr>
+        <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
+        <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
+        <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
+        <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  };
 
   const html = `<!DOCTYPE html><html><head>
   <meta charset="utf-8"/>
@@ -157,41 +172,36 @@ function generatePDFWindow(
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',Arial,sans-serif;color:#111;background:#fff;padding:24px;font-size:12px}
-    h1{font-size:22px;margin-bottom:4px}
-    .meta{color:#666;font-size:11px;margin-bottom:20px}
-    .section{margin-bottom:32px;page-break-inside:avoid}
-    .section-header{padding:12px 16px;border-radius:6px;margin-bottom:12px}
-    .stats-row{display:flex;gap:24px;margin-top:8px;flex-wrap:wrap}
-    .stat{min-width:80px}
-    .stat-label{font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.05em}
-    .stat-val{font-size:18px;font-weight:700;color:#111;margin-top:2px}
-    table{width:100%;border-collapse:collapse;font-size:11px}
-    th{background:#f3f4f6;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #e5e7eb}
-    td{padding:5px 8px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
-    tr:nth-child(even){background:#fafafa}
-    .divider{border:none;border-top:2px solid #e5e7eb;margin:24px 0}
-    .combined{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:24px}
-    .combined .stats-row .stat-val{font-size:22px}
-    @media print{body{padding:12px}h1{font-size:18px}.section{page-break-before:always}.section:first-of-type{page-break-before:avoid}}
+    @media print{body{padding:12px}.section{page-break-before:always}.section:first-of-type{page-break-before:avoid}}
   </style>
   </head><body>
-  <h1>SPVH AMC — Trading Report</h1>
-  <div class="meta">Period: ${dateLabel} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString('en-IN')} &nbsp;|&nbsp; Mode: PAPER</div>
+  <h1 style="font-size:22px;margin-bottom:4px">SPVH AMC — Trading Report</h1>
+  <p style="color:#666;font-size:11px;margin-bottom:20px">
+    Period: ${dateLabel} &bull; Generated: ${new Date().toLocaleString('en-IN')} &bull; Mode: PAPER
+  </p>
 
-  <div class="combined">
+  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:24px">
     <div style="font-weight:700;font-size:14px;margin-bottom:8px">Combined Summary</div>
-    <div class="stats-row">
-      <div class="stat"><div class="stat-label">Total Trades</div><div class="stat-val">${allTrades.length}</div></div>
-      <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-val">${allTrades.length ? Math.round(wins/allTrades.length*100) : 0}%</div></div>
-      <div class="stat"><div class="stat-label">Net PnL</div><div class="stat-val" style="color:${net>=0?'#22c55e':'#ef4444'}">${fmtPnL(net)}</div></div>
-      <div class="stat"><div class="stat-label">Profit Factor</div><div class="stat-val">${isFinite(pf) ? pf : '∞'}</div></div>
-      <div class="stat"><div class="stat-label">Avg Capital</div><div class="stat-val">${avgCap ? fmtRs(avgCap) : '—'}</div></div>
-    </div>
+    ${statsRow(all)}
   </div>
 
-  ${sectionHTML('Early Scalp [ES]', esTrades, esNet, esWins, esPF, esAvgCap, '#a855f7')}
-  <hr class="divider"/>
-  ${sectionHTML('Opening Breakout [OB]', obTrades, obNet, obWins, obPF, obAvgCap, '#3b82f6')}
+  <div class="section" style="margin-bottom:32px">
+    <div style="border-top:3px solid #a855f7;background:#faf5ff;padding:14px 16px;margin-bottom:12px">
+      <div style="color:#a855f7;font-weight:700;font-size:16px;margin-bottom:8px">Early Scalp [ES]</div>
+      ${statsRow(es)}
+    </div>
+    ${tradeTable(esTrades)}
+  </div>
+
+  <hr style="border:none;border-top:2px solid #e5e7eb;margin:24px 0"/>
+
+  <div class="section" style="margin-bottom:32px">
+    <div style="border-top:3px solid #3b82f6;background:#eff6ff;padding:14px 16px;margin-bottom:12px">
+      <div style="color:#3b82f6;font-weight:700;font-size:16px;margin-bottom:8px">Opening Breakout [OB]</div>
+      ${statsRow(ob)}
+    </div>
+    ${tradeTable(obTrades)}
+  </div>
   </body></html>`;
 
   const w = window.open('', '_blank', 'width=1000,height=800');
