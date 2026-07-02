@@ -142,9 +142,17 @@ def get_portfolio_state(env: TradeEnv) -> dict:
 
 def check_portfolio_sl(env: TradeEnv) -> bool:
     """
-    Returns True if portfolio SL has been breached today.
-    If breached for the first time, marks the session as KILLED.
+    Returns True if today's closed-trade PnL breaches the portfolio SL.
+
+    Paper mode: always returns False — portfolio SL is disabled in paper
+    trading so strategy testing is never interrupted by cumulative paper losses.
+    Live mode: checks today's closed-trade PnL against today's opening capital.
     """
+    if env == TradeEnv.PAPER:
+        return False
+
+    from backend.database import Trade, TradeStatus
+
     db: DBSession = Session()
     try:
         ps = (
@@ -157,10 +165,23 @@ def check_portfolio_sl(env: TradeEnv) -> bool:
         if ps.trading_halted:
             return True
 
-        opening = ps.opening_balance or 1
-        loss_pct = ((opening - ps.current_balance) / opening) * 100
+        # Sum only today's CLOSED trade PnL — open positions are excluded
+        # so an unrealised drawdown mid-trade never triggers a halt.
+        today_trades = (
+            db.query(Trade)
+            .filter(
+                Trade.env          == env,
+                Trade.entered_at   >= today(),
+                Trade.status       != TradeStatus.OPEN,
+            )
+            .all()
+        )
+        today_pnl = sum((t.pnl or 0) for t in today_trades)
 
-        # Fetch SL threshold
+        opening      = ps.opening_balance or 1
+        loss_pct     = (-today_pnl / opening * 100) if today_pnl < 0 else 0.0
+
+        # Fetch SL threshold from today's session row
         session_row = (
             db.query(TradingSession)
             .filter(TradingSession.date == today(), TradingSession.env == env)
@@ -170,12 +191,15 @@ def check_portfolio_sl(env: TradeEnv) -> bool:
 
         if loss_pct >= sl_threshold:
             ps.trading_halted = True
-            ps.halt_reason    = f"Portfolio SL {sl_threshold}% breached (loss: {loss_pct:.2f}%)"
-            ps.drawdown_pct   = loss_pct
+            ps.halt_reason    = (
+                f"Portfolio SL {sl_threshold}% breached "
+                f"(today loss: Rs.{-today_pnl:,.0f} = {loss_pct:.2f}%)"
+            )
+            ps.drawdown_pct = loss_pct
             if session_row:
-                session_row.status              = SessionStatus.KILLED
+                session_row.status               = SessionStatus.KILLED
                 session_row.portfolio_sl_breached = True
-                session_row.stopped_at          = datetime.utcnow()
+                session_row.stopped_at           = datetime.utcnow()
             db.commit()
             return True
 

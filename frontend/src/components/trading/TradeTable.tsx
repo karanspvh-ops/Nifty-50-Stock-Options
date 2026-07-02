@@ -2,7 +2,6 @@ import { useEffect, useState, useMemo } from 'react';
 
 const API = 'http://localhost:8000';
 
-type DateRange = 'today' | '7d' | 'all';
 type StratFilter = 'ALL' | 'ES' | 'OB' | 'TE';
 
 interface Trade {
@@ -51,7 +50,6 @@ function PnLStat({ label, value, count, color }: { label: string; value: number;
 export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
   const [trades, setTrades]   = useState<Trade[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [range, setRange]     = useState<DateRange>('today');
   const [filter, setFilter]   = useState<StratFilter>('ALL');
 
   useEffect(() => {
@@ -64,18 +62,12 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
     return () => clearInterval(id);
   }, [env]);
 
-  // ── Date range filter ──────────────────────────────────────────────────────
+  // ── Always show today's trades only ───────────────────────────────────────
   const rangedTrades = useMemo(() => {
-    if (range === 'all') return trades;
     const cutoff = new Date();
-    if (range === 'today') {
-      cutoff.setHours(0, 0, 0, 0);
-    } else {
-      cutoff.setDate(cutoff.getDate() - 7);
-      cutoff.setHours(0, 0, 0, 0);
-    }
+    cutoff.setHours(0, 0, 0, 0);
     return trades.filter(t => t.entered_at && new Date(t.entered_at) >= cutoff);
-  }, [trades, range]);
+  }, [trades]);
 
   // ── Per-day breakdown ──────────────────────────────────────────────────────
   const byDay = useMemo(() => {
@@ -108,32 +100,8 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
   // ── Strategy filter on visible rows ───────────────────────────────────────
   const visible = filter === 'ALL' ? rangedTrades : rangedTrades.filter(t => getStrategy(t.entry_logic) === filter);
 
-  const RANGE_TABS: { key: DateRange; label: string }[] = [
-    { key: 'today', label: 'Today' },
-    { key: '7d',    label: 'Last 7 Days' },
-    { key: 'all',   label: 'All Time' },
-  ];
-
   return (
     <div className="bg-surface rounded-xl border border-border p-4 space-y-4">
-
-      {/* ── Date range tabs ── */}
-      <div className="flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-muted mr-1">Range</span>
-        {RANGE_TABS.map(r => (
-          <button
-            key={r.key}
-            onClick={() => setRange(r.key)}
-            className={`text-[11px] px-3 py-1 rounded font-semibold transition-colors border ${
-              range === r.key
-                ? 'bg-accent/20 text-accent border-accent/40'
-                : 'bg-border/20 text-muted border-border hover:bg-border/40'
-            }`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
 
       {/* ── PnL stat cards ── */}
       <div className="flex flex-wrap gap-3">

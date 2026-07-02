@@ -32,6 +32,8 @@ universe_tokens.json
 universe_lots.json
 ob_params.json
 reports/
+!frontend/src/components/reports/
+!frontend/src/components/reports/**
 
 # Ad-hoc test/scratch scripts
 test_module*.py
