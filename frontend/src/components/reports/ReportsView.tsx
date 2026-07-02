@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import html2pdf from 'html2pdf.js';
 import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
@@ -78,7 +79,7 @@ function profitFactor(trades: Trade[]): number {
 }
 
 // ── PDF generator ──────────────────────────────────────────────────────────────
-function generatePDFWindow(
+function generatePDF(
   period: string,
   customFrom: string,
   customTo: string,
@@ -86,12 +87,34 @@ function generatePDFWindow(
   obTrades: Trade[],
   allTrades: Trade[],
 ) {
+  const today = todayStr();
+
   const dateLabel =
-    period === 'today'  ? todayStr() :
-    period === '7d'     ? `Last 7 days (to ${todayStr()})` :
-    period === '30d'    ? `Last 30 days (to ${todayStr()})` :
+    period === 'today'  ? today :
+    period === '7d'     ? `Last 7 days (to ${today})` :
+    period === '30d'    ? `Last 30 days (to ${today})` :
     period === 'custom' ? `${customFrom} to ${customTo}` :
     'All Time';
+
+  const dateSuffix = (() => {
+    if (period === 'today')  return today;
+    if (period === '7d') {
+      const d = new Date(); d.setDate(d.getDate() - 6);
+      return `${d.toISOString().slice(0, 10)}_to_${today}`;
+    }
+    if (period === '30d') {
+      const d = new Date(); d.setDate(d.getDate() - 29);
+      return `${d.toISOString().slice(0, 10)}_to_${today}`;
+    }
+    if (period === 'custom') return `${customFrom}_to_${customTo}`;
+    if (allTrades.length) {
+      const dates = allTrades.map(t => (t.entered_at || '').slice(0, 10)).filter(Boolean).sort();
+      return `${dates[0]}_to_${dates[dates.length - 1]}`;
+    }
+    return 'All_Time';
+  })();
+
+  const filename = `SPVH_AMC_Report_${dateSuffix}.pdf`;
 
   const calcStats = (ts: Trade[]) => {
     const net    = ts.reduce((s, t) => s + (t.pnl || 0), 0);
@@ -204,12 +227,27 @@ function generatePDFWindow(
   </div>
   </body></html>`;
 
-  const w = window.open('', '_blank', 'width=1000,height=800');
-  if (w) {
-    w.document.write(html);
-    w.document.close();
-    setTimeout(() => w.print(), 400);
-  }
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '1000px';
+  document.body.appendChild(container);
+
+  html2pdf()
+    .set({
+      margin:     [10, 10, 10, 10],
+      filename,
+      image:      { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+      jsPDF:      { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak:  { mode: ['css', 'legacy'] },
+    })
+    .from(container)
+    .save()
+    .then(() => document.body.removeChild(container))
+    .catch(() => document.body.removeChild(container));
 }
 
 // ── Email modal ────────────────────────────────────────────────────────────────
@@ -420,7 +458,7 @@ export default function ReportsView() {
   };
 
   const handleDownloadPDF = () => {
-    generatePDFWindow(period, customFrom, customTo, esTrades, obTrades, enrichedTrades);
+    generatePDF(period, customFrom, customTo, esTrades, obTrades, enrichedTrades);
   };
 
   // ── Period label ─────────────────────────────────────────────────────────────
