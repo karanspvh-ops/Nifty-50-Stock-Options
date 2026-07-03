@@ -135,45 +135,26 @@ function generatePDF(
   const ob  = calcStats(obTrades);
 
   const statsRow = (s: ReturnType<typeof calcStats>) => {
-    const pnlColor = s.net >= 0 ? '#22c55e' : '#ef4444';
-    return `<table cellpadding="0" cellspacing="0" style="width:100%;margin:8px 0">
-      <tr>
-        <td style="padding:4px 20px 4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Total Trades</div>
-          <div style="font-size:20px;font-weight:700">${s.n}</div>
-        </td>
-        <td style="padding:4px 20px 4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Win Rate</div>
-          <div style="font-size:20px;font-weight:700">${s.winPct}%</div>
-        </td>
-        <td style="padding:4px 20px 4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Net PnL</div>
-          <div style="font-size:20px;font-weight:700;color:${pnlColor}">${fmtPnL(s.net)}</div>
-        </td>
-        <td style="padding:4px 20px 4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Profit Factor</div>
-          <div style="font-size:20px;font-weight:700">${isFinite(s.pf) ? s.pf : '∞'}</div>
-        </td>
-        <td style="padding:4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Avg Capital</div>
-          <div style="font-size:20px;font-weight:700">${s.avgCap ? fmtRs(s.avgCap) : '—'}</div>
-        </td>
-      </tr>
-    </table>`;
+    const pnlColor = s.net >= 0 ? '#16a34a' : '#dc2626';
+    const stat = (label: string, val: string, color = '#0f172a') =>
+      `<td style="padding:4px 24px 4px 0;vertical-align:top">
+        <div style="font-size:9px;text-transform:uppercase;color:#475569;letter-spacing:.6px;margin-bottom:4px">${label}</div>
+        <div style="font-size:20px;font-weight:800;color:${color};line-height:1">${val}</div>
+      </td>`;
+    return `<table cellpadding="0" cellspacing="0" style="width:100%;margin:6px 0"><tr>
+      ${stat('Total Trades', String(s.n))}
+      ${stat('Win Rate', `${s.winPct}%`)}
+      ${stat('Net PnL', fmtPnL(s.net), pnlColor)}
+      ${stat('Profit Factor', isFinite(s.pf) ? String(s.pf) : '∞')}
+      ${stat('Avg Capital', s.avgCap ? fmtRs(s.avgCap) : '—')}
+    </tr></table>`;
   };
 
   const tradeTable = (trades: Trade[]) => {
     if (!trades.length) return '<p style="color:#555;padding:8px;font-size:12px">No trades in this period.</p>';
-    const thStyle = 'padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#111;font-weight:700;letter-spacing:.5px;border-bottom:2px solid #cbd5e1;background:#e2e8f0';
-    const thead = `<thead><tr>
-        <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
-        <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
-        <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
-        <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
-      </tr></thead>`;
-    const td = 'padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:11px';
+    const thStyle = 'padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;color:#1e293b;font-weight:700;letter-spacing:.5px;background:#dde4ee;border-bottom:2px solid #b0bec5';
+    const td = 'padding:5px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:11px';
 
-    // Group by calendar date
     const byDate = new Map<string, Trade[]>();
     trades.forEach(t => {
       const day = (t.entered_at || '').slice(0, 10) || 'Unknown';
@@ -190,17 +171,18 @@ function generatePDF(
 
     return sortedDates.map(day => {
       const dayTrades = byDate.get(day)!;
-      const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-      const dayBg  = dayPnl >= 0 ? '#dcfce7' : '#fee2e2';
-      const dayColor  = dayPnl >= 0 ? '#15803d' : '#b91c1c';
-      const daySign   = dayPnl >= 0 ? '+' : '−';
+      const dayPnl   = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      const dayBg    = dayPnl >= 0 ? '#dcfce7' : '#fee2e2';
+      const dayColor = dayPnl >= 0 ? '#15803d' : '#b91c1c';
+      const daySign  = dayPnl >= 0 ? '+' : '−';
+
       let rows = '';
       dayTrades.forEach((t, i) => {
         const cap = capitalUsed(t);
         const pnlColor = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
         const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
-        rows += `<tr style="background:${bg}">
-          <td style="${td};font-weight:600">${t.symbol}</td>
+        rows += `<tr style="background:${bg};page-break-inside:avoid">
+          <td style="${td};font-weight:600;color:#0f172a">${t.symbol}</td>
           <td style="${td}">${t.direction?.toUpperCase() || '—'}</td>
           <td style="${td}">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
           <td style="${td}">${t.qty ?? '—'}</td>
@@ -213,17 +195,24 @@ function generatePDF(
           <td style="${td};color:#475569">${fmtTime(t.exited_at)}</td>
         </tr>`;
       });
-      return `<div style="margin-bottom:24px">
-        <table cellpadding="0" cellspacing="0" style="width:100%;background:${dayBg};margin-bottom:0">
-          <tr>
-            <td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
-            <td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
+
+      // Single unified table per day — thead contains date-band + column headers so they
+      // travel together and never split across pages.
+      return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
+        <thead>
+          <tr style="background:${dayBg};page-break-after:avoid">
+            <td colspan="9" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
+            <td colspan="2" style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
           </tr>
-        </table>
-        <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
-          ${thead}<tbody>${rows}</tbody>
-        </table>
-      </div>`;
+          <tr style="page-break-after:avoid">
+            <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
+            <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
+            <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
+            <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
     }).join('');
   };
 
@@ -232,33 +221,33 @@ function generatePDF(
   <title>SPVH AMC — Trading Report</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#111;background:#fff;padding:24px;font-size:12px}
-    @media print{body{padding:12px}.section{page-break-before:always}.section:first-of-type{page-break-before:avoid}}
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#111;background:#fff;padding:20px 24px;font-size:12px}
+    table{border-collapse:collapse}
+    thead tr:last-child th{page-break-after:avoid}
+    tr{page-break-inside:avoid}
   </style>
   </head><body>
-  <h1 style="font-size:22px;margin-bottom:4px">SPVH AMC — Trading Report</h1>
-  <p style="color:#666;font-size:11px;margin-bottom:20px">
+  <h1 style="font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px">SPVH AMC — Trading Report</h1>
+  <p style="color:#555;font-size:11px;margin-bottom:20px">
     Period: ${dateLabel} &bull; Generated: ${new Date().toLocaleString('en-IN')} &bull; Mode: PAPER
   </p>
 
-  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:24px">
-    <div style="font-weight:700;font-size:14px;margin-bottom:8px">Combined Summary</div>
+  <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;padding:16px;margin-bottom:24px">
+    <div style="font-weight:700;font-size:13px;color:#0f172a;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px">Combined Summary</div>
     ${statsRow(all)}
   </div>
 
-  <div class="section" style="margin-bottom:32px">
-    <div style="border-top:3px solid #a855f7;background:#faf5ff;padding:14px 16px;margin-bottom:12px">
-      <div style="color:#a855f7;font-weight:700;font-size:16px;margin-bottom:8px">Early Scalp [ES]</div>
+  <div style="page-break-before:always;break-before:page;margin-bottom:32px">
+    <div style="border-top:3px solid #a855f7;background:#f5f0ff;padding:14px 16px;margin-bottom:12px">
+      <div style="color:#7c3aed;font-weight:700;font-size:16px;margin-bottom:8px">Early Scalp [ES]</div>
       ${statsRow(es)}
     </div>
     ${tradeTable(esTrades)}
   </div>
 
-  <hr style="border:none;border-top:2px solid #e5e7eb;margin:24px 0"/>
-
-  <div class="section" style="margin-bottom:32px">
+  <div style="page-break-before:always;break-before:page;margin-bottom:32px">
     <div style="border-top:3px solid #3b82f6;background:#eff6ff;padding:14px 16px;margin-bottom:12px">
-      <div style="color:#3b82f6;font-weight:700;font-size:16px;margin-bottom:8px">Opening Breakout [OB]</div>
+      <div style="color:#1d4ed8;font-weight:700;font-size:16px;margin-bottom:8px">Opening Breakout [OB]</div>
       ${statsRow(ob)}
     </div>
     ${tradeTable(obTrades)}
@@ -274,6 +263,7 @@ function generatePDF(
       image:       { type: 'jpeg', quality: 0.95 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak:   { mode: ['css', 'legacy'], before: '[data-page-break]' },
     } as any)
     .from(html)
     .save();
