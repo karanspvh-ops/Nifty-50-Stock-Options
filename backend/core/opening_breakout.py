@@ -238,8 +238,11 @@ class OpeningBreakout:
 
         # Square off
         if t >= SQUARE_OFF:
-            self._square_off(env)
-            self._phase = "DONE"
+            if self._phase != "DONE":
+                self._square_off(env)
+                self._phase = "DONE"
+                from backend.core.daily_report_scheduler import daily_report_scheduler
+                daily_report_scheduler.notify_session_done("OB")
             return
 
         # Pre-open

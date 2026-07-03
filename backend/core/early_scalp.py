@@ -218,6 +218,8 @@ class EarlyScalp:
                 self._phase = "DONE"
                 if self._plan:
                     self._plan.status = "done"
+                from backend.core.daily_report_scheduler import daily_report_scheduler
+                daily_report_scheduler.notify_session_done("ES")
             return
 
         # Pre-open
