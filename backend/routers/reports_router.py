@@ -371,3 +371,10 @@ def email_report(payload: EmailReportPayload):
 
     return {"status": "sent", "to": payload.email, "period": period_label,
             "trades": all_s["n"]}
+
+
+@router.post("/send-now")
+def send_daily_report_now():
+    """Immediately send today's end-of-day report to all recipients."""
+    from backend.core.daily_report_scheduler import daily_report_scheduler
+    return daily_report_scheduler.send_now()

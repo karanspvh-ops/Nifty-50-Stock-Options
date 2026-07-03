@@ -76,10 +76,16 @@ class DailyReportScheduler:
     def notify_session_done(self, strategy: str):
         """
         Called by OB/ES when their square-off phase completes.
-        Once all expected strategies have notified, waits for open trades
-        to clear then sends the report.
+        Triggers report once all sessions are done and all trades closed.
+
+        "All done" means either:
+        - Every expected strategy has explicitly called in, OR
+        - We are at or past the latest session end time (15:15) — handles
+          cases where a strategy never called in due to a backend restart.
         """
-        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        now = datetime.now(IST)
+        today_str = now.strftime("%Y-%m-%d")
+
         with self._lock:
             # Reset on a new day
             if self._report_sent_date and self._report_sent_date != today_str:
@@ -87,15 +93,33 @@ class DailyReportScheduler:
                 self._report_sent_date = None
 
             self._done_strategies.add(strategy)
-            all_done = EXPECTED_STRATEGIES.issubset(self._done_strategies)
+
+            # All strategies explicitly called in, OR we're past 15:15
+            past_latest = now.hour > SEND_HOUR or (
+                now.hour == SEND_HOUR and now.minute >= SEND_MINUTE)
+            all_done = EXPECTED_STRATEGIES.issubset(self._done_strategies) or past_latest
             already_sent = self._report_sent_date == today_str
             poll_running = self._poll_thread and self._poll_thread.is_alive()
 
-        print(f"[REPORT] {strategy} session done. "
-              f"Strategies done today: {self._done_strategies}")
+        print(f"[REPORT] {strategy} session done "
+              f"(strategies: {self._done_strategies}, past_15:15={past_latest})")
 
         if all_done and not already_sent and not poll_running:
             self._start_poll_thread()
+
+    def send_now(self):
+        """Force-send today's report immediately (manual trigger)."""
+        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+        with self._lock:
+            already_sent = self._report_sent_date == today_str
+            poll_running = self._poll_thread and self._poll_thread.is_alive()
+        if already_sent:
+            return {"status": "already_sent", "date": today_str}
+        if poll_running:
+            return {"status": "poll_in_progress"}
+        threading.Thread(target=self._send_if_applicable,
+                         kwargs={"source": "manual"}, daemon=True).start()
+        return {"status": "triggered"}
 
     def _start_poll_thread(self):
         t = threading.Thread(target=self._poll_until_clear, daemon=True)
