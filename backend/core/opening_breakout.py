@@ -80,7 +80,7 @@ HARD_SL_PCT         = 10.0         # option premium hard stop
 TARGET_PCT          = 50.0         # single-lot full-exit target
 SECOND_TARGET_PCT   = 100.0        # multi-lot runner target
 TRAIL_ACTIVATE_PCT  = 20.0         # start trailing once +20%
-TRAIL_GAP_PCT       = 20.0         # trail 20% off the peak
+TRAIL_GAP_PCT       = 10.0         # trail 10% off the peak (locks ≥10% profit once armed)
 
 OB_TAG = "[OB]"
 LOOP_SEC = 5
