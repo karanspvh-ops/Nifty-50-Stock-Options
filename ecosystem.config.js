@@ -22,7 +22,11 @@ module.exports = {
       max_restarts: 999,
       restart_delay: 2000,
       env: {
-        PYTHONPATH: "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options"
+        PYTHONPATH: "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options",
+        SMTP_HOST: "smtp.gmail.com",
+        SMTP_PORT: "587",
+        SMTP_USER: "spventures.inv@gmail.com",
+        SMTP_PASS: "bwutzmkwhrwxbcrz"
       },
       log_file    : "./logs/trading-engine.log",
       out_file    : "./logs/trading-engine-out.log",

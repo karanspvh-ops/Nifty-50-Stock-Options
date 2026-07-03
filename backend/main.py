@@ -6,6 +6,9 @@ Managed by PM2 — runs 24/7, survives browser/terminal close.
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Force UTF-8 console output so log prints containing the ₹ symbol (and other
 # non-cp1252 chars) never raise UnicodeEncodeError on the Windows console — such
 # a crash inside a strategy tick would otherwise abort the whole tick.
