@@ -57,6 +57,12 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Normalise SQLite datetime strings like "2026-07-03 09:44:12.204113"
+// (space separator, microseconds) into a Date JS can reliably parse.
+function parseTs(s: string): Date {
+  return new Date(s.replace(' ', 'T').slice(0, 23));
+}
+
 function cutoffForPeriod(period: Period, customFrom: string): Date {
   const d = new Date();
   if (period === 'today') { d.setHours(0, 0, 0, 0); return d; }
@@ -186,7 +192,6 @@ function generatePDF(
       const dayTrades = byDate.get(day)!;
       const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
       const dayBg  = dayPnl >= 0 ? '#dcfce7' : '#fee2e2';
-      const dayBorder = dayPnl >= 0 ? '#16a34a' : '#dc2626';
       const dayColor  = dayPnl >= 0 ? '#15803d' : '#b91c1c';
       const daySign   = dayPnl >= 0 ? '+' : '−';
       let rows = '';
@@ -209,7 +214,7 @@ function generatePDF(
         </tr>`;
       });
       return `<div style="margin-bottom:24px">
-        <table cellpadding="0" cellspacing="0" style="width:100%;background:${dayBg};border-left:4px solid ${dayBorder};margin-bottom:0">
+        <table cellpadding="0" cellspacing="0" style="width:100%;background:${dayBg};margin-bottom:0">
           <tr>
             <td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
             <td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
@@ -269,8 +274,7 @@ function generatePDF(
       image:       { type: 'jpeg', quality: 0.95 },
       html2canvas: { scale: 2, useCORS: true, logging: false },
       jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak:   { mode: ['css', 'legacy'] },
-    })
+    } as any)
     .from(html)
     .save();
 }
@@ -416,10 +420,10 @@ export default function ReportsView() {
   // ── Filter trades by period ──────────────────────────────────────────────────
   const trades = useMemo<Trade[]>(() => {
     const cutoff = cutoffForPeriod(period, customFrom);
-    let filtered = allTrades.filter(t => t.entered_at && new Date(t.entered_at) >= cutoff);
+    let filtered = allTrades.filter(t => t.entered_at && parseTs(t.entered_at) >= cutoff);
     if (period === 'custom' && customTo) {
       const end = new Date(customTo + 'T23:59:59');
-      filtered = filtered.filter(t => new Date(t.entered_at!) <= end);
+      filtered = filtered.filter(t => parseTs(t.entered_at!) <= end);
     }
     return filtered;
   }, [allTrades, period, customFrom, customTo]);
