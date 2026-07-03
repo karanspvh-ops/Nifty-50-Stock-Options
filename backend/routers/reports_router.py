@@ -154,43 +154,47 @@ def _trade_table_html(trades, capital_fn):
         by_date[_day_key(t)].append(t)
     sorted_dates = sorted(by_date.keys())
 
-    th = 'padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#111;font-weight:700;letter-spacing:.5px;border-bottom:2px solid #cbd5e1;background:#e2e8f0'
-    thead = f"""<thead><tr>
-        <th style="{th}">Symbol</th><th style="{th}">Dir</th><th style="{th}">Strike</th>
-        <th style="{th}">Qty</th><th style="{th}">Entry</th><th style="{th}">Exit</th>
-        <th style="{th}">Capital</th><th style="{th}">PnL</th><th style="{th}">%</th>
-        <th style="{th}">In</th><th style="{th}">Out</th>
-      </tr></thead>"""
+    th = 'padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#1e293b;font-weight:700;letter-spacing:.5px;border-bottom:2px solid #cbd5e1;background:#dde4ee'
+    col_headers = (
+        f'<th style="{th}">Symbol</th>'
+        f'<th style="{th}">Entry</th><th style="{th}">Exit</th>'
+        f'<th style="{th}">Capital</th><th style="{th}">PnL</th><th style="{th}">%</th>'
+        f'<th style="{th}">In</th><th style="{th}">Out</th>'
+    )
     td = "padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:12px"
 
     html = ""
     for date_key in sorted_dates:
         day_trades = by_date[date_key]
         day_pnl = sum(t["pnl"] for t in day_trades)
-        day_bg     = "#dcfce7" if day_pnl >= 0 else "#fee2e2"
-        day_border = "#16a34a" if day_pnl >= 0 else "#dc2626"
-        day_color  = "#15803d" if day_pnl >= 0 else "#b91c1c"
-        day_sign   = "+" if day_pnl >= 0 else "−"
-        html += f"""<div style="margin-bottom:24px">
-          <table cellpadding="0" cellspacing="0" style="width:100%;background:{day_bg};border-left:4px solid {day_border};margin-bottom:0">
-            <tr>
-              <td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">{_fmt_day(date_key)}</td>
-              <td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:{day_color}">{day_sign}₹{abs(int(day_pnl)):,} &nbsp;·&nbsp; {len(day_trades)} trade{"s" if len(day_trades)!=1 else ""}</td>
+        day_bg    = "#dcfce7" if day_pnl >= 0 else "#fee2e2"
+        day_color = "#15803d" if day_pnl >= 0 else "#b91c1c"
+        day_sign  = "+" if day_pnl >= 0 else "−"
+        # Single unified table: date header row + column headers both in <thead>
+        html += f"""<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
+          <thead>
+            <tr style="background:{day_bg}">
+              <td colspan="6" style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">{_fmt_day(date_key)}</td>
+              <td colspan="2" style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:{day_color}">{day_sign}₹{abs(int(day_pnl)):,} &nbsp;·&nbsp; {len(day_trades)} trade{"s" if len(day_trades)!=1 else ""}</td>
             </tr>
-          </table>
-          <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
-            {thead}<tbody>"""
+            <tr>{col_headers}</tr>
+          </thead><tbody>"""
         for i, t in enumerate(day_trades):
             cap = capital_fn(t)
             pnl_color = "#15803d" if t["pnl"] >= 0 else "#b91c1c"
             bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
             entered = (t.get("entered_at") or "")[-8:] or "—"
             exited  = (t.get("exited_at")  or "")[-8:] or "—"
+            direction = (t.get("direction") or "").lower()
+            opt_type  = "CE" if direction == "call" else ("PE" if direction == "put" else "")
+            sym_label = " ".join(filter(None, [
+                t["symbol"],
+                str(t["strike"]) if t.get("strike") else "",
+                opt_type,
+                f"{t['qty']} QTY" if t.get("qty") else "",
+            ]))
             html += f"""<tr style="background:{bg}">
-              <td style="{td};font-weight:600">{t['symbol']}</td>
-              <td style="{td}">{(t.get('direction') or '').upper()}</td>
-              <td style="{td}">{t.get('strike') or '—'}</td>
-              <td style="{td}">{t.get('qty') or '—'}</td>
+              <td style="{td};font-weight:600;color:#0f172a">{sym_label}</td>
               <td style="{td}">₹{t['entry']:.2f}</td>
               <td style="{td}">{f"₹{t['exit']:.2f}" if t.get('exit') else '—'}</td>
               <td style="{td}">{f"₹{int(cap):,}" if cap else '—'}</td>
@@ -199,7 +203,7 @@ def _trade_table_html(trades, capital_fn):
               <td style="{td};color:#475569">{entered}</td>
               <td style="{td};color:#475569">{exited}</td>
             </tr>"""
-        html += "</tbody></table></div>"
+        html += "</tbody></table>"
 
     return html
 

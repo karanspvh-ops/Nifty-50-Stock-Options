@@ -181,13 +181,16 @@ function generatePDF(
         const cap = capitalUsed(t);
         const pnlColor = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
         const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+        const symLabel = [
+          t.symbol,
+          t.strike != null ? String(t.strike) : '',
+          t.option_type || '',
+          t.qty != null  ? `${t.qty} QTY` : '',
+        ].filter(Boolean).join(' ');
         rows += `<tr style="background:${bg};page-break-inside:avoid">
-          <td style="${td};font-weight:600;color:#0f172a">${t.symbol}</td>
-          <td style="${td}">${t.direction?.toUpperCase() || '—'}</td>
-          <td style="${td}">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
-          <td style="${td}">${t.qty ?? '—'}</td>
+          <td style="${td};font-weight:600;color:#0f172a">${symLabel}</td>
           <td style="${td}">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
-          <td style="${td}">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
+          <td style="${td}">${t.exit  ? `₹${t.exit.toFixed(2)}`  : '—'}</td>
           <td style="${td}">${cap ? fmtRs(cap) : '—'}</td>
           <td style="${td};color:${pnlColor};font-weight:700">${fmtPnL(t.pnl || 0)}</td>
           <td style="${td};color:${pnlColor};font-weight:600">${(t.pnl_pct || 0).toFixed(1)}%</td>
@@ -201,12 +204,12 @@ function generatePDF(
       return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
         <thead>
           <tr style="background:${dayBg};page-break-after:avoid">
-            <td colspan="9" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
+            <td colspan="6" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
             <td colspan="2" style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
           </tr>
           <tr style="page-break-after:avoid">
-            <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
-            <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
+            <th style="${thStyle}">Symbol</th>
+            <th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
             <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
             <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
           </tr>
