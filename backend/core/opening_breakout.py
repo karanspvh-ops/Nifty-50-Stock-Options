@@ -676,6 +676,13 @@ class OpeningBreakout:
             trail_stop = hard_sl
             if peak_pct >= activate_pct:
                 trail_stop = max(hard_sl, peak * (1 - gap_pct / 100))
+                # Persist trail SL to DB for UI visibility
+                new_dsl = round(trail_stop, 2)
+                if t.dynamic_sl_price != new_dsl:
+                    with DBSession() as db:
+                        db.query(Trade).filter(Trade.id == t.id).update(
+                            {"dynamic_sl_price": new_dsl}, synchronize_session=False)
+                        db.commit()
 
             # Target (single lot → full exit)
             if pnl_pct >= target_pct and t.quantity <= 1:
