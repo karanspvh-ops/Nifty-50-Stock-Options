@@ -159,34 +159,64 @@ function generatePDF(
   const tradeTable = (trades: Trade[]) => {
     if (!trades.length) return '<p style="color:#888;padding:8px;font-size:12px">No trades in this period.</p>';
     const thStyle = 'padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#666;letter-spacing:.5px;border-bottom:2px solid #e5e7eb;background:#f3f4f6';
-    let rows = '';
-    trades.forEach((t, i) => {
-      const cap = capitalUsed(t);
-      const pnlColor = (t.pnl || 0) >= 0 ? '#22c55e' : '#ef4444';
-      const bg = i % 2 === 0 ? '#fff' : '#fafafa';
-      rows += `<tr style="background:${bg}">
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:500">${t.symbol}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.direction?.toUpperCase() || '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.qty ?? '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${cap ? fmtRs(cap) : '—'}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.entered_at)}</td>
-        <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.exited_at)}</td>
-      </tr>`;
-    });
-    return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr>
+    const thead = `<thead><tr>
         <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
         <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
         <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
         <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+      </tr></thead>`;
+
+    // Group by calendar date
+    const byDate = new Map<string, Trade[]>();
+    trades.forEach(t => {
+      const day = (t.entered_at || '').slice(0, 10) || 'Unknown';
+      if (!byDate.has(day)) byDate.set(day, []);
+      byDate.get(day)!.push(t);
+    });
+    const sortedDates = Array.from(byDate.keys()).sort();
+
+    const fmtDay = (d: string) => {
+      try {
+        return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+      } catch { return d; }
+    };
+
+    return sortedDates.map(day => {
+      const dayTrades = byDate.get(day)!;
+      const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      const dayColor = dayPnl >= 0 ? '#22c55e' : '#ef4444';
+      const daySign = dayPnl >= 0 ? '+' : '−';
+      let rows = '';
+      dayTrades.forEach((t, i) => {
+        const cap = capitalUsed(t);
+        const pnlColor = (t.pnl || 0) >= 0 ? '#22c55e' : '#ef4444';
+        const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+        rows += `<tr style="background:${bg}">
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:500">${t.symbol}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.direction?.toUpperCase() || '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.qty ?? '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${cap ? fmtRs(cap) : '—'}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.entered_at)}</td>
+          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.exited_at)}</td>
+        </tr>`;
+      });
+      return `<div style="margin-bottom:20px">
+        <table cellpadding="0" cellspacing="0" style="width:100%;background:#f0f4f8;border-left:3px solid #64748b;margin-bottom:0">
+          <tr>
+            <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#334155">${fmtDay(day)}</td>
+            <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
+          </tr>
+        </table>
+        <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:11px">
+          ${thead}<tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    }).join('');
   };
 
   const html = `<!DOCTYPE html><html><head>
