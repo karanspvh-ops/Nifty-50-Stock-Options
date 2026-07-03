@@ -128,6 +128,25 @@ def _stats_table(st, label="Summary"):
     </table>"""
 
 
+def _calc_brokerage() -> float:
+    return 47.2  # 2 legs × ₹20 + 18% GST
+
+
+def _calc_statutory(t: dict, capital_fn) -> int:
+    entry    = t.get("entry") or 0
+    exit_p   = t.get("exit")  or 0
+    qty      = t.get("qty")   or 0
+    lot_size = t.get("lot_size") or 1
+    entry_val = entry  * qty * lot_size
+    exit_val  = exit_p * qty * lot_size
+    stt         = 0.00125 * exit_val
+    exchange    = 0.00053 * (entry_val + exit_val)
+    gst_on_exch = 0.18    * exchange
+    sebi        = (entry_val + exit_val) * 10 / 10_000_000
+    stamp       = 0.00003 * entry_val
+    return round(stt + exchange + gst_on_exch + sebi + stamp)
+
+
 def _trade_table_html(trades, capital_fn):
     if not trades:
         return '<p style="color:#888;padding:8px;font-size:12px">No trades in this period.</p>'
@@ -138,7 +157,7 @@ def _trade_table_html(trades, capital_fn):
     def _day_key(t):
         s = t.get("entered_at") or ""
         try:
-            return str(s)[:10]  # YYYY-MM-DD
+            return str(s)[:10]
         except Exception:
             return "Unknown"
 
@@ -148,7 +167,6 @@ def _trade_table_html(trades, capital_fn):
         except Exception:
             return d
 
-    # Group and sort by date
     by_date = defaultdict(list)
     for t in trades:
         by_date[_day_key(t)].append(t)
@@ -159,6 +177,8 @@ def _trade_table_html(trades, capital_fn):
         f'<th style="{th}">Symbol</th>'
         f'<th style="{th}">Entry</th><th style="{th}">Exit</th>'
         f'<th style="{th}">Capital</th><th style="{th}">PnL</th><th style="{th}">%</th>'
+        f'<th style="{th}">Peak</th>'
+        f'<th style="{th}">Brokerage</th><th style="{th}">Statutory</th>'
         f'<th style="{th}">In</th><th style="{th}">Out</th>'
     )
     td = "padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:12px"
@@ -170,23 +190,32 @@ def _trade_table_html(trades, capital_fn):
         day_bg    = "#dcfce7" if day_pnl >= 0 else "#fee2e2"
         day_color = "#15803d" if day_pnl >= 0 else "#b91c1c"
         day_sign  = "+" if day_pnl >= 0 else "−"
-        # Single unified table: date header row + column headers both in <thead>
         html += f"""<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
           <thead>
             <tr style="background:{day_bg}">
-              <td colspan="6" style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">{_fmt_day(date_key)}</td>
+              <td colspan="9" style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">{_fmt_day(date_key)}</td>
               <td colspan="2" style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:{day_color}">{day_sign}₹{abs(int(day_pnl)):,} &nbsp;·&nbsp; {len(day_trades)} trade{"s" if len(day_trades)!=1 else ""}</td>
             </tr>
             <tr>{col_headers}</tr>
           </thead><tbody>"""
         for i, t in enumerate(day_trades):
-            cap = capital_fn(t)
-            pnl_color = "#15803d" if t["pnl"] >= 0 else "#b91c1c"
-            bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
-            entered = (t.get("entered_at") or "")[-8:] or "—"
-            exited  = (t.get("exited_at")  or "")[-8:] or "—"
+            cap        = capital_fn(t)
+            broker     = _calc_brokerage()
+            statutory  = _calc_statutory(t, capital_fn)
+            pnl_color  = "#15803d" if t["pnl"] >= 0 else "#b91c1c"
+            peak       = t.get("peak")
+            peak_pct   = t.get("peak_pct")
+            peak_color = "#15803d" if (peak_pct or 0) >= 0 else "#b91c1c"
+            if peak is not None and peak_pct is not None:
+                sign = "+" if peak_pct >= 0 else ""
+                peak_cell = f'₹{peak:.2f} <span style="font-size:10px">({sign}{peak_pct:.1f}%)</span>'
+            else:
+                peak_cell = "—"
+            bg       = "#ffffff" if i % 2 == 0 else "#f8fafc"
+            entered  = (t.get("entered_at") or "")[-8:] or "—"
+            exited   = (t.get("exited_at")  or "")[-8:] or "—"
             direction = (t.get("direction") or "").lower()
-            opt_type  = "CE" if direction == "call" else ("PE" if direction == "put" else "")
+            opt_type  = t.get("option_type") or ("CE" if direction == "call" else ("PE" if direction == "put" else ""))
             sym_label = " ".join(filter(None, [
                 t["symbol"],
                 str(t["strike"]) if t.get("strike") else "",
@@ -200,6 +229,9 @@ def _trade_table_html(trades, capital_fn):
               <td style="{td}">{f"₹{int(cap):,}" if cap else '—'}</td>
               <td style="{td};color:{pnl_color};font-weight:700">{"+" if t['pnl']>=0 else "−"}₹{abs(int(t['pnl'])):,}</td>
               <td style="{td};color:{pnl_color};font-weight:600">{t['pnl_pct']:.1f}%</td>
+              <td style="{td};color:{peak_color}">{peak_cell}</td>
+              <td style="{td};color:#64748b">₹{int(broker)}</td>
+              <td style="{td};color:#64748b">₹{statutory}</td>
               <td style="{td};color:#475569">{entered}</td>
               <td style="{td};color:#475569">{exited}</td>
             </tr>"""
@@ -314,18 +346,22 @@ def email_report(payload: EmailReportPayload):
         )
         trades = [
             {
-                "symbol":    t.symbol,
-                "direction": t.direction,
-                "strike":    t.strike,
-                "qty":       t.quantity,
-                "lot_size":  t.lot_size,
-                "entry":     t.entry_price,
-                "exit":      t.exit_price,
-                "pnl":       t.pnl or 0,
-                "pnl_pct":   t.pnl_pct or 0,
-                "entered_at": str(t.entered_at) if t.entered_at else "",
-                "exited_at":  str(t.exited_at)  if t.exited_at  else "",
-                "logic":     t.entry_logic or "",
+                "symbol":      t.symbol,
+                "direction":   t.direction,
+                "option_type": t.option_type,
+                "strike":      t.strike,
+                "qty":         t.quantity,
+                "lot_size":    t.lot_size,
+                "entry":       t.entry_price,
+                "exit":        t.exit_price,
+                "peak":        t.highest_price,
+                "peak_pct":    round((t.highest_price - t.entry_price) / t.entry_price * 100, 1)
+                               if (t.highest_price and t.entry_price) else None,
+                "pnl":         t.pnl or 0,
+                "pnl_pct":     t.pnl_pct or 0,
+                "entered_at":  str(t.entered_at) if t.entered_at else "",
+                "exited_at":   str(t.exited_at)  if t.exited_at  else "",
+                "logic":       t.entry_logic or "",
             }
             for t in rows
         ]

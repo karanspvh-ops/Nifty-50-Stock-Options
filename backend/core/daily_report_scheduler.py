@@ -226,18 +226,22 @@ class DailyReportScheduler:
             )
             trades = [
                 {
-                    "symbol":     t.symbol,
-                    "direction":  t.direction,
-                    "strike":     t.strike,
-                    "qty":        t.quantity,
-                    "lot_size":   t.lot_size,
-                    "entry":      t.entry_price,
-                    "exit":       t.exit_price,
-                    "pnl":        t.pnl or 0,
-                    "pnl_pct":    t.pnl_pct or 0,
-                    "entered_at": str(t.entered_at) if t.entered_at else "",
-                    "exited_at":  str(t.exited_at) if t.exited_at else "",
-                    "logic":      t.entry_logic or "",
+                    "symbol":      t.symbol,
+                    "direction":   t.direction,
+                    "option_type": t.option_type,
+                    "strike":      t.strike,
+                    "qty":         t.quantity,
+                    "lot_size":    t.lot_size,
+                    "entry":       t.entry_price,
+                    "exit":        t.exit_price,
+                    "peak":        t.highest_price,
+                    "peak_pct":    round((t.highest_price - t.entry_price) / t.entry_price * 100, 1)
+                                   if (t.highest_price and t.entry_price) else None,
+                    "pnl":         t.pnl or 0,
+                    "pnl_pct":     t.pnl_pct or 0,
+                    "entered_at":  str(t.entered_at) if t.entered_at else "",
+                    "exited_at":   str(t.exited_at)  if t.exited_at  else "",
+                    "logic":       t.entry_logic or "",
                 }
                 for t in closed
             ]

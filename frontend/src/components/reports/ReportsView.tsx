@@ -78,6 +78,22 @@ function capitalUsed(t: Trade): number {
   return 0;
 }
 
+// ₹20 + 18% GST per leg × 2 legs (buy + sell)
+function calcBrokerage(): number { return 47.2; }
+
+function calcStatutory(t: Trade): number {
+  if (!t.entry || !t.exit || !t.qty) return 0;
+  const ls       = t.lot_size || 1;
+  const entryVal = t.entry * t.qty * ls;
+  const exitVal  = t.exit  * t.qty * ls;
+  const stt         = 0.00125  * exitVal;                         // 0.125% on sell premium
+  const exchange    = 0.00053  * (entryVal + exitVal);            // NSE F&O transaction charge
+  const gstOnExch   = 0.18     * exchange;                        // 18% GST on exchange charges
+  const sebi        = (entryVal + exitVal) * 10 / 10_000_000;    // ₹10 per crore
+  const stamp       = 0.00003  * entryVal;                        // 0.003% stamp on buy
+  return Math.round(stt + exchange + gstOnExch + sebi + stamp);
+}
+
 function profitFactor(trades: Trade[]): number {
   const gross_profit = trades.filter(t => (t.pnl || 0) > 0).reduce((s, t) => s + (t.pnl || 0), 0);
   const gross_loss   = Math.abs(trades.filter(t => (t.pnl || 0) < 0).reduce((s, t) => s + (t.pnl || 0), 0));
@@ -178,15 +194,21 @@ function generatePDF(
 
       let rows = '';
       dayTrades.forEach((t, i) => {
-        const cap = capitalUsed(t);
-        const pnlColor = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
-        const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
-        const symLabel = [
+        const cap        = capitalUsed(t);
+        const broker     = calcBrokerage();
+        const statutory  = calcStatutory(t);
+        const pnlColor   = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
+        const peakColor  = (t.peak_pct ?? 0) >= 0 ? '#15803d' : '#b91c1c';
+        const bg         = i % 2 === 0 ? '#ffffff' : '#f8fafc';
+        const symLabel   = [
           t.symbol,
           t.strike != null ? String(t.strike) : '',
           t.option_type || '',
           t.qty != null  ? `${t.qty} QTY` : '',
         ].filter(Boolean).join(' ');
+        const peakCell = t.peak != null
+          ? `₹${t.peak.toFixed(2)} <span style="font-size:10px">(${(t.peak_pct ?? 0) >= 0 ? '+' : ''}${(t.peak_pct ?? 0).toFixed(1)}%)</span>`
+          : '—';
         rows += `<tr style="background:${bg};page-break-inside:avoid">
           <td style="${td};font-weight:600;color:#0f172a">${symLabel}</td>
           <td style="${td}">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
@@ -194,6 +216,9 @@ function generatePDF(
           <td style="${td}">${cap ? fmtRs(cap) : '—'}</td>
           <td style="${td};color:${pnlColor};font-weight:700">${fmtPnL(t.pnl || 0)}</td>
           <td style="${td};color:${pnlColor};font-weight:600">${(t.pnl_pct || 0).toFixed(1)}%</td>
+          <td style="${td};color:${peakColor}">${peakCell}</td>
+          <td style="${td};color:#64748b">₹${broker.toFixed(0)}</td>
+          <td style="${td};color:#64748b">₹${statutory}</td>
           <td style="${td};color:#475569">${fmtTime(t.entered_at)}</td>
           <td style="${td};color:#475569">${fmtTime(t.exited_at)}</td>
         </tr>`;
@@ -204,13 +229,15 @@ function generatePDF(
       return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
         <thead>
           <tr style="background:${dayBg};page-break-after:avoid">
-            <td colspan="6" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
+            <td colspan="9" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
             <td colspan="2" style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
           </tr>
           <tr style="page-break-after:avoid">
             <th style="${thStyle}">Symbol</th>
             <th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
             <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
+            <th style="${thStyle}">Peak</th>
+            <th style="${thStyle}">Brokerage</th><th style="${thStyle}">Statutory</th>
             <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
           </tr>
         </thead>
