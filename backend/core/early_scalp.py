@@ -721,11 +721,24 @@ class EarlyScalp:
 
             pnl_pct = (premium - t.entry_price) / t.entry_price * 100
 
-            # Update trail state
+            # Update trail state — recover from DB if in-memory state was lost
             tid = t.id
             if tid not in self._trail_armed:
-                self._trail_armed[tid]  = False
-                self._trail_locked[tid] = -sl_pct
+                # Recover from DB: if dynamic_sl_price is set the trail was already armed
+                if t.dynamic_sl_price and t.dynamic_sl_price > t.trade_sl_price:
+                    self._trail_armed[tid]  = True
+                    recovered_lock = (t.dynamic_sl_price - t.entry_price) / t.entry_price * 100
+                    self._trail_locked[tid] = recovered_lock
+                    print(f"[ES] Trail state recovered from DB for {t.symbol}: locked={recovered_lock:+.1f}%")
+                # Also recover from highest_price if dynamic_sl wasn't written yet
+                elif t.highest_price and t.highest_price >= t.entry_price * (1 + arm_pct / 100):
+                    peak_pnl = (t.highest_price - t.entry_price) / t.entry_price * 100
+                    self._trail_armed[tid]  = True
+                    self._trail_locked[tid] = peak_pnl - gap_pct
+                    print(f"[ES] Trail re-armed from highest_price for {t.symbol}: peak={peak_pnl:.1f}% locked={self._trail_locked[tid]:+.1f}%")
+                else:
+                    self._trail_armed[tid]  = False
+                    self._trail_locked[tid] = -sl_pct
 
             if pnl_pct >= arm_pct and not self._trail_armed[tid]:
                 self._trail_armed[tid] = True
@@ -735,6 +748,12 @@ class EarlyScalp:
                 new_lock = pnl_pct - gap_pct
                 if new_lock > self._trail_locked[tid]:
                     self._trail_locked[tid] = new_lock
+                    # Persist trail SL to DB so it survives restarts
+                    new_dyn_sl = round(t.entry_price * (1 + self._trail_locked[tid] / 100), 2)
+                    with DBSession() as db:
+                        db.query(Trade).filter(Trade.id == tid).update(
+                            {"dynamic_sl_price": new_dyn_sl}, synchronize_session=False)
+                        db.commit()
 
             locked = self._trail_locked.get(tid, -sl_pct)
 
