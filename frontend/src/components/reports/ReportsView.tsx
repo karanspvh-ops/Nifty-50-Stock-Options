@@ -157,14 +157,15 @@ function generatePDF(
   };
 
   const tradeTable = (trades: Trade[]) => {
-    if (!trades.length) return '<p style="color:#888;padding:8px;font-size:12px">No trades in this period.</p>';
-    const thStyle = 'padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#666;letter-spacing:.5px;border-bottom:2px solid #e5e7eb;background:#f3f4f6';
+    if (!trades.length) return '<p style="color:#555;padding:8px;font-size:12px">No trades in this period.</p>';
+    const thStyle = 'padding:7px 8px;text-align:left;font-size:10px;text-transform:uppercase;color:#111;font-weight:700;letter-spacing:.5px;border-bottom:2px solid #cbd5e1;background:#e2e8f0';
     const thead = `<thead><tr>
         <th style="${thStyle}">Symbol</th><th style="${thStyle}">Dir</th><th style="${thStyle}">Strike</th>
         <th style="${thStyle}">Qty</th><th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
         <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
         <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
       </tr></thead>`;
+    const td = 'padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:11px';
 
     // Group by calendar date
     const byDate = new Map<string, Trade[]>();
@@ -184,35 +185,37 @@ function generatePDF(
     return sortedDates.map(day => {
       const dayTrades = byDate.get(day)!;
       const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-      const dayColor = dayPnl >= 0 ? '#22c55e' : '#ef4444';
-      const daySign = dayPnl >= 0 ? '+' : '−';
+      const dayBg  = dayPnl >= 0 ? '#dcfce7' : '#fee2e2';
+      const dayBorder = dayPnl >= 0 ? '#16a34a' : '#dc2626';
+      const dayColor  = dayPnl >= 0 ? '#15803d' : '#b91c1c';
+      const daySign   = dayPnl >= 0 ? '+' : '−';
       let rows = '';
       dayTrades.forEach((t, i) => {
         const cap = capitalUsed(t);
-        const pnlColor = (t.pnl || 0) >= 0 ? '#22c55e' : '#ef4444';
-        const bg = i % 2 === 0 ? '#fff' : '#fafafa';
+        const pnlColor = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
+        const bg = i % 2 === 0 ? '#ffffff' : '#f8fafc';
         rows += `<tr style="background:${bg}">
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-weight:500">${t.symbol}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.direction?.toUpperCase() || '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.qty ?? '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0">${cap ? fmtRs(cap) : '—'}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.entered_at)}</td>
-          <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#888">${fmtTime(t.exited_at)}</td>
+          <td style="${td};font-weight:600">${t.symbol}</td>
+          <td style="${td}">${t.direction?.toUpperCase() || '—'}</td>
+          <td style="${td}">${t.strike ? `${t.strike} ${t.option_type || ''}` : '—'}</td>
+          <td style="${td}">${t.qty ?? '—'}</td>
+          <td style="${td}">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
+          <td style="${td}">${t.exit ? `₹${t.exit.toFixed(2)}` : '—'}</td>
+          <td style="${td}">${cap ? fmtRs(cap) : '—'}</td>
+          <td style="${td};color:${pnlColor};font-weight:700">${fmtPnL(t.pnl || 0)}</td>
+          <td style="${td};color:${pnlColor};font-weight:600">${(t.pnl_pct || 0).toFixed(1)}%</td>
+          <td style="${td};color:#475569">${fmtTime(t.entered_at)}</td>
+          <td style="${td};color:#475569">${fmtTime(t.exited_at)}</td>
         </tr>`;
       });
-      return `<div style="margin-bottom:20px">
-        <table cellpadding="0" cellspacing="0" style="width:100%;background:#f0f4f8;border-left:3px solid #64748b;margin-bottom:0">
+      return `<div style="margin-bottom:24px">
+        <table cellpadding="0" cellspacing="0" style="width:100%;background:${dayBg};border-left:4px solid ${dayBorder};margin-bottom:0">
           <tr>
-            <td style="padding:6px 12px;font-size:12px;font-weight:700;color:#334155">${fmtDay(day)}</td>
-            <td style="padding:6px 12px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
+            <td style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
+            <td style="padding:7px 12px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
           </tr>
         </table>
-        <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:11px">
+        <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
           ${thead}<tbody>${rows}</tbody>
         </table>
       </div>`;
