@@ -257,27 +257,19 @@ function generatePDF(
   </div>
   </body></html>`;
 
-  const container = document.createElement('div');
-  container.innerHTML = html;
-  container.style.position = 'fixed';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.style.width = '1000px';
-  document.body.appendChild(container);
-
+  // Pass HTML string directly — html2pdf creates its own hidden iframe,
+  // avoiding the blank-PDF bug caused by off-screen fixed-position elements.
   html2pdf()
     .set({
-      margin:     [10, 10, 10, 10],
+      margin:      [10, 10, 10, 10],
       filename,
-      image:      { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
-      jsPDF:      { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak:  { mode: ['css', 'legacy'] },
+      image:       { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, logging: false },
+      jsPDF:       { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak:   { mode: ['css', 'legacy'] },
     })
-    .from(container)
-    .save()
-    .then(() => document.body.removeChild(container))
-    .catch(() => document.body.removeChild(container));
+    .from(html)
+    .save();
 }
 
 // ── Email modal ────────────────────────────────────────────────────────────────
