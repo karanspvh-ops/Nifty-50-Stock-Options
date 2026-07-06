@@ -242,6 +242,186 @@ def _trade_table_html(trades, capital_fn):
     return html
 
 
+def _es_capital_section(es_trades: list) -> str:
+    """Concurrent capital usage for ES trades, simulated against ₹5L base capital."""
+    if not es_trades:
+        return ""
+
+    from datetime import datetime as _dt
+    from collections import defaultdict
+
+    BASE = 500_000
+
+    def _pts(s):
+        if not s:
+            return None
+        try:
+            return _dt.fromisoformat(str(s).replace(" ", "T")[:23])
+        except Exception:
+            return None
+
+    def _cap(t):
+        return (t.get("entry") or 0) * (t.get("qty") or 0) * (t.get("lot_size") or 1)
+
+    by_day: dict = defaultdict(list)
+    for t in es_trades:
+        day = str(t.get("entered_at") or "")[:10]
+        if day:
+            by_day[day].append(t)
+    if not by_day:
+        return ""
+
+    running_bal = float(BASE)
+    days_data = []
+
+    for day in sorted(by_day):
+        raw = sorted(by_day[day], key=lambda t: str(t.get("entered_at") or ""))
+        opening = running_bal
+
+        enriched = []
+        for t in raw:
+            t_e = _pts(t.get("entered_at"))
+            conc = 0.0
+            if t_e:
+                for u in raw:
+                    u_e = _pts(u.get("entered_at"))
+                    u_x = _pts(u.get("exited_at"))
+                    if u_e and u_e <= t_e and (u_x is None or t_e < u_x):
+                        conc += _cap(u)
+            enriched.append({**t, "_conc": int(round(conc))})
+
+        events = []
+        for t in raw:
+            c = _cap(t)
+            if c > 0:
+                if _pts(t.get("entered_at")):
+                    events.append((_pts(t.get("entered_at")), +c))
+                if _pts(t.get("exited_at")):
+                    events.append((_pts(t.get("exited_at")), -c))
+        events.sort(key=lambda x: x[0])
+        rc = 0.0
+        peak = 0.0
+        for _, delta in events:
+            rc += delta
+            if rc > peak:
+                peak = rc
+
+        day_pnl = sum(t.get("pnl") or 0 for t in raw)
+        running_bal += day_pnl
+        days_data.append({
+            "date":     day,
+            "opening":  int(opening),
+            "peak":     int(round(peak)),
+            "headroom": int(opening - peak),
+            "breached": peak > opening,
+            "day_pnl":  day_pnl,
+            "trades":   enriched,
+        })
+
+    th = ("padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;"
+          "color:#1e293b;font-weight:700;letter-spacing:.5px;background:#ede9fe;"
+          "border-bottom:2px solid #c4b5fd")
+    tds = "padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px"
+
+    summary_rows = ""
+    for d in days_data:
+        pct = f"{round(d['peak'] / d['opening'] * 100, 1)}%" if d["opening"] else "0%"
+        sc  = "#b91c1c" if d["breached"] else "#15803d"
+        hc  = "#b91c1c" if d["headroom"] < 0 else "#15803d"
+        pc  = "#15803d" if d["day_pnl"] >= 0 else "#b91c1c"
+        ps  = "+" if d["day_pnl"] >= 0 else "−"
+        try:
+            dl = _dt.strptime(d["date"], "%Y-%m-%d").strftime("%d %b")
+        except Exception:
+            dl = d["date"]
+        summary_rows += (
+            f'<tr>'
+            f'<td style="{tds};color:#0f172a;font-weight:600">{dl}</td>'
+            f'<td style="{tds}">₹{d["opening"]:,}</td>'
+            f'<td style="{tds};color:#b45309;font-weight:600">₹{d["peak"]:,}</td>'
+            f'<td style="{tds};color:{hc}">₹{abs(d["headroom"]):,}</td>'
+            f'<td style="{tds}">{pct}</td>'
+            f'<td style="{tds};color:{sc};font-weight:600">{"⚠ OVER LIMIT" if d["breached"] else "✓ Within limit"}</td>'
+            f'<td style="{tds};color:{pc};font-weight:600">{ps}₹{abs(int(d["day_pnl"])):,}</td>'
+            f'</tr>'
+        )
+
+    summary_tbl = (
+        f'<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">'
+        f'<thead><tr>'
+        f'<th style="{th}">Date</th><th style="{th}">Opening</th>'
+        f'<th style="{th}">Peak Concurrent</th><th style="{th}">Headroom</th>'
+        f'<th style="{th}">% Used</th><th style="{th}">Status</th><th style="{th}">Day PnL</th>'
+        f'</tr></thead><tbody>{summary_rows}</tbody></table>'
+    )
+
+    detail_html = ""
+    for d in days_data:
+        try:
+            day_label = _dt.strptime(d["date"], "%Y-%m-%d").strftime("%A, %d %b %Y")
+        except Exception:
+            day_label = d["date"]
+        trade_rows = ""
+        for i, t in enumerate(d["trades"]):
+            cap  = _cap(t)
+            pnl  = t.get("pnl") or 0
+            conc = t.get("_conc", 0)
+            pc   = "#15803d" if pnl >= 0 else "#b91c1c"
+            cc   = "#b91c1c" if conc > d["opening"] else "#0f172a"
+            bg   = "#ffffff" if i % 2 == 0 else "#faf5ff"
+            entered = (str(t.get("entered_at") or "")[11:19]) or "—"
+            exited  = (str(t.get("exited_at")  or "")[11:19]) or "—"
+            dur_s = ""
+            e_ts = _pts(t.get("entered_at"))
+            x_ts = _pts(t.get("exited_at"))
+            if e_ts and x_ts:
+                secs = int((x_ts - e_ts).total_seconds())
+                dur_s = f"{secs // 60}m {secs % 60}s"
+            sym = " ".join(filter(None, [
+                t.get("symbol"),
+                str(t.get("strike")) if t.get("strike") else "",
+                t.get("option_type") or "",
+            ]))
+            trade_rows += (
+                f'<tr style="background:{bg}">'
+                f'<td style="{tds};font-weight:600;color:#0f172a">{sym}</td>'
+                f'<td style="{tds};color:#475569;font-family:monospace">{entered}</td>'
+                f'<td style="{tds};color:#475569;font-family:monospace">{exited}</td>'
+                f'<td style="{tds};color:#475569">{dur_s}</td>'
+                f'<td style="{tds}">₹{int(cap):,}</td>'
+                f'<td style="{tds};color:{cc};font-weight:600">₹{conc:,}</td>'
+                f'<td style="{tds};color:{pc};font-weight:700">{"+" if pnl>=0 else "−"}₹{abs(int(pnl)):,}</td>'
+                f'</tr>'
+            )
+        detail_html += (
+            f'<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:16px">'
+            f'<thead>'
+            f'<tr style="background:#f5f0ff">'
+            f'<td colspan="5" style="padding:6px 8px;font-size:11px;font-weight:700;color:#7c3aed">{day_label}</td>'
+            f'<td colspan="2" style="padding:6px 8px;text-align:right;font-size:11px;color:#555">'
+            f'Peak ₹{d["peak"]:,} / Opening ₹{d["opening"]:,} &nbsp;·&nbsp; '
+            f'{"⚠ OVER LIMIT" if d["breached"] else "✓ Within limit"}</td>'
+            f'</tr>'
+            f'<tr>'
+            f'<th style="{th}">Symbol</th><th style="{th}">In</th><th style="{th}">Out</th>'
+            f'<th style="{th}">Duration</th><th style="{th}">Capital</th>'
+            f'<th style="{th}">Concurrent at Entry</th><th style="{th}">PnL</th>'
+            f'</tr>'
+            f'</thead><tbody>{trade_rows}</tbody></table>'
+        )
+
+    return (
+        f'<div style="margin-top:32px;padding-top:16px;border-top:2px solid #c4b5fd">'
+        f'<div style="font-weight:700;font-size:14px;color:#7c3aed;margin-bottom:4px">'
+        f'ES — Capital Usage (₹5L Base)</div>'
+        f'<div style="font-size:11px;color:#555;margin-bottom:16px">'
+        f'₹5,00,000 base capital &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp; '
+        f'balance updates daily with each session\'s PnL</div>'
+        f'{summary_tbl}{detail_html}'
+        f'</div>'
+    )
+
+
 def _build_report_html(period_label, mode, generated_date, all_s, es_s, ob_s,
                        es_trades, ob_trades):
     def capital(t):
@@ -268,6 +448,7 @@ def _build_report_html(period_label, mode, generated_date, all_s, es_s, ob_s,
         {_stats_table(es_s)}
       </div>
       {_trade_table_html(es_trades, capital)}
+      {_es_capital_section(es_trades)}
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0"/>
 

@@ -100,6 +100,130 @@ function profitFactor(trades: Trade[]): number {
   return gross_loss === 0 ? (gross_profit > 0 ? Infinity : 0) : +(gross_profit / gross_loss).toFixed(2);
 }
 
+// ── ES capital usage section (₹5L base, per-day concurrent analysis) ───────────
+function esCapitalSection(esTrades: Trade[]): string {
+  if (!esTrades.length) return '';
+  const BASE = 500_000;
+  const tradeCap = (t: Trade) => (t.entry || 0) * (t.qty || 0) * (t.lot_size || 1);
+
+  const byDay = new Map<string, Trade[]>();
+  esTrades.forEach(t => {
+    const day = (t.entered_at || '').slice(0, 10);
+    if (day) { if (!byDay.has(day)) byDay.set(day, []); byDay.get(day)!.push(t); }
+  });
+  const sortedDays = [...byDay.keys()].sort();
+  let runningBal = BASE;
+
+  const th = 'padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;color:#1e293b;font-weight:700;letter-spacing:.5px;background:#ede9fe;border-bottom:2px solid #c4b5fd';
+  const tds = 'padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px';
+
+  interface DayR {
+    date: string; opening: number; peak: number; headroom: number;
+    breached: boolean; dayPnl: number; trades: (Trade & { _conc: number })[];
+  }
+  const days: DayR[] = [];
+
+  for (const day of sortedDays) {
+    const raw = [...byDay.get(day)!].sort((a, b) => (a.entered_at || '').localeCompare(b.entered_at || ''));
+    const opening = runningBal;
+
+    const rich = raw.map(t => {
+      const tE = parseTs(t.entered_at || '');
+      let conc = 0;
+      raw.forEach(u => {
+        if (!u.entered_at) return;
+        const uE = parseTs(u.entered_at);
+        const uX = u.exited_at ? parseTs(u.exited_at) : null;
+        if (uE <= tE && (!uX || tE < uX)) conc += tradeCap(u);
+      });
+      return { ...t, _conc: Math.round(conc) };
+    });
+
+    const evs: { ts: number; d: number }[] = [];
+    raw.forEach(t => {
+      const c = tradeCap(t);
+      if (!c) return;
+      if (t.entered_at) evs.push({ ts: parseTs(t.entered_at).getTime(), d: +c });
+      if (t.exited_at)  evs.push({ ts: parseTs(t.exited_at).getTime(),  d: -c });
+    });
+    evs.sort((a, b) => a.ts - b.ts);
+    let rc = 0, peak = 0;
+    evs.forEach(e => { rc += e.d; if (rc > peak) peak = rc; });
+
+    const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0), 0);
+    days.push({ date: day, opening, peak: Math.round(peak), headroom: Math.round(opening - peak), breached: peak > opening, dayPnl, trades: rich });
+    runningBal += dayPnl;
+  }
+
+  const summaryRows = days.map(d => {
+    const pct  = d.opening ? (d.peak / d.opening * 100).toFixed(1) + '%' : '0%';
+    const sc   = d.breached ? '#b91c1c' : '#15803d';
+    const hc   = d.headroom < 0 ? '#b91c1c' : '#15803d';
+    const pc   = d.dayPnl >= 0 ? '#15803d' : '#b91c1c';
+    const lbl  = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return d.date; } })();
+    return `<tr>
+      <td style="${tds};color:#0f172a;font-weight:600">${lbl}</td>
+      <td style="${tds}">₹${d.opening.toLocaleString('en-IN')}</td>
+      <td style="${tds};color:#b45309;font-weight:600">₹${d.peak.toLocaleString('en-IN')}</td>
+      <td style="${tds};color:${hc}">₹${Math.abs(d.headroom).toLocaleString('en-IN')}</td>
+      <td style="${tds}">${pct}</td>
+      <td style="${tds};color:${sc};font-weight:600">${d.breached ? '⚠ OVER LIMIT' : '✓ Within limit'}</td>
+      <td style="${tds};color:${pc};font-weight:600">${d.dayPnl >= 0 ? '+' : '−'}₹${Math.abs(Math.round(d.dayPnl)).toLocaleString('en-IN')}</td>
+    </tr>`;
+  }).join('');
+
+  const summaryTbl = `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
+    <thead><tr>
+      <th style="${th}">Date</th><th style="${th}">Opening</th>
+      <th style="${th}">Peak Concurrent</th><th style="${th}">Headroom</th>
+      <th style="${th}">% Used</th><th style="${th}">Status</th><th style="${th}">Day PnL</th>
+    </tr></thead><tbody>${summaryRows}</tbody></table>`;
+
+  const detailHtml = days.map(d => {
+    const dlabel = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }); } catch { return d.date; } })();
+    const rows = d.trades.map((t, i) => {
+      const cap = tradeCap(t);
+      const pnl = t.pnl || 0;
+      const pc  = pnl >= 0 ? '#15803d' : '#b91c1c';
+      const cc  = t._conc > d.opening ? '#b91c1c' : '#0f172a';
+      const bg  = i % 2 === 0 ? '#ffffff' : '#faf5ff';
+      let dur = '';
+      if (t.entered_at && t.exited_at) {
+        const s = Math.round((parseTs(t.exited_at).getTime() - parseTs(t.entered_at).getTime()) / 1000);
+        dur = `${Math.floor(s / 60)}m ${s % 60}s`;
+      }
+      const sym = [t.symbol, t.strike != null ? String(t.strike) : '', t.option_type || ''].filter(Boolean).join(' ');
+      return `<tr style="background:${bg}">
+        <td style="${tds};font-weight:600;color:#0f172a">${sym}</td>
+        <td style="${tds};color:#475569;font-family:monospace">${fmtTime(t.entered_at)}</td>
+        <td style="${tds};color:#475569;font-family:monospace">${fmtTime(t.exited_at)}</td>
+        <td style="${tds};color:#475569">${dur}</td>
+        <td style="${tds}">₹${Math.round(cap).toLocaleString('en-IN')}</td>
+        <td style="${tds};color:${cc};font-weight:600">₹${t._conc.toLocaleString('en-IN')}</td>
+        <td style="${tds};color:${pc};font-weight:700">${pnl >= 0 ? '+' : '−'}₹${Math.abs(Math.round(pnl)).toLocaleString('en-IN')}</td>
+      </tr>`;
+    }).join('');
+    return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:16px">
+      <thead>
+        <tr style="background:#f5f0ff">
+          <td colspan="5" style="padding:6px 8px;font-size:11px;font-weight:700;color:#7c3aed">${dlabel}</td>
+          <td colspan="2" style="padding:6px 8px;text-align:right;font-size:11px;color:#555">Peak ₹${d.peak.toLocaleString('en-IN')} / Opening ₹${d.opening.toLocaleString('en-IN')} &nbsp;·&nbsp; ${d.breached ? '⚠ OVER LIMIT' : '✓ Within limit'}</td>
+        </tr>
+        <tr>
+          <th style="${th}">Symbol</th><th style="${th}">In</th><th style="${th}">Out</th>
+          <th style="${th}">Duration</th><th style="${th}">Capital</th>
+          <th style="${th}">Concurrent at Entry</th><th style="${th}">PnL</th>
+        </tr>
+      </thead><tbody>${rows}</tbody></table>`;
+  }).join('');
+
+  return `<div style="margin-top:28px;padding-top:16px;border-top:2px solid #c4b5fd">
+    <div style="font-weight:700;font-size:14px;color:#7c3aed;margin-bottom:4px">ES — Capital Usage (₹5L Base)</div>
+    <div style="font-size:11px;color:#555;margin-bottom:16px">₹5,00,000 base capital &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp; balance updates daily with PnL</div>
+    ${summaryTbl}${detailHtml}
+  </div>`;
+}
+
 // ── PDF generator ──────────────────────────────────────────────────────────────
 function generatePDF(
   period: string,
@@ -273,6 +397,7 @@ function generatePDF(
       ${statsRow(es)}
     </div>
     ${tradeTable(esTrades)}
+    ${esCapitalSection(esTrades)}
   </div>
 
   <div style="page-break-before:always;break-before:page;margin-bottom:32px">
