@@ -258,6 +258,16 @@ class DailyReportScheduler:
                 }
                 for t in closed
             ]
+            # Cumulative ES PnL before today → correct opening balance for chart
+            prior_es = (
+                db.query(Trade)
+                .filter(Trade.env == TradeEnv.PAPER,
+                        Trade.entered_at < from_dt,
+                        Trade.status != TradeStatus.OPEN,
+                        Trade.entry_logic.like("[ES]%"))
+                .all()
+            )
+            es_start_balance = 500_000 + sum((t.pnl or 0) for t in prior_es)
         finally:
             db.close()
 
@@ -271,9 +281,10 @@ class DailyReportScheduler:
                 return
             self._report_sent_date = today_str
 
-        self._send_email(smtp_user, smtp_pass, today_str, trades)
+        self._send_email(smtp_user, smtp_pass, today_str, trades, es_start_balance)
 
-    def _send_email(self, smtp_user: str, smtp_pass: str, today_str: str, trades: list):
+    def _send_email(self, smtp_user: str, smtp_pass: str, today_str: str, trades: list,
+                    es_start_balance: float = 500_000):
         import smtplib
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
@@ -304,7 +315,8 @@ class DailyReportScheduler:
 
         from backend.routers.reports_router import _build_report_html
         html_body = _build_report_html(
-            today_str, "PAPER", today_str, all_s, es_s, ob_s, es_trades, ob_trades
+            today_str, "PAPER", today_str, all_s, es_s, ob_s, es_trades, ob_trades,
+            es_start_balance
         )
 
         net = all_s["net"]

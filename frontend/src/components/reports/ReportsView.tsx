@@ -101,9 +101,77 @@ function profitFactor(trades: Trade[]): number {
 }
 
 // ── ES capital usage section (₹5L base, per-day concurrent analysis) ───────────
-function esCapitalSection(esTrades: Trade[]): string {
+function capitalChartSvg(
+  days: { date: string; dayPnl: number }[],
+  startBalance: number,
+): string {
+  if (!days.length) return '';
+  const balances = [startBalance];
+  let r = startBalance;
+  days.forEach(d => { r += d.dayPnl; balances.push(r); });
+
+  const W = 740, H = 130;
+  const PL = 60, PR = 20, PT = 24, PB = 28;
+  const PW = W - PL - PR, PH = H - PT - PB;
+  const N = balances.length - 1;
+
+  let mn = Math.min(...balances), mx = Math.max(...balances);
+  const span = Math.max(mx - mn, 10_000);
+  mn -= span * 0.1; mx += span * 0.1;
+
+  const xi = (i: number) => PL + (i / Math.max(N, 1)) * PW;
+  const yi = (v: number) => PT + (1 - (v - mn) / (mx - mn)) * PH;
+
+  let grid = '';
+  for (let k = 0; k < 5; k++) {
+    const v = mn + (mx - mn) * k / 4;
+    const yv = yi(v);
+    if (yv >= PT - 2 && yv <= H - PB + 2) {
+      grid += `<line x1="${PL}" y1="${yv.toFixed(1)}" x2="${W-PR}" y2="${yv.toFixed(1)}" stroke="#e5e7eb" stroke-width="0.5"/>`;
+      grid += `<text x="${PL-4}" y="${yv.toFixed(1)}" text-anchor="end" dominant-baseline="middle" font-size="8" fill="#9ca3af">₹${(v/100000).toFixed(1)}L</text>`;
+    }
+  }
+
+  const b5 = yi(500_000);
+  let ref = '';
+  if (b5 >= PT - 2 && b5 <= H - PB + 2) {
+    ref = `<line x1="${PL}" y1="${b5.toFixed(1)}" x2="${W-PR}" y2="${b5.toFixed(1)}" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>`;
+    ref += `<text x="${W-PR+3}" y="${b5.toFixed(1)}" dominant-baseline="middle" font-size="7" fill="#94a3b8">₹5L</text>`;
+  }
+
+  const pts = balances.map((v, i) => `${xi(i).toFixed(1)},${yi(v).toFixed(1)}`).join(' ');
+  const lc = balances[balances.length - 1] >= startBalance ? '#15803d' : '#b91c1c';
+
+  const sx = xi(0).toFixed(1), sy = yi(startBalance).toFixed(1);
+  let markers = `<circle cx="${sx}" cy="${sy}" r="3" fill="#9ca3af" stroke="white" stroke-width="1.5"/>`;
+  days.forEach((d, idx) => {
+    const i = idx + 1;
+    const v = balances[i];
+    const cx = xi(i), cy = yi(v);
+    const mc = v >= startBalance ? '#15803d' : '#b91c1c';
+    const pc = d.dayPnl >= 0 ? '#15803d' : '#b91c1c';
+    const sign = d.dayPnl >= 0 ? '+' : '−';
+    const dl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return d.date.slice(5); } })();
+    let ly = i % 2 === 1 ? cy - 10 : cy + 16;
+    if (ly < PT + 2) ly = cy + 16;
+    if (ly > H - PB - 2) ly = cy - 10;
+    markers += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="${mc}" stroke="white" stroke-width="1.5"/>`;
+    markers += `<text x="${cx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="8" fill="${pc}">${sign}₹${Math.abs(Math.round(d.dayPnl)).toLocaleString('en-IN')}</text>`;
+    markers += `<text x="${cx.toFixed(1)}" y="${(H-4).toFixed(1)}" text-anchor="middle" font-size="8" fill="#64748b">${dl}</text>`;
+  });
+
+  return `<div style="margin-bottom:20px">
+    <div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:6px">Capital Trajectory</div>
+    <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">
+      ${grid}${ref}
+      <polyline points="${pts}" fill="none" stroke="${lc}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      ${markers}
+    </svg>
+  </div>`;
+}
+
+function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): string {
   if (!esTrades.length) return '';
-  const BASE = 500_000;
   const tradeCap = (t: Trade) => (t.entry || 0) * (t.qty || 0) * (t.lot_size || 1);
 
   const byDay = new Map<string, Trade[]>();
@@ -112,7 +180,7 @@ function esCapitalSection(esTrades: Trade[]): string {
     if (day) { if (!byDay.has(day)) byDay.set(day, []); byDay.get(day)!.push(t); }
   });
   const sortedDays = [...byDay.keys()].sort();
-  let runningBal = BASE;
+  let runningBal = startBalance;
 
   const th = 'padding:6px 8px;text-align:left;font-size:9px;text-transform:uppercase;color:#1e293b;font-weight:700;letter-spacing:.5px;background:#ede9fe;border-bottom:2px solid #c4b5fd';
   const tds = 'padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px';
@@ -217,9 +285,20 @@ function esCapitalSection(esTrades: Trade[]): string {
       </thead><tbody>${rows}</tbody></table>`;
   }).join('');
 
+  const closingBal = Math.round(runningBal);
+  const balDiff    = closingBal - Math.round(startBalance);
+  const balColor   = balDiff >= 0 ? '#15803d' : '#b91c1c';
+  const balSign    = balDiff >= 0 ? '+' : '−';
+
   return `<div style="margin-top:28px;padding-top:16px;border-top:2px solid #c4b5fd">
     <div style="font-weight:700;font-size:14px;color:#7c3aed;margin-bottom:4px">ES — Capital Usage (₹5L Base)</div>
-    <div style="font-size:11px;color:#555;margin-bottom:16px">₹5,00,000 base capital &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp; balance updates daily with PnL</div>
+    <div style="font-size:11px;color:#555;margin-bottom:12px">
+      Base ₹5,00,000 &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp;
+      Period opening ₹${Math.round(startBalance).toLocaleString('en-IN')} &nbsp;·&nbsp;
+      Period closing <span style="color:${balColor};font-weight:600">₹${closingBal.toLocaleString('en-IN')}</span>
+      (<span style="color:${balColor}">${balSign}₹${Math.abs(balDiff).toLocaleString('en-IN')}</span>)
+    </div>
+    ${capitalChartSvg(days, startBalance)}
     ${summaryTbl}${detailHtml}
   </div>`;
 }
@@ -232,6 +311,7 @@ function generatePDF(
   esTrades: Trade[],
   obTrades: Trade[],
   allTrades: Trade[],
+  esStartBalance: number = 500_000,
 ) {
   const today = todayStr();
 
@@ -397,7 +477,7 @@ function generatePDF(
       ${statsRow(es)}
     </div>
     ${tradeTable(esTrades)}
-    ${esCapitalSection(esTrades)}
+    ${esCapitalSection(esTrades, esStartBalance)}
   </div>
 
   <div style="page-break-before:always;break-before:page;margin-bottom:32px">
@@ -585,6 +665,16 @@ export default function ReportsView() {
   const esTrades = useMemo(() => enrichedTrades.filter(t => getStrategy(t.entry_logic) === 'ES'), [enrichedTrades]);
   const obTrades = useMemo(() => enrichedTrades.filter(t => getStrategy(t.entry_logic) === 'OB'), [enrichedTrades]);
 
+  // All-time ES trades (unfiltered by period) — used to compute correct opening balance
+  const allEsTrades = useMemo(() => allTrades.filter(t => getStrategy(t.entry_logic) === 'ES'), [allTrades]);
+
+  // Sum of ES PnL from all days strictly before the current period start
+  const esStartBalance = useMemo(() => {
+    const cutoff = cutoffForPeriod(period, customFrom);
+    const prior = allEsTrades.filter(t => t.entered_at && parseTs(t.entered_at) < cutoff);
+    return 500_000 + prior.reduce((s, t) => s + (t.pnl || 0), 0);
+  }, [allEsTrades, period, customFrom]);
+
   const stats = useMemo(() => {
     const calc = (ts: Trade[]) => {
       const net   = ts.reduce((s, t) => s + (t.pnl || 0), 0);
@@ -632,7 +722,7 @@ export default function ReportsView() {
   };
 
   const handleDownloadPDF = () => {
-    generatePDF(period, customFrom, customTo, esTrades, obTrades, enrichedTrades);
+    generatePDF(period, customFrom, customTo, esTrades, obTrades, enrichedTrades, esStartBalance);
   };
 
   // ── Period label ─────────────────────────────────────────────────────────────

@@ -242,15 +242,95 @@ def _trade_table_html(trades, capital_fn):
     return html
 
 
-def _es_capital_section(es_trades: list) -> str:
+def _capital_chart_svg(days_data: list, start_balance: float) -> str:
+    """Inline SVG line chart of running balance trajectory."""
+    if not days_data:
+        return ""
+    from datetime import datetime as _dt2
+
+    balances = [start_balance]
+    r = start_balance
+    for d in days_data:
+        r += d.get("day_pnl", 0)
+        balances.append(r)
+
+    W, H = 740, 130
+    PL, PR, PT, PB = 60, 20, 24, 28
+    PW, PH = W - PL - PR, H - PT - PB
+    N = len(balances) - 1
+
+    mn = min(balances); mx = max(balances)
+    span = max(mx - mn, 10_000)
+    mn -= span * 0.1;  mx += span * 0.1
+
+    def xi(i): return PL + (i / max(N, 1)) * PW
+    def yi(v): return PT + (1 - (v - mn) / (mx - mn)) * PH
+
+    svg_grid = ""
+    for k in range(5):
+        v = mn + (mx - mn) * k / 4
+        yv = yi(v)
+        if PT - 2 <= yv <= H - PB + 2:
+            svg_grid += (
+                f'<line x1="{PL}" y1="{yv:.1f}" x2="{W-PR}" y2="{yv:.1f}" '
+                f'stroke="#e5e7eb" stroke-width="0.5"/>'
+                f'<text x="{PL-4}" y="{yv:.1f}" text-anchor="end" '
+                f'dominant-baseline="middle" font-size="8" fill="#9ca3af">₹{v/100000:.1f}L</text>'
+            )
+
+    svg_ref = ""
+    b5 = yi(500_000)
+    if PT - 2 <= b5 <= H - PB + 2:
+        svg_ref = (
+            f'<line x1="{PL}" y1="{b5:.1f}" x2="{W-PR}" y2="{b5:.1f}" '
+            f'stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>'
+            f'<text x="{W-PR+3}" y="{b5:.1f}" dominant-baseline="middle" '
+            f'font-size="7" fill="#94a3b8">₹5L</text>'
+        )
+
+    pts = " ".join(f"{xi(i):.1f},{yi(v):.1f}" for i, v in enumerate(balances))
+    lc = "#15803d" if balances[-1] >= start_balance else "#b91c1c"
+
+    svg_pts = (f'<circle cx="{xi(0):.1f}" cy="{yi(start_balance):.1f}" r="3" '
+               f'fill="#9ca3af" stroke="white" stroke-width="1.5"/>')
+    for i, (v, d) in enumerate(zip(balances[1:], days_data), 1):
+        cx, cy = xi(i), yi(v)
+        mc = "#15803d" if v >= start_balance else "#b91c1c"
+        pnl = d.get("day_pnl", 0)
+        pc  = "#15803d" if pnl >= 0 else "#b91c1c"
+        ps  = "+" if pnl >= 0 else "−"
+        try:
+            dl = _dt2.strptime(d["date"], "%Y-%m-%d").strftime("%d %b")
+        except Exception:
+            dl = d["date"][-5:]
+        ly = cy - 10 if i % 2 == 1 else cy + 16
+        if ly < PT + 2: ly = cy + 16
+        if ly > H - PB - 2: ly = cy - 10
+        svg_pts += (
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4" fill="{mc}" stroke="white" stroke-width="1.5"/>'
+            f'<text x="{cx:.1f}" y="{ly:.1f}" text-anchor="middle" font-size="8" fill="{pc}">{ps}₹{abs(int(pnl)):,}</text>'
+            f'<text x="{cx:.1f}" y="{H-4}" text-anchor="middle" font-size="8" fill="#64748b">{dl}</text>'
+        )
+
+    return (
+        f'<div style="margin-bottom:20px">'
+        f'<div style="font-size:11px;font-weight:600;color:#475569;margin-bottom:6px">Capital Trajectory</div>'
+        f'<svg width="{W}" height="{H}" xmlns="http://www.w3.org/2000/svg" style="display:block;overflow:visible">'
+        f'{svg_grid}{svg_ref}'
+        f'<polyline points="{pts}" fill="none" stroke="{lc}" stroke-width="2.5" '
+        f'stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{svg_pts}'
+        f'</svg></div>'
+    )
+
+
+def _es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
     """Concurrent capital usage for ES trades, simulated against ₹5L base capital."""
     if not es_trades:
         return ""
 
     from datetime import datetime as _dt
     from collections import defaultdict
-
-    BASE = 500_000
 
     def _pts(s):
         if not s:
@@ -271,7 +351,7 @@ def _es_capital_section(es_trades: list) -> str:
     if not by_day:
         return ""
 
-    running_bal = float(BASE)
+    running_bal = float(start_balance)
     days_data = []
 
     for day in sorted(by_day):
@@ -410,20 +490,28 @@ def _es_capital_section(es_trades: list) -> str:
             f'</thead><tbody>{trade_rows}</tbody></table>'
         )
 
+    closing_bal = int(round(running_bal))
+    bal_color = "#15803d" if closing_bal >= start_balance else "#b91c1c"
+    bal_sign  = "+" if closing_bal >= int(start_balance) else "−"
+    bal_diff  = abs(closing_bal - int(start_balance))
+
     return (
         f'<div style="margin-top:32px;padding-top:16px;border-top:2px solid #c4b5fd">'
         f'<div style="font-weight:700;font-size:14px;color:#7c3aed;margin-bottom:4px">'
         f'ES — Capital Usage (₹5L Base)</div>'
-        f'<div style="font-size:11px;color:#555;margin-bottom:16px">'
-        f'₹5,00,000 base capital &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp; '
-        f'balance updates daily with each session\'s PnL</div>'
+        f'<div style="font-size:11px;color:#555;margin-bottom:4px">'
+        f'Base ₹5,00,000 &nbsp;·&nbsp; ₹1L/trade budget &nbsp;·&nbsp; '
+        f'Period opening ₹{int(start_balance):,} &nbsp;·&nbsp; '
+        f'Period closing <span style="color:{bal_color};font-weight:600">₹{closing_bal:,}</span> '
+        f'(<span style="color:{bal_color}">{bal_sign}₹{bal_diff:,}</span>)</div>'
+        f'{_capital_chart_svg(days_data, start_balance)}'
         f'{summary_tbl}{detail_html}'
         f'</div>'
     )
 
 
 def _build_report_html(period_label, mode, generated_date, all_s, es_s, ob_s,
-                       es_trades, ob_trades):
+                       es_trades, ob_trades, es_start_balance: float = 500_000):
     def capital(t):
         return (t.get("entry") or 0) * (t.get("qty") or 0) * (t.get("lot_size") or 1)
 
@@ -448,7 +536,7 @@ def _build_report_html(period_label, mode, generated_date, all_s, es_s, ob_s,
         {_stats_table(es_s)}
       </div>
       {_trade_table_html(es_trades, capital)}
-      {_es_capital_section(es_trades)}
+      {_es_capital_section(es_trades, es_start_balance)}
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0"/>
 
@@ -548,6 +636,16 @@ def email_report(payload: EmailReportPayload):
             }
             for t in rows
         ]
+        # Cumulative ES PnL from all days before this period → correct opening balance
+        prior_es = (
+            db.query(Trade)
+            .filter(Trade.env == trade_env,
+                    Trade.entered_at < from_dt,
+                    Trade.status != TradeStatus.OPEN,
+                    Trade.entry_logic.like("[ES]%"))
+            .all()
+        )
+        es_start_balance = 500_000 + sum((t.pnl or 0) for t in prior_es)
     finally:
         db.close()
 
@@ -576,7 +674,7 @@ def email_report(payload: EmailReportPayload):
                     }.get(payload.period, payload.period)
 
     html_body = _build_report_html(period_label, payload.env.upper(), str(today),
-                                   all_s, es_s, ob_s, es_trades, ob_trades)
+                                   all_s, es_s, ob_s, es_trades, ob_trades, es_start_balance)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"SPVH AMC Report — {period_label}"
