@@ -97,7 +97,10 @@ class RiskEngine:
                 .all()
             )
             for trade in open_trades:
-                self._check_trade(db, trade)
+                try:
+                    self._check_trade(db, trade)
+                except Exception as e:
+                    log.error(f"[RISK] Trade #{trade.id} check error: {e}")
         finally:
             db.close()
 
@@ -139,43 +142,47 @@ class RiskEngine:
             return
 
         # ── 3. Dynamic SL engine ───────────────────────────────────────────────
-        if settings.get("dynamic_sl_enabled", True):
-            decision = compute_dynamic_sl(
-                token          = token,
-                direction      = direction,
-                entry_price    = entry,
-                current_ltp    = ltp,
-                trade_sl_pct   = trade.trade_sl_pct,
-                current_dyn_sl = trade.dynamic_sl_price,
-            )
+        # ES trades manage their own trail/SL in early_scalp._manage — skip here
+        # to avoid conflicting with that logic.
+        is_es = (trade.entry_logic or "").startswith("[ES]")
+        if not is_es and settings.get("dynamic_sl_enabled", True):
+            underlying_token = self._get_token_for_symbol(trade.symbol)
+            if underlying_token:
+                decision = compute_dynamic_sl(
+                    token          = underlying_token,
+                    direction      = direction,
+                    entry_price    = entry,
+                    current_ltp    = ltp,
+                    trade_sl_pct   = trade.trade_sl_pct,
+                    current_dyn_sl = trade.dynamic_sl_price,
+                )
 
-            # Update dynamic SL in DB if it changed
-            if decision.new_sl_price != trade.dynamic_sl_price:
-                trade.dynamic_sl_price = decision.new_sl_price
-                # Log the reasoning into indicators_snapshot
-                snap = dict(trade.indicators_snapshot or {})
-                snap["last_sl_update"] = {
-                    "ts":       datetime.utcnow().isoformat(),
-                    "sl":       decision.new_sl_price,
-                    "lock":     decision.lock_type,
-                    "prob":     decision.prob_continuation,
-                    "reason":   decision.reasoning,
-                    "vp":       decision.vp_summary,
-                }
-                trade.indicators_snapshot = snap
-                db.commit()
+                # Update dynamic SL in DB if it changed
+                if decision.new_sl_price != trade.dynamic_sl_price:
+                    trade.dynamic_sl_price = decision.new_sl_price
+                    snap = dict(trade.indicators_snapshot or {})
+                    snap["last_sl_update"] = {
+                        "ts":       datetime.utcnow().isoformat(),
+                        "sl":       decision.new_sl_price,
+                        "lock":     decision.lock_type,
+                        "prob":     decision.prob_continuation,
+                        "reason":   decision.reasoning,
+                        "vp":       decision.vp_summary,
+                    }
+                    trade.indicators_snapshot = snap
+                    db.commit()
 
-            # Break-even exit
-            if should_exit_breakeven(entry, ltp, trade.dynamic_sl_price):
-                self._trigger_exit(db, trade, ltp, TradeStatus.BREAKEVEN,
-                                   "Price returned to entry after profit lock — break-even exit")
-                return
+                # Break-even exit
+                if should_exit_breakeven(entry, ltp, trade.dynamic_sl_price):
+                    self._trigger_exit(db, trade, ltp, TradeStatus.BREAKEVEN,
+                                       "Price returned to entry after profit lock — break-even exit")
+                    return
 
-            # Dynamic SL hit
-            if ltp <= decision.new_sl_price and decision.lock_type != "initial":
-                self._trigger_exit(db, trade, ltp, TradeStatus.SL_HIT,
-                                   f"Dynamic SL hit at {ltp:.2f} | {decision.reasoning}")
-                return
+                # Dynamic SL hit
+                if ltp <= decision.new_sl_price and decision.lock_type != "initial":
+                    self._trigger_exit(db, trade, ltp, TradeStatus.SL_HIT,
+                                       f"Dynamic SL hit at {ltp:.2f} | {decision.reasoning}")
+                    return
 
     # ── Exit trigger ──────────────────────────────────────────────────────────
 
