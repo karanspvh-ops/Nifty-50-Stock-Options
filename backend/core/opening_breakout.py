@@ -730,28 +730,30 @@ class OpeningBreakout:
 
     def _count_ob_today(self, env: TradeEnv) -> int:
         """Count ALL OB trades entered today (open or closed) to guard the extended hunt."""
-        from datetime import date
-        today = date.today().isoformat()
+        from datetime import date, datetime as _dt
+        d = date.today()
+        from_dt = _dt(d.year, d.month, d.day, 0, 0, 0)
         db = DBSession()
         try:
             return db.query(Trade).filter(
                 Trade.env == env,
                 Trade.entry_logic.like(f"%{OB_TAG}%"),
-                Trade.entered_at >= today,
+                Trade.entered_at >= from_dt,
             ).count()
         finally:
             db.close()
 
     def _ob_net_pnl_today(self, env: TradeEnv) -> float:
         """Net PnL of all CLOSED OB trades today (open positions excluded)."""
-        from datetime import date
-        today = date.today().isoformat()
+        from datetime import date, datetime as _dt
+        d = date.today()
+        from_dt = _dt(d.year, d.month, d.day, 0, 0, 0)
         db = DBSession()
         try:
             trades = db.query(Trade).filter(
                 Trade.env == env,
                 Trade.entry_logic.like(f"%{OB_TAG}%"),
-                Trade.entered_at >= today,
+                Trade.entered_at >= from_dt,
                 Trade.status != TradeStatus.OPEN,
             ).all()
             return sum((t.pnl or 0) for t in trades)

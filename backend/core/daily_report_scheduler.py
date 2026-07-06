@@ -87,8 +87,10 @@ class DailyReportScheduler:
         today_str = now.strftime("%Y-%m-%d")
 
         with self._lock:
-            # Reset on a new day
-            if self._report_sent_date and self._report_sent_date != today_str:
+            # Reset on a new day — even when yesterday had no trades and _report_sent_date
+            # is None, we must clear stale strategy notifications so they don't fire
+            # today's poll prematurely.
+            if self._report_sent_date != today_str:
                 self._done_strategies.clear()
                 self._report_sent_date = None
 
@@ -105,7 +107,12 @@ class DailyReportScheduler:
               f"(strategies: {self._done_strategies}, past_15:15={past_latest})")
 
         if all_done and not already_sent and not poll_running:
-            self._start_poll_thread()
+            # Acquire lock to atomically mark the poll thread as starting, preventing
+            # a concurrent notify_session_done call from also spawning a poll thread.
+            with self._lock:
+                if self._report_sent_date != today_str and not (
+                        self._poll_thread and self._poll_thread.is_alive()):
+                    self._start_poll_thread()
 
     def send_now(self):
         """Force-send today's report immediately (manual trigger)."""
@@ -122,14 +129,18 @@ class DailyReportScheduler:
         return {"status": "triggered"}
 
     def _start_poll_thread(self):
+        # Create and register the thread while the caller already holds _lock so
+        # any concurrent notify_session_done sees it as alive before we return.
         t = threading.Thread(target=self._poll_until_clear, daemon=True)
-        with self._lock:
-            self._poll_thread = t
+        self._poll_thread = t   # caller must hold _lock
         t.start()
         print("[REPORT] Polling for open trades to clear before sending report…")
 
     def _poll_until_clear(self):
-        while True:
+        # Give open trades up to 30 min to close; after that let the 15:15 fallback
+        # timer handle it to avoid an immortal thread if a square-off never lands.
+        max_polls = int(30 * 60 / POLL_INTERVAL_S)
+        for _ in range(max_polls):
             try:
                 open_count = self._count_open_trades_today()
             except Exception as e:
@@ -147,6 +158,8 @@ class DailyReportScheduler:
             print(f"[REPORT] {open_count} trade(s) still open — "
                   f"retrying in {POLL_INTERVAL_S}s…")
             threading.Event().wait(POLL_INTERVAL_S)
+
+        print("[REPORT] Poll timed out after 30 min — fallback timer will send at 15:15.")
 
     def _count_open_trades_today(self) -> int:
         from backend.database import Session, Trade, TradeEnv, TradeStatus

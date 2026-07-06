@@ -545,15 +545,21 @@ class EarlyScalp:
         )
 
     # ── Entry logic ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _today_from_dt():
+        from datetime import date, datetime as _dt
+        d = date.today()
+        return _dt(d.year, d.month, d.day, 0, 0, 0)
+
     def _entered_symbols(self, env: TradeEnv) -> set:
         """Return every symbol ES has touched today — open OR already closed.
         Prevents re-entering a symbol after SL hit or target exit."""
-        today = date.today().isoformat()
+        from_dt = self._today_from_dt()
         with DBSession() as db:
             trades = db.query(Trade).filter(
                 Trade.env == env,
                 Trade.entry_logic.like(f"%{ES_TAG}%"),
-                Trade.entered_at >= today,
+                Trade.entered_at >= from_dt,
             ).all()
         return {t.symbol for t in trades}
 
@@ -567,22 +573,22 @@ class EarlyScalp:
 
     def _count_today(self, env: TradeEnv) -> int:
         """Total ES trades entered today (open + closed)."""
-        today = date.today().isoformat()
+        from_dt = self._today_from_dt()
         with DBSession() as db:
             return db.query(Trade).filter(
                 Trade.env == env,
                 Trade.entry_logic.like(f"%{ES_TAG}%"),
-                Trade.entered_at >= today,
+                Trade.entered_at >= from_dt,
             ).count()
 
     def _net_pnl_today(self, env: TradeEnv) -> float:
         """Cumulative ES PnL today (closed trades only)."""
-        today = date.today().isoformat()
+        from_dt = self._today_from_dt()
         with DBSession() as db:
             trades = db.query(Trade).filter(
                 Trade.env == env,
                 Trade.entry_logic.like(f"%{ES_TAG}%"),
-                Trade.entered_at >= today,
+                Trade.entered_at >= from_dt,
                 Trade.status != TradeStatus.OPEN,
             ).all()
         return sum((t.pnl or 0) for t in trades)
@@ -615,8 +621,11 @@ class EarlyScalp:
 
         if abs(gap) < gap_min:
             return False, f"gap {gap:+.2f}% < {gap_min}%"
-        if abs(op_move) < move_min:
-            return False, f"move {op_move:+.2f}% < {move_min}% (faded)"
+        # Check signed direction: abs() would pass a reversed stock (-1.5% move for a call)
+        if c.direction == "call" and op_move < move_min:
+            return False, f"opening move {op_move:+.2f}% not bullish enough (need >={move_min}%)"
+        if c.direction == "put" and op_move > -move_min:
+            return False, f"opening move {op_move:+.2f}% not bearish enough (need <={-move_min}%)"
 
         # Most recent 1-min candle must still be in trade direction
         candles_1m = self._candle_cache.get(c.symbol, [])

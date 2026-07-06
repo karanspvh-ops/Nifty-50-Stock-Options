@@ -212,8 +212,10 @@ def _trade_table_html(trades, capital_fn):
             else:
                 peak_cell = "—"
             bg       = "#ffffff" if i % 2 == 0 else "#f8fafc"
-            entered  = (t.get("entered_at") or "")[-8:] or "—"
-            exited   = (t.get("exited_at")  or "")[-8:] or "—"
+            # Extract HH:MM:SS — [-8:] breaks for microsecond-format timestamps
+            # ("2026-06-05 10:17:33.295082"[-8:] = "3.295082"). Use [11:19] instead.
+            entered  = ((t.get("entered_at") or "")[11:19]) or "—"
+            exited   = ((t.get("exited_at")  or "")[11:19]) or "—"
             direction = (t.get("direction") or "").lower()
             opt_type  = t.get("option_type") or ("CE" if direction == "call" else ("PE" if direction == "put" else ""))
             sym_label = " ".join(filter(None, [
