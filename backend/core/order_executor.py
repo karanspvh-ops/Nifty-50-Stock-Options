@@ -40,6 +40,8 @@ def calc_quantity(available_funds: float, premium: float, lot_size: int) -> int:
 
 # ── Real option premium (Kite quote works with this key) ──────────────────────
 def option_premium(opt_token: str, opt_symbol: str) -> Optional[float]:
+    if not opt_symbol:
+        return None
     # Prefer the live-subscribed tick
     p = market.get_ltp(opt_token) if opt_token else None
     if p:
@@ -92,7 +94,9 @@ def _has_liquidity(opt_token: str, opt_symbol: str, lot_size: int) -> bool:
                   f"vol={total_vol} last {LIQUIDITY_LOOKBACK_MIN}m < {min_req} (stale market)")
             return False
     except Exception as e:
-        print(f"[ORDER] Volume check error {opt_symbol}: {e} — skipping volume check")
+        # Fail-closed: if the volume check itself fails we cannot verify liquidity.
+        print(f"[ORDER] Liquidity FAIL {opt_symbol} | volume check error: {e}")
+        return False
 
     # ── 2. Bid-ask spread + OI from live quote ────────────────────────────────
     try:

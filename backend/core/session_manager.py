@@ -10,6 +10,7 @@ from backend.database import (
     TradeEnv, SessionStatus
 )
 from backend.core.settings_manager import get_settings
+from backend.core.clock import now_ist
 
 
 def today() -> str:
@@ -167,11 +168,13 @@ def check_portfolio_sl(env: TradeEnv) -> bool:
 
         # Sum only today's CLOSED trade PnL — open positions are excluded
         # so an unrealised drawdown mid-trade never triggers a halt.
+        d = date.today()
+        from_dt = datetime(d.year, d.month, d.day, 0, 0, 0)
         today_trades = (
             db.query(Trade)
             .filter(
                 Trade.env          == env,
-                Trade.entered_at   >= today(),
+                Trade.entered_at   >= from_dt,
                 Trade.status       != TradeStatus.OPEN,
             )
             .all()
@@ -199,7 +202,7 @@ def check_portfolio_sl(env: TradeEnv) -> bool:
             if session_row:
                 session_row.status               = SessionStatus.KILLED
                 session_row.portfolio_sl_breached = True
-                session_row.stopped_at           = datetime.utcnow()
+                session_row.stopped_at           = now_ist()
             db.commit()
             return True
 

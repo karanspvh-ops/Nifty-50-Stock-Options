@@ -317,6 +317,10 @@ def refresh_instrument_list(force: bool = False) -> dict:
         except Exception as e:
             print(f"[UNIVERSE] cache write warning: {e}")
 
+        # Invalidate the in-memory NFO cache so get_option_token picks up
+        # the newly written file on the next call.
+        invalidate_nfo_cache()
+
         print(f"[UNIVERSE] Zerodha instruments loaded | NSE resolved: {len(resolved)} | "
               f"NFO options: {len(nfo_cache)} | "
               f"N50={len(get_stocks_for_index('NIFTY50'))}, "
@@ -330,23 +334,41 @@ def refresh_instrument_list(force: bool = False) -> dict:
         return _load_nfo_cache()
 
 
+_NFO_CACHE: dict = {}          # token → meta, loaded once per process
+_NFO_SYMBOL_INDEX: dict = {}   # tradingsymbol → token, reverse lookup
+
+
 def _load_nfo_cache() -> dict:
+    global _NFO_CACHE, _NFO_SYMBOL_INDEX
+    if _NFO_CACHE:
+        return _NFO_CACHE
     if os.path.exists(_INSTRUMENT_CACHE_PATH):
         try:
-            return json.load(open(_INSTRUMENT_CACHE_PATH))
+            data = json.load(open(_INSTRUMENT_CACHE_PATH))
+            _NFO_CACHE = data
+            _NFO_SYMBOL_INDEX = {m["tradingsymbol"]: tok
+                                 for tok, m in data.items()
+                                 if "tradingsymbol" in m}
+            return _NFO_CACHE
         except Exception:
             return {}
     return {}
 
 
+def invalidate_nfo_cache():
+    """Call after refresh_instrument_list() so the next lookup re-reads fresh data."""
+    global _NFO_CACHE, _NFO_SYMBOL_INDEX
+    _NFO_CACHE = {}
+    _NFO_SYMBOL_INDEX = {}
+
+
 def get_option_token(option_symbol: str) -> Optional[str]:
-    """Reverse-lookup the Kite instrument_token for an option tradingsymbol."""
+    """Reverse-lookup the Kite instrument_token for an option tradingsymbol.
+    Uses a cached reverse index — O(1) instead of O(n) file-read per call."""
     if not option_symbol:
         return None
-    for token, m in _load_nfo_cache().items():
-        if m.get("tradingsymbol") == option_symbol:
-            return token
-    return None
+    _load_nfo_cache()   # populate cache if empty
+    return _NFO_SYMBOL_INDEX.get(option_symbol)
 
 
 def load_instrument_cache() -> dict:

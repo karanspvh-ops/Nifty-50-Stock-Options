@@ -403,6 +403,8 @@ class OpeningBreakout:
         for s in get_stocks_for_index("FNO", fno_only=True):
             token  = s["token"]
             stock_sector = s.get("sector", "")
+            if stock_sector not in qual:
+                continue
             mv  = market.get_stock_move(token)
             if not mv:
                 continue
@@ -515,15 +517,16 @@ class OpeningBreakout:
                 if ps.direction == "put" and last_bull:
                     return False, "last candle GREEN — immediate reversal, skip"
 
-                # Majority: 2+ of last 3 candles against direction = trend gone
+                # Majority: if both prior candles are against direction = trend gone.
+                # Exclude candles[-1] — it was already checked individually above.
                 if len(candles) >= 2:
                     against = sum(
-                        1 for c in candles
+                        1 for c in candles[:-1]
                         if (ps.direction == "call" and c.get("close", 0) < c.get("open", 0))
                         or (ps.direction == "put"  and c.get("close", 0) > c.get("open", 0))
                     )
                     if against >= 2:
-                        return False, f"{against}/3 recent candles reversed — momentum gone"
+                        return False, f"{against}/2 prior candles reversed — momentum gone"
         except Exception as e:
             print(f"[OB] {ps.symbol} reval candle error: {e}")
 

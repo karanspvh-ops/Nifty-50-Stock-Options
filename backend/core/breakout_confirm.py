@@ -75,8 +75,11 @@ def confirm_breakout(token: str, direction: str, move_pct: float = 0.0) -> Break
     vol_strong  = vol_ratio >= VOL_MULT
 
     # ── 3. Volume Profile over 20 and 50 candles ─────────────────────────────
-    vp20 = build_profile(candles[-VP_SHORT:])
-    vp50 = build_profile(candles[-VP_LONG:])
+    # Guard: only build a profile when we have enough candles for a meaningful
+    # value area; early-session (e.g. first 30 min = ~6 candles) profiles on
+    # 2-3 candles produce trivially wide value areas that always confirm.
+    vp20 = build_profile(candles[-VP_SHORT:]) if len(candles) >= VP_SHORT else {}
+    vp50 = build_profile(candles[-VP_LONG:])  if len(candles) >= VP_LONG  else {}
     ltp  = candles[-1]["close"]
 
     def breaking(vp: dict) -> bool:
