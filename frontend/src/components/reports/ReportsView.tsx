@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import html2pdf from 'html2pdf.js';
 import { useMarketStore } from '../../store/marketStore';
 
@@ -313,7 +313,8 @@ interface DayData {
 function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
   const tradeCap = (t: Trade) => (t.entry || 0) * (t.qty || 0) * (t.lot_size || 1);
   const byDay = new Map<string, Trade[]>();
-  trades.forEach(t => {
+  // Only closed trades carry realised PnL; open trades have null exited_at
+  trades.filter(t => t.exited_at).forEach(t => {
     const d = (t.entered_at || '').slice(0, 10);
     if (d) { if (!byDay.has(d)) byDay.set(d, []); byDay.get(d)!.push(t); }
   });
@@ -752,7 +753,7 @@ function EmailModal({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function ReportsView() {
-  const { settings } = useMarketStore();
+  const { settings, openTrades } = useMarketStore();
   const env = settings.is_live ? 'live' : 'paper';
 
   // Period selection
@@ -805,6 +806,20 @@ export default function ReportsView() {
     const id = setInterval(loadTrades, 15000);
     return () => clearInterval(id);
   }, [loadTrades]);
+
+  // When the Capital Growth tab is active, poll every 5 s for prompt updates
+  useEffect(() => {
+    if (tab !== 'capital') return;
+    const id = setInterval(loadTrades, 5000);
+    return () => clearInterval(id);
+  }, [tab, loadTrades]);
+
+  // Immediately reload whenever an open trade closes (count drops in the store)
+  const prevOpenCount = useRef(openTrades.length);
+  useEffect(() => {
+    if (openTrades.length < prevOpenCount.current) loadTrades();
+    prevOpenCount.current = openTrades.length;
+  }, [openTrades.length, loadTrades]);
 
   // Load generated reports (today's pnl report + ml + tradable)
   const loadReports = useCallback(async () => {
