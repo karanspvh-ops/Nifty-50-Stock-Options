@@ -249,7 +249,8 @@ class DailyReportScheduler:
                     "exit":        t.exit_price,
                     "peak":        t.highest_price,
                     "peak_pct":    round((t.highest_price - t.entry_price) / t.entry_price * 100, 1)
-                                   if (t.highest_price and t.entry_price) else None,
+                                   if (t.highest_price and t.entry_price
+                                       and t.highest_price > t.entry_price) else None,
                     "pnl":         t.pnl or 0,
                     "pnl_pct":     t.pnl_pct or 0,
                     "entered_at":  str(t.entered_at) if t.entered_at else "",

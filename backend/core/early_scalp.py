@@ -732,6 +732,15 @@ class EarlyScalp:
 
             pnl_pct = (premium - t.entry_price) / t.entry_price * 100
 
+            # Track highest premium; floor at entry_price so it's always >= entry
+            peak_candidate = max(premium, t.entry_price)
+            if t.highest_price is None or peak_candidate > t.highest_price:
+                with DBSession() as hp_db:
+                    hp_db.query(Trade).filter(Trade.id == t.id).update(
+                        {"highest_price": peak_candidate}, synchronize_session=False)
+                    hp_db.commit()
+                t.highest_price = peak_candidate
+
             # Update trail state — recover from DB if in-memory state was lost
             tid = t.id
             if tid not in self._trail_armed:

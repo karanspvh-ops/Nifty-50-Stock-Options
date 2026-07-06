@@ -271,18 +271,21 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
         <td style="${tds};color:${pc};font-weight:700">${pnl >= 0 ? '+' : '−'}₹${Math.abs(Math.round(pnl)).toLocaleString('en-IN')}</td>
       </tr>`;
     }).join('');
-    return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:16px">
-      <thead>
-        <tr style="background:#f5f0ff">
-          <td colspan="5" style="padding:6px 8px;font-size:11px;font-weight:700;color:#7c3aed">${dlabel}</td>
-          <td colspan="2" style="padding:6px 8px;text-align:right;font-size:11px;color:#555">Peak ₹${d.peak.toLocaleString('en-IN')} / Opening ₹${d.opening.toLocaleString('en-IN')} &nbsp;·&nbsp; ${d.breached ? '⚠ OVER LIMIT' : '✓ Within limit'}</td>
-        </tr>
-        <tr>
-          <th style="${th}">Symbol</th><th style="${th}">In</th><th style="${th}">Out</th>
-          <th style="${th}">Duration</th><th style="${th}">Capital</th>
-          <th style="${th}">Concurrent at Entry</th><th style="${th}">PnL</th>
-        </tr>
-      </thead><tbody>${rows}</tbody></table>`;
+    return `<div style="page-break-inside:avoid;margin-bottom:16px">
+      <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f5f0ff">
+            <td colspan="5" style="padding:6px 8px;font-size:11px;font-weight:700;color:#7c3aed">${dlabel}</td>
+            <td colspan="2" style="padding:6px 8px;text-align:right;font-size:11px;color:#555">Peak ₹${d.peak.toLocaleString('en-IN')} / Opening ₹${d.opening.toLocaleString('en-IN')} &nbsp;·&nbsp; ${d.breached ? '⚠ OVER LIMIT' : '✓ Within limit'}</td>
+          </tr>
+          <tr>
+            <th style="${th}">Symbol</th><th style="${th}">In</th><th style="${th}">Out</th>
+            <th style="${th}">Duration</th><th style="${th}">Capital</th>
+            <th style="${th}">Concurrent at Entry</th><th style="${th}">PnL</th>
+          </tr>
+        </thead><tbody>${rows}</tbody>
+      </table>
+    </div>`;
   }).join('');
 
   const closingBal = Math.round(runningBal);
@@ -597,8 +600,8 @@ function generatePDF(
           t.option_type || '',
           t.qty != null  ? `${t.qty} QTY` : '',
         ].filter(Boolean).join(' ');
-        const peakCell = t.peak != null
-          ? `₹${t.peak.toFixed(2)} <span style="font-size:10px">(${(t.peak_pct ?? 0) >= 0 ? '+' : ''}${(t.peak_pct ?? 0).toFixed(1)}%)</span>`
+        const peakCell = t.peak != null && t.peak_pct != null
+          ? `₹${t.peak.toFixed(2)} <span style="font-size:10px">(+${(t.peak_pct).toFixed(1)}%)</span>`
           : '—';
         rows += `<tr style="background:${bg};page-break-inside:avoid">
           <td style="${td};font-weight:600;color:#0f172a">${symLabel}</td>
@@ -788,7 +791,7 @@ export default function ReportsView() {
         entry:           t.entry_price,
         exit:            t.exit_price,
         peak:            t.highest_price,
-        peak_pct:        t.entry_price && t.highest_price
+        peak_pct:        t.entry_price && t.highest_price && t.highest_price > t.entry_price
                            ? +((t.highest_price - t.entry_price) / t.entry_price * 100).toFixed(1)
                            : undefined,
         pnl:             t.pnl,

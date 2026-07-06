@@ -119,8 +119,10 @@ class RiskEngine:
         current_sl = trade.dynamic_sl_price or trade.trade_sl_price
 
         # ── Update highest price seen (for trailing reference) ─────────────────
-        if trade.highest_price is None or ltp > trade.highest_price:
-            trade.highest_price = ltp
+        # Floor at entry_price so highest_price is always >= entry when first set
+        candidate = max(ltp, trade.entry_price or ltp)
+        if trade.highest_price is None or candidate > trade.highest_price:
+            trade.highest_price = candidate
             db.commit()
 
         # ── 1. Hard trade SL hit ───────────────────────────────────────────────

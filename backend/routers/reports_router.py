@@ -474,7 +474,8 @@ def _es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
                 f'</tr>'
             )
         detail_html += (
-            f'<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:16px">'
+            f'<div style="page-break-inside:avoid;margin-bottom:16px">'
+            f'<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">'
             f'<thead>'
             f'<tr style="background:#f5f0ff">'
             f'<td colspan="5" style="padding:6px 8px;font-size:11px;font-weight:700;color:#7c3aed">{day_label}</td>'
@@ -488,6 +489,7 @@ def _es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
             f'<th style="{th}">Concurrent at Entry</th><th style="{th}">PnL</th>'
             f'</tr>'
             f'</thead><tbody>{trade_rows}</tbody></table>'
+            f'</div>'
         )
 
     closing_bal = int(round(running_bal))
@@ -627,7 +629,8 @@ def email_report(payload: EmailReportPayload):
                 "exit":        t.exit_price,
                 "peak":        t.highest_price,
                 "peak_pct":    round((t.highest_price - t.entry_price) / t.entry_price * 100, 1)
-                               if (t.highest_price and t.entry_price) else None,
+                               if (t.highest_price and t.entry_price
+                                   and t.highest_price > t.entry_price) else None,
                 "pnl":         t.pnl or 0,
                 "pnl_pct":     t.pnl_pct or 0,
                 "entered_at":  str(t.entered_at) if t.entered_at else "",
