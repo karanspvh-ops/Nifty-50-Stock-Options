@@ -303,6 +303,192 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
   </div>`;
 }
 
+// ── Capital Growth Tab ────────────────────────────────────────────────────────
+
+interface DayData {
+  date: string; opening: number; closing: number; dayPnl: number;
+  peak: number; excess: number; pctUsed: number;
+}
+
+function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
+  const tradeCap = (t: Trade) => (t.entry || 0) * (t.qty || 0) * (t.lot_size || 1);
+  const byDay = new Map<string, Trade[]>();
+  trades.forEach(t => {
+    const d = (t.entered_at || '').slice(0, 10);
+    if (d) { if (!byDay.has(d)) byDay.set(d, []); byDay.get(d)!.push(t); }
+  });
+  let running = base;
+  return [...byDay.keys()].sort().map(day => {
+    const raw = byDay.get(day)!;
+    const opening = running;
+    const evs: { ts: number; d: number }[] = [];
+    raw.forEach(t => {
+      const c = tradeCap(t); if (!c) return;
+      if (t.entered_at) evs.push({ ts: parseTs(t.entered_at).getTime(), d: +c });
+      if (t.exited_at)  evs.push({ ts: parseTs(t.exited_at).getTime(),  d: -c });
+    });
+    evs.sort((a, b) => a.ts - b.ts);
+    let rc = 0, peak = 0;
+    evs.forEach(e => { rc += e.d; if (rc > peak) peak = rc; });
+    const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0), 0);
+    running += dayPnl;
+    return {
+      date: day,
+      opening:  Math.round(opening),
+      closing:  Math.round(running),
+      dayPnl:   Math.round(dayPnl),
+      peak:     Math.round(peak),
+      excess:   Math.max(0, Math.round(peak - opening)),
+      pctUsed:  opening ? Math.round(peak / opening * 1000) / 10 : 0,
+    };
+  });
+}
+
+function StrategyGrowthChart({ data, accentColor }: { data: DayData[]; accentColor: string }) {
+  if (!data.length) return null;
+  const W = 840, H = 190;
+  const PL = 55, PR = 45, PT = 18, PB = 34;
+  const PW = W - PL - PR, PH = H - PT - PB;
+  const N = data.length;
+  const allBals = [data[0].opening, ...data.map(d => d.closing)];
+  let mn = Math.min(...allBals), mx = Math.max(...allBals);
+  const rng = Math.max(mx - mn, 30_000);
+  mn -= rng * 0.12; mx += rng * 0.12;
+  const xi = (i: number) => PL + (i / Math.max(N, 1)) * PW;
+  const yi = (v: number) => PT + (1 - (v - mn) / (mx - mn)) * PH;
+  const b5y = yi(500_000);
+  const pts = allBals.map((v, i) => `${xi(i).toFixed(1)},${yi(v).toFixed(1)}`).join(' ');
+  const final = data[data.length - 1]?.closing ?? data[0].opening;
+  const lineColor = final >= data[0].opening ? '#4ade80' : '#f87171';
+  const showEvery = Math.max(1, Math.ceil(N / 16));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: 'visible', display: 'block' }}>
+      {[0, 1, 2, 3, 4].map(k => {
+        const v = mn + (mx - mn) * k / 4;
+        const y = yi(v);
+        if (y < PT - 2 || y > H - PB + 2) return null;
+        return (
+          <g key={k}>
+            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+            <text x={PL - 6} y={y} textAnchor="end" dominantBaseline="middle" fontSize="9" fill="#4b5563">
+              ₹{(v / 100000).toFixed(1)}L
+            </text>
+          </g>
+        );
+      })}
+      {b5y >= PT - 2 && b5y <= H - PB + 2 && (
+        <g>
+          <line x1={PL} y1={b5y} x2={W - PR} y2={b5y} stroke="#374151" strokeWidth="1" strokeDasharray="5,4" />
+          <text x={W - PR + 5} y={b5y} dominantBaseline="middle" fontSize="8" fill="#374151">₹5L base</text>
+        </g>
+      )}
+      <polyline points={pts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinejoin="round"
+        strokeLinecap="round" />
+      <polyline points={pts} fill="none" stroke={accentColor} strokeWidth="1" strokeLinejoin="round"
+        strokeLinecap="round" opacity="0.35" />
+      <circle cx={xi(0)} cy={yi(data[0].opening)} r={3} fill="#6b7280" />
+      {data.map((d, i) => {
+        const cx = xi(i + 1), cy = yi(d.closing);
+        const mc = d.dayPnl >= 0 ? '#4ade80' : '#f87171';
+        const r  = N > 25 ? 2.5 : 4;
+        const lbl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return d.date.slice(5); } })();
+        return (
+          <g key={d.date}>
+            <circle cx={cx} cy={cy} r={r} fill={mc} stroke="rgba(0,0,0,0.6)" strokeWidth="1.5" />
+            {(i + 1) % showEvery === 0 && (
+              <text x={cx} y={H - 4} textAnchor="middle" fontSize="9" fill="#4b5563">{lbl}</text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
+  trades: Trade[]; label: string; accentColor: string; borderColor: string;
+}) {
+  const data = useMemo(() => computeStrategyGrowth(trades), [trades]);
+
+  if (!data.length) return (
+    <div className="bg-surface rounded-xl border border-border p-8 text-center">
+      <p className="text-muted text-sm">No {label} trades found.</p>
+    </div>
+  );
+
+  const final    = data[data.length - 1].closing;
+  const totalPnL = final - 500_000;
+  const winDays  = data.filter(d => d.dayPnl > 0).length;
+  const overDays = data.filter(d => d.excess > 0).length;
+  const stats = [
+    { lbl: 'Current Balance', val: `₹${final.toLocaleString('en-IN')}`,  color: final >= 500_000 ? '#4ade80' : '#f87171' },
+    { lbl: 'Total PnL',       val: `${totalPnL >= 0 ? '+' : '−'}₹${Math.abs(totalPnL).toLocaleString('en-IN')}`, color: totalPnL >= 0 ? '#4ade80' : '#f87171' },
+    { lbl: 'Up / Total Days', val: `${winDays} / ${data.length}`,         color: '#94a3b8' },
+    ...(overDays > 0 ? [{ lbl: '⚠ Over Limit', val: `${overDays} days`,  color: '#f87171' }] : []),
+  ];
+
+  return (
+    <div className="bg-surface rounded-xl border overflow-hidden" style={{ borderColor }}>
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-sm" style={{ color: accentColor }}>{label}</span>
+          <span className="text-muted text-xs">₹5L base &nbsp;·&nbsp; all-time</span>
+        </div>
+        <div className="flex gap-6">
+          {stats.map(s => (
+            <div key={s.lbl} className="text-center">
+              <div className="text-[10px] uppercase text-muted mb-0.5">{s.lbl}</div>
+              <div className="text-sm font-bold" style={{ color: s.color }}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div className="px-4 pt-3 pb-1">
+        <StrategyGrowthChart data={data} accentColor={accentColor} />
+      </div>
+
+      {/* Table */}
+      <div className="px-4 pb-4 overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
+              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
+                <th key={h} className={`px-2 pb-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...data].reverse().map(d => {
+              const lbl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }); } catch { return d.date; } })();
+              return (
+                <tr key={d.date} className="border-b border-border/30 hover:bg-white/[0.02] text-xs">
+                  <td className="px-2 py-1.5 text-white font-medium">{lbl}</td>
+                  <td className="px-2 py-1.5 text-muted text-right">₹{d.opening.toLocaleString('en-IN')}</td>
+                  <td className={`px-2 py-1.5 text-right font-medium ${d.closing >= d.opening ? 'text-up' : 'text-down'}`}>₹{d.closing.toLocaleString('en-IN')}</td>
+                  <td className={`px-2 py-1.5 text-right font-semibold ${d.dayPnl >= 0 ? 'text-up' : 'text-down'}`}>
+                    {d.dayPnl >= 0 ? '+' : '−'}₹{Math.abs(d.dayPnl).toLocaleString('en-IN')}
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-amber-400">₹{d.peak.toLocaleString('en-IN')}</td>
+                  <td className={`px-2 py-1.5 text-right ${d.pctUsed > 100 ? 'text-down font-bold' : d.pctUsed > 80 ? 'text-amber-400' : 'text-muted'}`}>
+                    {d.pctUsed}%
+                  </td>
+                  <td className={`px-2 py-1.5 text-right ${d.excess > 0 ? 'text-down font-semibold' : 'text-muted'}`}>
+                    {d.excess > 0 ? `+₹${d.excess.toLocaleString('en-IN')}` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── PDF generator ──────────────────────────────────────────────────────────────
 function generatePDF(
   period: string,
@@ -581,7 +767,7 @@ export default function ReportsView() {
   const [pnl,  setPnl]  = useState<any>(null);
   const [ml,   setMl]   = useState<any>(null);
   const [trd,  setTrd]  = useState<any>(null);
-  const [tab,  setTab]  = useState<'pnl' | 'ml' | 'tradable'>('pnl');
+  const [tab,  setTab]  = useState<'pnl' | 'ml' | 'tradable' | 'capital'>('pnl');
   const [loading, setLoading] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
 
@@ -674,6 +860,8 @@ export default function ReportsView() {
     const prior = allEsTrades.filter(t => t.entered_at && parseTs(t.entered_at) < cutoff);
     return 500_000 + prior.reduce((s, t) => s + (t.pnl || 0), 0);
   }, [allEsTrades, period, customFrom]);
+
+  const allObTrades = useMemo(() => allTrades.filter(t => getStrategy(t.entry_logic) === 'OB'), [allTrades]);
 
   const stats = useMemo(() => {
     const calc = (ts: Trade[]) => {
@@ -768,7 +956,7 @@ export default function ReportsView() {
 
       {/* Tabs */}
       <div className="flex gap-2">
-        {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective']] as const).map(([t, label]) => (
+        {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective'], ['capital','Capital Growth']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors
               ${tab === t ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-white'}`}>
@@ -1103,6 +1291,24 @@ export default function ReportsView() {
       {tab === 'tradable' && (!trd || trd.status) && (
         <div className="bg-surface rounded-xl border border-border p-8 text-center">
           <p className="text-muted text-sm">No tradable windows report. Click Refresh to generate.</p>
+        </div>
+      )}
+
+      {/* ── Capital Growth Tab ───────────────────────────────────────────────── */}
+      {tab === 'capital' && (
+        <div className="space-y-6">
+          <StrategyGrowthSection
+            trades={allEsTrades}
+            label="Early Scalp [ES]"
+            accentColor="#a855f7"
+            borderColor="rgba(168,85,247,0.3)"
+          />
+          <StrategyGrowthSection
+            trades={allObTrades}
+            label="Opening Breakout [OB]"
+            accentColor="#3b82f6"
+            borderColor="rgba(59,130,246,0.3)"
+          />
         </div>
       )}
     </div>
