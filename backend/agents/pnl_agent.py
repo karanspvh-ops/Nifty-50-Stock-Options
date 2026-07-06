@@ -110,7 +110,7 @@ class PnLAgent:
                 peak = t.highest_price
                 peak_pct = (
                     round((peak - t.entry_price) / t.entry_price * 100, 2)
-                    if peak and t.entry_price else None
+                    if peak and t.entry_price and peak > t.entry_price else None
                 )
                 trade_rows.append({
                     "id":           t.id,
@@ -232,7 +232,7 @@ class PnLAgent:
 
         peak = t.highest_price
         peak_blurb = ""
-        if peak and t.entry_price:
+        if peak and t.entry_price and peak > t.entry_price:
             pp = (peak - t.entry_price) / t.entry_price * 100
             peak_blurb = f" Peak premium ₹{peak:.2f} ({pp:+.1f}%)."
 

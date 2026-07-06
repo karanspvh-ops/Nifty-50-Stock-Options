@@ -663,10 +663,11 @@ class OpeningBreakout:
             entry   = t.entry_price
             pnl_pct = (ltp - entry) / entry * 100
 
-            # update peak
-            if t.highest_price is None or ltp > t.highest_price:
-                self._set_highest(t.id, ltp)
-                t.highest_price = ltp
+            # update peak — floor at entry_price so highest_price is always >= entry
+            peak_candidate = max(ltp, entry)
+            if t.highest_price is None or peak_candidate > t.highest_price:
+                self._set_highest(t.id, peak_candidate)
+                t.highest_price = peak_candidate
 
             hard_sl_pct = self._p("hard_sl_pct")
             target_pct  = self._p("target_pct")
