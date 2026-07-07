@@ -4,6 +4,7 @@ color 0A
 set "PROJ=C:\Users\karan\OneDrive\Desktop\Project\Algo Strategies\Nifty 50 Stock Options"
 set "SMTP_USER=spventures.inv@gmail.com"
 set "SMTP_PASS=bwutzmkwhrwxbcrz"
+set "PYTHON=C:\Users\karan\AppData\Local\Python\bin\python3.14.exe"
 
 echo ============================================================
 echo   NIFTY 50 OPTIONS TRADING PLATFORM
@@ -26,7 +27,7 @@ if %errorlevel%==0 (
 )
 
 echo [1/3] Starting backend engine...
-start "Trading Backend" cmd /k "cd /d "%PROJ%" && set PYTHONPATH=%PROJ% && python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
+start "Trading Backend" cmd /k "cd /d "%PROJ%" && set PYTHONPATH=%PROJ% && "%PYTHON%" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000"
 
 :start_frontend
 echo [2/3] Starting frontend dashboard...
