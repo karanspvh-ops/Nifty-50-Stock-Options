@@ -2,6 +2,8 @@
 title Nifty 50 Trading Platform
 color 0A
 set "PROJ=C:\Users\karan\OneDrive\Desktop\Project\Algo Strategies\Nifty 50 Stock Options"
+set "SMTP_USER=spventures.inv@gmail.com"
+set "SMTP_PASS=bwutzmkwhrwxbcrz"
 
 echo ============================================================
 echo   NIFTY 50 OPTIONS TRADING PLATFORM

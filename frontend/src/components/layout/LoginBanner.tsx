@@ -8,17 +8,27 @@ interface BrokerStatus {
 }
 
 export default function LoginBanner() {
-  const [st, setSt]   = useState<BrokerStatus | null>(null);
-  const [rt, setRt]   = useState('');
+  const [st, setSt]     = useState<BrokerStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [rt, setRt]     = useState('');
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
+  const [err, setErr]   = useState('');
 
   const load = async () => {
-    try { setSt(await (await fetch(`${API}/api/broker/status`)).json()); } catch {}
+    try {
+      const data = await (await fetch(`${API}/api/broker/status`)).json();
+      setSt(data);
+    } catch {
+      setSt(null);
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
 
-  if (!st || st.token_valid_today) return null;   // logged in -> hide
+  // Only hide banner when we've confirmed the token is valid today AND loaded in memory
+  if (loading) return null;
+  if (st?.token_valid_today && st?.has_token) return null;
 
   const openLogin = async () => {
     const r = await (await fetch(`${API}/api/broker/login-url`)).json();
@@ -39,6 +49,15 @@ export default function LoginBanner() {
     } catch (e: any) { setErr(String(e.message || e)); }
     setBusy(false);
   };
+
+  // Backend not reachable yet
+  if (!st) return (
+    <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-4 py-2">
+      <span className="text-yellow-400 text-xs font-medium">
+        ⏳ Backend not reachable — waiting for server on port 8000…
+      </span>
+    </div>
+  );
 
   return (
     <div className="bg-down/10 border-b border-down/40 px-4 py-3">
