@@ -19,7 +19,7 @@ def _trade_to_dict(t: Trade) -> dict:
     live_ltp = None
     live_pnl = t.pnl
     live_pnl_pct = t.pnl_pct
-    if str(t.status).lower() == "open" and t.entry_price:
+    if t.status == "open" and t.entry_price:
         try:
             from backend.core.order_executor import current_premium
             live_ltp = current_premium(t)

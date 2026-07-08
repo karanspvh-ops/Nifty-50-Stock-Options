@@ -46,6 +46,7 @@ from backend.core.stock_universe     import refresh_instrument_list
 from backend.agents.pnl_agent        import pnl_agent
 from backend.agents.ml_agent         import ml_agent
 from backend.core.daily_report_scheduler import daily_report_scheduler
+from backend.core.pre_market_check      import pre_market_scheduler
 
 
 @asynccontextmanager
@@ -91,9 +92,12 @@ async def lifespan(app: FastAPI):
     ml_agent.start()
     print("[BOOT] Starting daily report scheduler...")
     daily_report_scheduler.start()
+    print("[BOOT] Starting pre-market health check scheduler...")
+    pre_market_scheduler.start()
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
+    pre_market_scheduler.stop()
     daily_report_scheduler.stop()
     ml_agent.stop()
     pnl_agent.stop()
@@ -119,7 +123,8 @@ app = FastAPI(
 # ── CORS (React frontend on port 3000) ───────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins     = ["http://localhost:3000", "http://127.0.0.1:3000",
+                         "http://localhost:3002", "http://127.0.0.1:3002"],
     allow_credentials = True,
     allow_methods     = ["*"],
     allow_headers     = ["*"],

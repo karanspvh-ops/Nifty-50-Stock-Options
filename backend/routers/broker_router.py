@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from backend.core.broker import broker
+from backend.core.pre_market_check import pre_market_scheduler
 
 router = APIRouter(prefix="/api/broker", tags=["broker"])
 
@@ -48,3 +49,9 @@ def login(payload: LoginPayload):
         print(f"[BROKER] post-login startup warning: {e}")
 
     return {"status": "ok", "user": data.get("user_name")}
+
+
+@router.get("/health-check")
+def health_check():
+    """Run the pre-market GO/NO-GO health check immediately and return results."""
+    return pre_market_scheduler.run_now()
