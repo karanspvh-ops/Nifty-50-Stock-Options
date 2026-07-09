@@ -90,15 +90,13 @@ async def lifespan(app: FastAPI):
     pnl_agent.start()
     print("[BOOT] Starting ML agent...")
     ml_agent.start()
-    print("[BOOT] Starting daily report scheduler...")
-    daily_report_scheduler.start()
+    print("[BOOT] Daily report scheduler ready (fires on last trade close).")
     print("[BOOT] Starting pre-market health check scheduler...")
     pre_market_scheduler.start()
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
     pre_market_scheduler.stop()
-    daily_report_scheduler.stop()
     ml_agent.stop()
     pnl_agent.stop()
     early_scalp.stop()

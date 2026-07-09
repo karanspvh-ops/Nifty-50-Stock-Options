@@ -216,6 +216,13 @@ class RiskEngine:
         print(f"[RISK] EXIT trade #{trade.id} | {trade.symbol} | "
               f"PnL: ₹{pnl:.2f} ({pnl_pct:.1f}%) | Reason: {reason}")
 
+        # Check if this was the last open trade → trigger report email
+        try:
+            from backend.core.daily_report_scheduler import daily_report_scheduler
+            daily_report_scheduler.on_trade_closed()
+        except Exception:
+            pass
+
         # Notify Module 5 to place actual exit order (live mode)
         if self._exit_callback:
             try:

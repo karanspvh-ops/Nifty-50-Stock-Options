@@ -1,165 +1,81 @@
 """
-daily_report_scheduler.py — Sends end-of-day report email in two ways:
+daily_report_scheduler.py — Sends end-of-day report email the moment the
+last open trade of the day closes.
 
-  1. Event-driven: OB and ES each call notify_session_done() when their
-     session ends. Once both have called in, a background thread polls
-     every 10 s until all open trades are closed, then sends the email.
+Trigger: risk_engine calls on_trade_closed() after every exit. Once the open
+trade count hits 0 and it is past 10:30 IST (no new entries possible from
+either ES or OB), the report is sent immediately.
 
-  2. Fallback: a fixed 15:15 IST timer fires in case either strategy
-     didn't notify (backend restart, holiday, etc.). Skips if the
-     event-driven send already happened today.
+Manual override: POST /api/reports/send-now
 """
 
 import os
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
-SEND_HOUR = 15
-SEND_MINUTE = 15
-RECIPIENTS = ["sujayprakash24@gmail.com", "saurav.prakash@bpaconsulting.in"]
 
-EXPECTED_STRATEGIES = {"OB", "ES"}
-POLL_INTERVAL_S = 10
+# After this time no new trades can be entered (ES done 09:30, OB hard-deadline 10:30)
+ALL_ENTRIES_DONE = dtime(10, 30)
+
+RECIPIENTS = ["sujayprakash24@gmail.com", "saurav.prakash@bpaconsulting.in"]
 
 
 class DailyReportScheduler:
     def __init__(self):
-        self._timer: threading.Timer | None = None
-        self._stopped = False
-
-        # Event-driven tracking — reset each trading day
         self._lock = threading.Lock()
-        self._done_strategies: set[str] = set()
-        self._report_sent_date: str | None = None  # "YYYY-MM-DD" when sent
-        self._poll_thread: threading.Thread | None = None
+        self._report_sent_date: str | None = None  # "YYYY-MM-DD" on send
 
-    # ── Fixed 15:15 fallback timer ────────────────────────────────────────────
+    # ── Called by risk_engine after every trade exit ──────────────────────────
 
-    def start(self):
-        self._stopped = False
-        self._schedule_next()
-        print(f"[REPORT] Scheduler started — event-driven + fallback at "
-              f"{SEND_HOUR}:{SEND_MINUTE:02d} IST → {', '.join(RECIPIENTS)}")
-
-    def stop(self):
-        self._stopped = True
-        if self._timer:
-            self._timer.cancel()
-            self._timer = None
-        print("[REPORT] Scheduler stopped.")
-
-    def _schedule_next(self):
-        if self._stopped:
-            return
-        now = datetime.now(IST)
-        target = now.replace(hour=SEND_HOUR, minute=SEND_MINUTE, second=0, microsecond=0)
-        if target <= now:
-            target += timedelta(days=1)
-        delay = (target - now).total_seconds()
-        self._timer = threading.Timer(delay, self._fire_fallback)
-        self._timer.daemon = True
-        self._timer.start()
-        print(f"[REPORT] Fallback timer set for {target.strftime('%Y-%m-%d %H:%M IST')} "
-              f"({delay/3600:.1f}h from now)")
-
-    def _fire_fallback(self):
-        try:
-            self._send_if_applicable(source="fallback-timer")
-        except Exception as e:
-            print(f"[REPORT] Fallback send error: {e}")
-        finally:
-            self._schedule_next()
-
-    # ── Event-driven: strategies call this when their session ends ────────────
-
-    def notify_session_done(self, strategy: str):
+    def on_trade_closed(self):
         """
-        Called by OB/ES when their square-off phase completes.
-        Triggers report once all sessions are done and all trades closed.
-
-        "All done" means either:
-        - Every expected strategy has explicitly called in, OR
-        - We are at or past the latest session end time (15:15) — handles
-          cases where a strategy never called in due to a backend restart.
+        Fires after every trade exit. Sends the daily report as soon as:
+          1. No open trades remain today, AND
+          2. It is past 10:30 IST (all entry windows have closed).
         """
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
 
         with self._lock:
-            # Reset on a new day — even when yesterday had no trades and _report_sent_date
-            # is None, we must clear stale strategy notifications so they don't fire
-            # today's poll prematurely.
-            if self._report_sent_date != today_str:
-                self._done_strategies.clear()
-                self._report_sent_date = None
+            if self._report_sent_date == today_str:
+                return  # already sent
 
-            self._done_strategies.add(strategy)
+        if now.time() < ALL_ENTRIES_DONE:
+            return  # still within entry window — more trades possible
 
-            # All strategies explicitly called in, OR we're past 15:15
-            past_latest = now.hour > SEND_HOUR or (
-                now.hour == SEND_HOUR and now.minute >= SEND_MINUTE)
-            all_done = EXPECTED_STRATEGIES.issubset(self._done_strategies) or past_latest
-            already_sent = self._report_sent_date == today_str
-            poll_running = self._poll_thread and self._poll_thread.is_alive()
+        try:
+            open_count = self._count_open_trades_today()
+        except Exception as e:
+            print(f"[REPORT] on_trade_closed check error: {e}")
+            return
 
-        print(f"[REPORT] {strategy} session done "
-              f"(strategies: {self._done_strategies}, past_15:15={past_latest})")
+        if open_count > 0:
+            return  # other trades still running
 
-        if all_done and not already_sent and not poll_running:
-            # Acquire lock to atomically mark the poll thread as starting, preventing
-            # a concurrent notify_session_done call from also spawning a poll thread.
-            with self._lock:
-                if self._report_sent_date != today_str and not (
-                        self._poll_thread and self._poll_thread.is_alive()):
-                    self._start_poll_thread()
+        print("[REPORT] Last trade closed — sending report now.")
+        threading.Thread(
+            target=self._send_if_applicable,
+            kwargs={"source": "last-trade-closed"},
+            daemon=True,
+        ).start()
+
+    # ── Manual / API trigger ──────────────────────────────────────────────────
 
     def send_now(self):
         """Force-send today's report immediately (manual trigger)."""
         today_str = datetime.now(IST).strftime("%Y-%m-%d")
         with self._lock:
-            already_sent = self._report_sent_date == today_str
-            poll_running = self._poll_thread and self._poll_thread.is_alive()
-        if already_sent:
-            return {"status": "already_sent", "date": today_str}
-        if poll_running:
-            return {"status": "poll_in_progress"}
-        threading.Thread(target=self._send_if_applicable,
-                         kwargs={"source": "manual"}, daemon=True).start()
+            if self._report_sent_date == today_str:
+                return {"status": "already_sent", "date": today_str}
+        threading.Thread(
+            target=self._send_if_applicable,
+            kwargs={"source": "manual"},
+            daemon=True,
+        ).start()
         return {"status": "triggered"}
 
-    def _start_poll_thread(self):
-        # Create and register the thread while the caller already holds _lock so
-        # any concurrent notify_session_done sees it as alive before we return.
-        t = threading.Thread(target=self._poll_until_clear, daemon=True)
-        self._poll_thread = t   # caller must hold _lock
-        t.start()
-        print("[REPORT] Polling for open trades to clear before sending report…")
-
-    def _poll_until_clear(self):
-        # Give open trades up to 30 min to close; after that let the 15:15 fallback
-        # timer handle it to avoid an immortal thread if a square-off never lands.
-        max_polls = int(30 * 60 / POLL_INTERVAL_S)
-        for _ in range(max_polls):
-            try:
-                open_count = self._count_open_trades_today()
-            except Exception as e:
-                print(f"[REPORT] Poll error: {e}")
-                open_count = -1
-
-            if open_count == 0:
-                print("[REPORT] All trades closed — sending report.")
-                try:
-                    self._send_if_applicable(source="event-driven")
-                except Exception as e:
-                    print(f"[REPORT] Event-driven send error: {e}")
-                return
-
-            print(f"[REPORT] {open_count} trade(s) still open — "
-                  f"retrying in {POLL_INTERVAL_S}s…")
-            threading.Event().wait(POLL_INTERVAL_S)
-
-        print("[REPORT] Poll timed out after 30 min — fallback timer will send at 15:15.")
+    # ── DB helpers ────────────────────────────────────────────────────────────
 
     def _count_open_trades_today(self) -> int:
         from backend.database import Session, Trade, TradeEnv, TradeStatus
@@ -185,7 +101,7 @@ class DailyReportScheduler:
         finally:
             db.close()
 
-    # ── Core send logic (shared by both paths) ────────────────────────────────
+    # ── Core send logic ───────────────────────────────────────────────────────
 
     def _send_if_applicable(self, source: str = ""):
         now = datetime.now(IST)
@@ -195,15 +111,20 @@ class DailyReportScheduler:
             if self._report_sent_date == today_str:
                 print(f"[REPORT] Already sent today — skipping ({source})")
                 return
+            self._report_sent_date = today_str  # reserve before releasing lock
 
         if now.weekday() >= 5:
             print(f"[REPORT] Skipping — weekend ({now.strftime('%A')})")
+            with self._lock:
+                self._report_sent_date = None  # undo reservation on skip
             return
 
         smtp_user = os.getenv("SMTP_USER", "")
         smtp_pass = os.getenv("SMTP_PASS", "")
         if not smtp_user or not smtp_pass:
             print("[REPORT] Skipping — SMTP_USER/SMTP_PASS not configured")
+            with self._lock:
+                self._report_sent_date = None
             return
 
         from backend.database import Session, Trade, TradeEnv, TradeStatus
@@ -224,7 +145,10 @@ class DailyReportScheduler:
             )
             if not today_trades:
                 print(f"[REPORT] Skipping — no trades today ({today_str})")
+                with self._lock:
+                    self._report_sent_date = None
                 return
+
             print(f"[REPORT] {len(today_trades)} trades today — "
                   f"sending to {', '.join(RECIPIENTS)} [{source}]…")
 
@@ -259,7 +183,6 @@ class DailyReportScheduler:
                 }
                 for t in closed
             ]
-            # Cumulative ES PnL before today → correct opening balance for chart
             prior_es = (
                 db.query(Trade)
                 .filter(Trade.env == TradeEnv.PAPER,
@@ -274,13 +197,9 @@ class DailyReportScheduler:
 
         if not trades:
             print(f"[REPORT] No closed trades for {today_str}")
+            with self._lock:
+                self._report_sent_date = None
             return
-
-        with self._lock:
-            if self._report_sent_date == today_str:
-                print(f"[REPORT] Already sent today (race) — skipping ({source})")
-                return
-            self._report_sent_date = today_str
 
         self._send_email(smtp_user, smtp_pass, today_str, trades, es_start_balance)
 
