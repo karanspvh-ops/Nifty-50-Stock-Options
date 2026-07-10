@@ -1,30 +1,23 @@
-"""
-database.py — Backward-compatible shim.
-
-All schema and engine logic has been modularized into backend/storage/.
-This file re-exports everything so existing imports keep working.
-
-To understand or edit:
-  Enums (TradeEnv etc.)  →  backend/storage/enums.py
-  ORM models             →  backend/storage/models.py
-  Engine / Session / DB  →  backend/storage/engine.py
-"""
-
-from backend.storage import (           # noqa: F401
-    # models
+# Import models first so they register on Base before any create_all() call
+from backend.storage.models import (  # noqa: F401
     Settings, TradingSession, Trade, PortfolioState,
     Report, AgentLog, Candle, TradableSignal,
-    # engine
+)
+from backend.storage.engine import (  # noqa: F401
     engine, Session, Base, DB_PATH, DATABASE_URL,
     init_db, get_db,
-    # enums
+)
+from backend.storage.enums import (   # noqa: F401
     TradeEnv, TradeDirection, TradeStatus, SessionStatus,
 )
 
 __all__ = [
+    # models
     "Settings", "TradingSession", "Trade", "PortfolioState",
     "Report", "AgentLog", "Candle", "TradableSignal",
+    # engine
     "engine", "Session", "Base", "DB_PATH", "DATABASE_URL",
     "init_db", "get_db",
+    # enums
     "TradeEnv", "TradeDirection", "TradeStatus", "SessionStatus",
 ]
