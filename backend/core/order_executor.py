@@ -30,8 +30,10 @@ from backend.core.broker           import broker
 
 
 # ── Quantity ──────────────────────────────────────────────────────────────────
-def calc_quantity(available_funds: float, premium: float, lot_size: int) -> int:
-    budget    = available_funds * 0.5
+def calc_quantity(available_funds: float, premium: float, lot_size: int,
+                  max_positions: int = 5) -> int:
+    # Divide capital evenly across the maximum number of simultaneous positions.
+    budget    = available_funds / max(max_positions, 1)
     cost_1lot = premium * lot_size
     if cost_1lot <= 0:
         return 1
@@ -173,7 +175,8 @@ def select_option(symbol: str, ltp: float, direction: str
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
-                      indicators, sl_pct_override=None, target_pct_override=None) -> Optional[Trade]:
+                      indicators, sl_pct_override=None, target_pct_override=None,
+                      max_positions: int = 5) -> Optional[Trade]:
     if not market.is_feed_connected():
         print(f"[ORDER] REJECTED — feed disconnected ({symbol} {direction}).")
         return None
@@ -208,7 +211,7 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
         print(f"[ORDER] REJECTED — {opt_symbol} too illiquid to trade safely")
         return None
 
-    qty      = calc_quantity(available_funds, premium, lot_size)
+    qty      = calc_quantity(available_funds, premium, lot_size, max_positions)
     trade_sl_price = round(premium * (1 - trade_sl_pct / 100), 2)
     target_price   = round(premium * (1 + target_pct / 100), 2) if target_pct > 0 else None
 

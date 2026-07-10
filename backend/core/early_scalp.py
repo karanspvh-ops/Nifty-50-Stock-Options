@@ -690,6 +690,7 @@ class EarlyScalp:
                     },
                     sl_pct_override=float(self._p("hard_sl_pct")),
                     target_pct_override=float(self._p("target_pct")),
+                    max_positions=int(self._p("max_positions")),
                 )
                 if trade:
                     c.entered = True

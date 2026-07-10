@@ -631,6 +631,7 @@ class OpeningBreakout:
                             "consec_candles": bo.consec, "vol_ratio": bo.vol_ratio,
                             "vp20": bo.vp20, "vp50": bo.vp50},
                 sl_pct_override=self._p("hard_sl_pct"), target_pct_override=self._p("target_pct"),
+                max_positions=int(self._p("max_positions")),
             )
             if trade:
                 ps.entered = True
