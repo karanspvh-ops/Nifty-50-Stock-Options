@@ -182,7 +182,7 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
         return None
 
     settings        = get_settings()
-    available_funds = settings.get("available_funds", 0)
+    available_funds = settings.get("available_funds") or 500_000
     trade_sl_pct    = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
     target_pct      = target_pct_override if target_pct_override is not None else settings.get("target_profit_pct", 0.0)
 

@@ -102,7 +102,7 @@ class SectorScanner:
         # ── Step 2: get stocks in top sector ──────────────────────────────────
         stocks   = top_data.get("stocks", [])
         settings = get_settings()
-        available_funds = settings.get("available_funds", 100000)
+        available_funds = settings.get("available_funds") or 500_000
 
         candidates: List[StockCandidate] = []
 

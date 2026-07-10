@@ -55,8 +55,8 @@ SQUARE_OFF      = dtime(15, 15)
 
 MOVE_MIN_PCT        = 1.5          # opening breakout trigger
 MOVE_TARGET_PCT     = 2.0          # preferred move
-MAX_POSITIONS       = 3
-CANDIDATE_POOL      = 10           # evaluate confirmation on the top-N; enter the first MAX_POSITIONS that confirm
+MAX_POSITIONS       = 5
+CANDIDATE_POOL      = 15           # evaluate confirmation on the top-N; enter the first MAX_POSITIONS that confirm
 RFACTOR_MIN         = 0.8
 
 # Sector qualification (fixes the marginal-breadth flip + thin single-stock sectors)
