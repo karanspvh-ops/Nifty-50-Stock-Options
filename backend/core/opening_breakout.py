@@ -18,5 +18,15 @@ To understand or edit the strategy:
 
 from backend.strategies.ob.strategy import opening_breakout, OpeningBreakout  # noqa: F401
 from backend.strategies.ob.types    import PlanStock, TradePlan  # noqa: F401
+from backend.strategies.ob.params   import (                      # noqa: F401
+    MOVE_MIN_PCT, MIN_SECTOR_MOVERS, SECTOR_MIN_PCT, RFACTOR_MIN,
+    MAX_POSITIONS, CANDIDATE_POOL, GAP_MIN_PCT, EARLY_SECTOR_MIN_PCT,
+    CLARITY_NET, BREADTH_MIN_PCT,
+)
 
-__all__ = ["opening_breakout", "OpeningBreakout", "PlanStock", "TradePlan"]
+__all__ = [
+    "opening_breakout", "OpeningBreakout", "PlanStock", "TradePlan",
+    "MOVE_MIN_PCT", "MIN_SECTOR_MOVERS", "SECTOR_MIN_PCT", "RFACTOR_MIN",
+    "MAX_POSITIONS", "CANDIDATE_POOL", "GAP_MIN_PCT", "EARLY_SECTOR_MIN_PCT",
+    "CLARITY_NET", "BREADTH_MIN_PCT",
+]
