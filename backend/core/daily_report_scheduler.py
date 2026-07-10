@@ -15,8 +15,9 @@ from datetime import datetime, time as dtime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-# After this time no new trades can be entered (ES done 09:30, OB hard-deadline 10:30)
-ALL_ENTRIES_DONE = dtime(10, 30)
+# After this time no new trades can be entered (ES done 09:30, OB hard-deadline 10:30).
+# Gate is 10:31 — one minute of margin so an OB entry at exactly 10:30:00 is not missed.
+ALL_ENTRIES_DONE = dtime(10, 31)
 
 RECIPIENTS = ["sujayprakash24@gmail.com", "saurav.prakash@bpaconsulting.in"]
 
@@ -56,8 +57,8 @@ class DailyReportScheduler:
         print("[REPORT] Last trade closed — sending report now.")
         threading.Thread(
             target=self._send_if_applicable,
-            kwargs={"source": "last-trade-closed"},
-            daemon=True,
+            kwargs={"source": "last-trade-closed", "today_str": today_str},
+            daemon=False,
         ).start()
 
     # ── Manual / API trigger ──────────────────────────────────────────────────
@@ -70,8 +71,8 @@ class DailyReportScheduler:
                 return {"status": "already_sent", "date": today_str}
         threading.Thread(
             target=self._send_if_applicable,
-            kwargs={"source": "manual"},
-            daemon=True,
+            kwargs={"source": "manual", "today_str": today_str},
+            daemon=False,
         ).start()
         return {"status": "triggered"}
 
@@ -103,9 +104,10 @@ class DailyReportScheduler:
 
     # ── Core send logic ───────────────────────────────────────────────────────
 
-    def _send_if_applicable(self, source: str = ""):
+    def _send_if_applicable(self, source: str = "", today_str: str = ""):
         now = datetime.now(IST)
-        today_str = now.strftime("%Y-%m-%d")
+        if not today_str:
+            today_str = now.strftime("%Y-%m-%d")
 
         with self._lock:
             if self._report_sent_date == today_str:
@@ -201,7 +203,12 @@ class DailyReportScheduler:
                 self._report_sent_date = None
             return
 
-        self._send_email(smtp_user, smtp_pass, today_str, trades, es_start_balance)
+        try:
+            self._send_email(smtp_user, smtp_pass, today_str, trades, es_start_balance)
+        except Exception as e:
+            print(f"[REPORT] SMTP error — resetting reservation so next trigger can retry: {e}")
+            with self._lock:
+                self._report_sent_date = None
 
     def _send_email(self, smtp_user: str, smtp_pass: str, today_str: str, trades: list,
                     es_start_balance: float = 500_000):

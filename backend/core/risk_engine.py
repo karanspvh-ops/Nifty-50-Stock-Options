@@ -101,6 +101,10 @@ class RiskEngine:
                     self._check_trade(db, trade)
                 except Exception as e:
                     log.error(f"[RISK] Trade #{trade.id} check error: {e}")
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
         finally:
             db.close()
 
