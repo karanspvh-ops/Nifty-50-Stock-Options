@@ -138,11 +138,12 @@ def trade_table_html(trades: List[dict]) -> str:
                 opt_type,
                 f"{t['qty']} QTY" if t.get("qty") else "",
             ]))
+            exit_cell = ("₹" + f'{t["exit"]:.2f}') if t.get("exit") else "—"
             html += (
                 f'<tr style="background:{bg}">'
                 f'<td style="{td};font-weight:600;color:#0f172a">{sym_label}</td>'
                 f'<td style="{td}">₹{t["entry"]:.2f}</td>'
-                f'<td style="{td}">{f"₹{t[\'exit\']:.2f}" if t.get("exit") else "—"}</td>'
+                f'<td style="{td}">{exit_cell}</td>'
                 f'<td style="{td}">{f"₹{int(cap):,}" if cap else "—"}</td>'
                 f'<td style="{td};color:{pnl_color};font-weight:700">'
                 f'{"+" if t["pnl"]>=0 else "−"}₹{abs(int(t["pnl"])):,}</td>'
