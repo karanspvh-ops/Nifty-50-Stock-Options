@@ -47,6 +47,7 @@ from backend.agents.pnl_agent        import pnl_agent
 from backend.agents.ml_agent         import ml_agent
 from backend.core.daily_report_scheduler import daily_report_scheduler
 from backend.core.pre_market_check      import pre_market_scheduler
+from backend.routers.simulation_router  import router as simulation_router
 
 
 @asynccontextmanager
@@ -93,6 +94,11 @@ async def lifespan(app: FastAPI):
     print("[BOOT] Daily report scheduler ready (fires on last trade close).")
     print("[BOOT] Starting pre-market health check scheduler...")
     pre_market_scheduler.start()
+
+    print("[BOOT] Running startup system health check...")
+    from backend.simulation.runner import run_async as _sim_run
+    _sim_run()
+
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
@@ -141,6 +147,7 @@ app.include_router(strategy_router)
 app.include_router(early_scalp_router)
 app.include_router(broker_router)
 app.include_router(backtest_router)
+app.include_router(simulation_router)
 
 
 @app.get("/health")

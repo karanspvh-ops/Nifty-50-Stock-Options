@@ -10,6 +10,7 @@ import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
 import TradableSignals  from './components/dashboard/TradableSignals';
 import TradePlan        from './components/dashboard/TradePlan';
+import SystemCheckPanel from './components/dashboard/SystemCheckPanel';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 import BacktestView     from './components/backtest/BacktestView';
@@ -43,6 +44,7 @@ const API = 'http://localhost:8000';
 function Dashboard() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
+      <SystemCheckPanel />
       <OpenTradesPanel />
       <TradePlan />
       <SectorHeatmap />
