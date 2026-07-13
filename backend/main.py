@@ -99,6 +99,10 @@ async def lifespan(app: FastAPI):
     from backend.simulation.runner import run_async as _sim_run
     _sim_run()
 
+    print("[BOOT] Running strategy code dry-run...")
+    from backend.simulation.dryrun_runner import run_dryrun_async as _dryrun
+    _dryrun()
+
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────

@@ -10,7 +10,8 @@ import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
 import TradableSignals  from './components/dashboard/TradableSignals';
 import TradePlan        from './components/dashboard/TradePlan';
-import SystemCheckPanel from './components/dashboard/SystemCheckPanel';
+import SystemCheckPanel      from './components/dashboard/SystemCheckPanel';
+import StrategyDryRunPanel   from './components/dashboard/StrategyDryRunPanel';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 import BacktestView     from './components/backtest/BacktestView';
@@ -45,6 +46,7 @@ function Dashboard() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
       <SystemCheckPanel />
+      <StrategyDryRunPanel />
       <OpenTradesPanel />
       <TradePlan />
       <SectorHeatmap />
