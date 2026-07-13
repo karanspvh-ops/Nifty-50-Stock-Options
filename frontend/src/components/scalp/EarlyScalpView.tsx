@@ -282,15 +282,29 @@ function CandidateTable({ candidates }: { candidates: Candidate[] }) {
                     ~₹{c.est_premium.toFixed(1)}
                   </td>
                   <td className="py-1.5 text-xs">
-                    {c.entered ? (
-                      <span className="text-up font-semibold">IN TRADE</span>
-                    ) : c.confirmed ? (
-                      <span className="text-accent font-semibold">CONFIRMED</span>
-                    ) : (
-                      <span className="text-muted" title={c.skip_reason}>
-                        {c.skip_reason ? c.skip_reason.split(';')[0] : 'watching'}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {c.entered ? (
+                        <span className="text-up font-semibold">IN TRADE</span>
+                      ) : c.confirmed ? (
+                        <span className="text-accent font-semibold">CONFIRMED</span>
+                      ) : (
+                        <span className="text-muted" title={c.skip_reason}>
+                          {c.skip_reason ? c.skip_reason.split(';')[0] : 'watching'}
+                        </span>
+                      )}
+                      {!c.entered && env === 'paper' && (
+                        <button
+                          onClick={() => forceEntry(c.symbol, c.direction)}
+                          disabled={forcing === `${c.symbol}-${c.direction}`}
+                          className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold
+                            border border-accent/40 text-accent/70
+                            hover:border-accent hover:text-accent hover:bg-accent/10
+                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {forcing === `${c.symbol}-${c.direction}` ? '…' : 'Force'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -319,6 +333,8 @@ export default function EarlyScalpView() {
   const [saving,      setSaving]      = useState(false);
   const [showParams,  setShowParams]  = useState(false);
   const [env]                         = useState<'paper' | 'live'>('paper');
+  const [forcing,     setForcing]     = useState<string | null>(null);
+  const [forceMsg,    setForceMsg]    = useState<string | null>(null);
 
   // Load plan
   const loadPlan = useCallback(async () => {
@@ -365,6 +381,30 @@ export default function EarlyScalpView() {
     } catch {}
   };
 
+  const forceEntry = async (symbol: string, direction: string) => {
+    const key = `${symbol}-${direction}`;
+    setForcing(key);
+    setForceMsg(null);
+    try {
+      const r = await fetch(`${API}/api/scalp/force-entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, direction }),
+      });
+      const d = await r.json();
+      if (d.status === 'entered') {
+        setForceMsg(`✓ Entered ${d.option_symbol} @ ₹${d.entry_price} · SL ₹${d.sl_price?.toFixed(2)}`);
+        loadTrades();
+      } else {
+        setForceMsg(`✗ ${d.reason}`);
+      }
+    } catch (e) {
+      setForceMsg('✗ Request failed');
+    }
+    setForcing(null);
+    setTimeout(() => setForceMsg(null), 6000);
+  };
+
   const saveParams = async () => {
     if (!localParams) return;
     setSaving(true);
@@ -387,6 +427,16 @@ export default function EarlyScalpView() {
 
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
+
+      {/* ── Force-entry result toast ───────────────────────────────────────── */}
+      {forceMsg && (
+        <div className={`text-xs px-3 py-2 rounded-lg border font-medium
+          ${forceMsg.startsWith('✓')
+            ? 'bg-up/10 border-up/30 text-up'
+            : 'bg-down/10 border-down/30 text-down'}`}>
+          {forceMsg}
+        </div>
+      )}
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
