@@ -50,6 +50,31 @@ from backend.core.pre_market_check      import pre_market_scheduler
 from backend.routers.simulation_router  import router as simulation_router
 
 
+def _schedule_dryrun_at_905():
+    """Fire the strategy dry-run at 09:05 IST — after feeds stabilise, before ES entry window."""
+    import threading
+    from datetime import datetime, timezone, timedelta
+
+    IST = timezone(timedelta(hours=5, minutes=30))
+
+    def _wait_and_run():
+        now   = datetime.now(IST)
+        target = now.replace(hour=9, minute=5, second=0, microsecond=0)
+        if now >= target:
+            # Already past 09:05 today (e.g. backend restarted mid-session) — run immediately
+            delay = 0
+        else:
+            delay = (target - now).total_seconds()
+        if delay > 0:
+            print(f"[DRYRUN] Will run at 09:05 IST (in {delay:.0f}s)")
+            threading.Event().wait(timeout=delay)
+        from backend.simulation.dryrun_runner import run_dryrun_async
+        print("[DRYRUN] 09:05 IST — starting strategy code dry-run...")
+        run_dryrun_async()
+
+    threading.Thread(target=_wait_and_run, daemon=True).start()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────
@@ -99,9 +124,8 @@ async def lifespan(app: FastAPI):
     from backend.simulation.runner import run_async as _sim_run
     _sim_run()
 
-    print("[BOOT] Running strategy code dry-run...")
-    from backend.simulation.dryrun_runner import run_dryrun_async as _dryrun
-    _dryrun()
+    print("[BOOT] Strategy dry-run scheduled for 09:05 IST (after feeds stabilise).")
+    _schedule_dryrun_at_905()
 
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
