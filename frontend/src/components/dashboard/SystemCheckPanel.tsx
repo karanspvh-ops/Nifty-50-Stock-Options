@@ -137,10 +137,12 @@ export default function SystemCheckPanel() {
     startPolling();
   };
 
-  // Auto-dismiss when all green after a short delay
+  // When done+go: write sessionStorage immediately (so tab-switches stay collapsed),
+  // then visually collapse after a short delay to let the user see the results.
   useEffect(() => {
     if (status?.done && status.go) {
-      const t = setTimeout(dismiss, 8000);
+      sessionStorage.setItem(SC_KEY, '1');
+      const t = setTimeout(() => setDismissed(true), 8000);
       return () => clearTimeout(t);
     }
   }, [status?.done, status?.go]);

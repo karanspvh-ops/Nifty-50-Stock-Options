@@ -134,10 +134,12 @@ export default function StrategyDryRunPanel() {
     startPolling();
   };
 
-  // Auto-dismiss after 12s on all-green
+  // When done+go: write sessionStorage immediately (so tab-switches stay collapsed),
+  // then visually collapse after a short delay to let the user see the results.
   useEffect(() => {
     if (status?.done && status.go) {
-      const t = setTimeout(dismiss, 12000);
+      sessionStorage.setItem(DR_KEY, '1');
+      const t = setTimeout(() => setDismissed(true), 12000);
       return () => clearTimeout(t);
     }
   }, [status?.done, status?.go]);
