@@ -56,8 +56,8 @@ class RiskExitMixin:
         try:
             from backend.core.daily_report_scheduler import daily_report_scheduler
             daily_report_scheduler.on_trade_closed()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[REPORT] on_trade_closed notification failed: {e}")
 
         # Notify live order execution module (if registered)
         if self._exit_callback:

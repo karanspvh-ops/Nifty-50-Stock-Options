@@ -26,6 +26,25 @@ class DailyReportScheduler:
     def __init__(self):
         self._lock = threading.Lock()
         self._report_sent_date: str | None = None  # "YYYY-MM-DD" on send
+        self._start_eod_fallback()
+
+    def _start_eod_fallback(self):
+        """Fire at 15:20 IST every weekday — catches days where the backend restarted
+        after all trades closed and on_trade_closed was never re-triggered."""
+        import time
+
+        def _loop():
+            while True:
+                now    = datetime.now(IST)
+                target = now.replace(hour=15, minute=20, second=0, microsecond=0)
+                if now >= target:
+                    target = target + timedelta(days=1)
+                time.sleep((target - now).total_seconds())
+                print("[REPORT] EOD fallback trigger firing at 15:20 IST…")
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                self._send_if_applicable(source="eod-fallback", today_str=today_str)
+
+        threading.Thread(target=_loop, daemon=True, name="ReportEODFallback").start()
 
     # ── Called by risk_engine after every trade exit ──────────────────────────
 
