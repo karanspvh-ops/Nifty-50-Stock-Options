@@ -129,11 +129,19 @@ def check_es_option_premium() -> Tuple[bool, str]:
 
 
 def check_es_quantity_calc() -> Tuple[bool, str]:
-    """ES · Quantity calc — calc_quantity with real premium and lot size."""
+    """ES · Quantity calc — calc_quantity with real premium, lot size, and ACTUAL settings funds."""
     try:
         from backend.execution.quantity import calc_quantity
         from backend.execution.option_selector import select_option, option_premium
         from backend.universe.instrument_cache import _LOT_SIZE
+        from backend.core.settings_manager import get_settings
+
+        settings = get_settings()
+        available_funds = float(settings.get("available_funds", 0))
+        if available_funds <= 0:
+            return False, (f"available_funds={available_funds} — settings not configured. "
+                           "Set funds in the dashboard before trading.")
+
         ltp = _get_test_ltp()
         if not ltp:
             return False, "No LTP available"
@@ -142,11 +150,12 @@ def check_es_quantity_calc() -> Tuple[bool, str]:
         lot_size = _LOT_SIZE.get(_TEST_SYMBOL, 250)
         if not prem:
             return False, "No premium available for quantity calc"
-        lots = calc_quantity(500_000.0, prem, lot_size, max_positions=5)
-        capital = round(prem * lots * lot_size)
-        return True, (f"premium=Rs {prem:.2f}  lot={lot_size}  "
-                      f"lots={lots}  capital=Rs {capital:,}  "
-                      f"(budget Rs {500_000//5:,} per slot)")
+        lots = calc_quantity(available_funds, prem, lot_size, max_positions=5)
+        per_slot = round(available_funds / 5)
+        capital  = round(prem * lots * lot_size)
+        return True, (f"funds=Rs {available_funds:,.0f}  premium=Rs {prem:.2f}  "
+                      f"lot={lot_size}  lots={lots}  capital=Rs {capital:,}  "
+                      f"(budget Rs {per_slot:,}/slot)")
     except Exception as e:
         return False, str(e)
 

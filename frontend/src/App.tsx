@@ -77,12 +77,17 @@ export default function App() {
   useMarketSocket();
   const { activeView, setSettings } = useMarketStore();
 
-  // Load persisted settings on startup
+  // Load settings on startup — retry every 2s until the backend responds
   useEffect(() => {
-    fetch(`${API}/api/settings`)
-      .then(r => r.json())
-      .then(data => setSettings(data))
-      .catch(() => {});
+    let cancelled = false;
+    const load = () => {
+      fetch(`${API}/api/settings/`)
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(data => { if (!cancelled) setSettings(data); })
+        .catch(() => { if (!cancelled) setTimeout(load, 2000); });
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   return (
