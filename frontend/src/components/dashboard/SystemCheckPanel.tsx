@@ -89,9 +89,11 @@ const ALL_CHECKS = [
   { check: 'SMTP',              node: 'email'       },
 ];
 
+const SC_KEY = 'systemcheck-dismissed';
+
 export default function SystemCheckPanel() {
   const [status, setStatus] = useState<SimStatus | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(SC_KEY) === '1');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -125,8 +127,11 @@ export default function SystemCheckPanel() {
     return stopPolling;
   }, []);
 
+  const dismiss = () => { sessionStorage.setItem(SC_KEY, '1'); setDismissed(true); };
+  const expand  = () => { sessionStorage.removeItem(SC_KEY);  setDismissed(false); };
+
   const rerun = async () => {
-    setDismissed(false);
+    expand();
     try { await fetch(`${API}/api/simulation/run`, { method: 'POST' }); } catch { /* ignore */ }
     setStatus(null);
     startPolling();
@@ -135,7 +140,7 @@ export default function SystemCheckPanel() {
   // Auto-dismiss when all green after a short delay
   useEffect(() => {
     if (status?.done && status.go) {
-      const t = setTimeout(() => setDismissed(true), 8000);
+      const t = setTimeout(dismiss, 8000);
       return () => clearTimeout(t);
     }
   }, [status?.done, status?.go]);
@@ -143,7 +148,7 @@ export default function SystemCheckPanel() {
   if (dismissed) {
     return (
       <button
-        onClick={() => setDismissed(false)}
+        onClick={expand}
         className="w-full flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20
           rounded-xl text-xs text-green-400 hover:bg-green-500/12 transition-colors"
       >
@@ -216,7 +221,7 @@ export default function SystemCheckPanel() {
           </button>
           {isDone && isGo && (
             <button
-              onClick={() => setDismissed(true)}
+              onClick={dismiss}
               className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors px-1"
             >
               ✕

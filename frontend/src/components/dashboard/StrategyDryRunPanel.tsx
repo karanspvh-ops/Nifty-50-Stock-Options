@@ -87,9 +87,11 @@ function NodeRow({ result, pending }: { result?: CheckResult; pending?: string }
   );
 }
 
+const DR_KEY = 'dryrun-dismissed';
+
 export default function StrategyDryRunPanel() {
   const [status, setStatus] = useState<DryRunStatus | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DR_KEY) === '1');
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = () => {
@@ -122,17 +124,20 @@ export default function StrategyDryRunPanel() {
     return stopPolling;
   }, []);
 
+  const dismiss = () => { sessionStorage.setItem(DR_KEY, '1'); setDismissed(true); };
+  const expand  = () => { sessionStorage.removeItem(DR_KEY);  setDismissed(false); };
+
   const rerun = async () => {
-    setDismissed(false);
+    expand();
     try { await fetch(`${API}/api/simulation/dryrun/run`, { method: 'POST' }); } catch { /* ignore */ }
     setStatus(null);
     startPolling();
   };
 
-  // Auto-dismiss after 12s on all-green (longer than system check because this has more info)
+  // Auto-dismiss after 12s on all-green
   useEffect(() => {
     if (status?.done && status.go) {
-      const t = setTimeout(() => setDismissed(true), 12000);
+      const t = setTimeout(dismiss, 12000);
       return () => clearTimeout(t);
     }
   }, [status?.done, status?.go]);
@@ -140,7 +145,7 @@ export default function StrategyDryRunPanel() {
   if (dismissed) {
     return (
       <button
-        onClick={() => setDismissed(false)}
+        onClick={expand}
         className="w-full flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20
           rounded-xl text-xs text-green-400 hover:bg-green-500/12 transition-colors"
       >
@@ -212,7 +217,7 @@ export default function StrategyDryRunPanel() {
           </button>
           {isDone && isGo && (
             <button
-              onClick={() => setDismissed(true)}
+              onClick={dismiss}
               className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors px-1"
             >
               ✕
