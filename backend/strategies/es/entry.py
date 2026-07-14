@@ -138,11 +138,20 @@ class ESEntryMixin:
 
         candidates.sort(key=lambda c: c.score, reverse=True)
 
+        confirmed_list = [c for c in candidates if c.confirmed]
+        if status == "entering" and not confirmed_list:
+            all_reasons = "; ".join(
+                f"{c.symbol}({c.skip_reason})"
+                for c in candidates[:5] if c.skip_reason
+            )
+            print(f"[ES] ENTRY WINDOW — 0 confirmed candidates. "
+                  f"Top skip reasons: {all_reasons or 'no candidates in universe'}")
+
         return EarlyScalpPlan(
             status=status, market_trend=market_trend,
             nifty_move=round(nifty_move, 2),
             candidates=candidates[:20],
-            note=f"Breadth {net:+.0%} | {len([c for c in candidates if c.confirmed])} confirmed",
+            note=f"Breadth {net:+.0%} | {len(confirmed_list)} confirmed",
             generated_at=datetime.now().isoformat(),
         )
 

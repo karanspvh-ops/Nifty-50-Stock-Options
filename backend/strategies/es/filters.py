@@ -88,6 +88,7 @@ class ESFiltersMixin:
         start = datetime.combine(today, dtime(9, 0))
         end   = now
 
+        fetched = 0
         for token, mv in ranked:
             sym = mv.get("symbol") or get_meta(token).get("symbol", "")
             if not sym:
@@ -96,8 +97,12 @@ class ESFiltersMixin:
                 cs = kite.historical_data(int(token), start, end, "minute")
                 cs = [c for c in cs if c["date"].date() == today]
                 self._candle_cache[sym] = cs
-            except Exception:
-                pass
+                fetched += 1
+            except Exception as e:
+                print(f"[ES] CANDLE FETCH FAILED {sym}: {e}")
+        if fetched == 0 and ranked:
+            print(f"[ES] WARNING — candle fetch returned 0 stocks (tried {len(ranked)}). "
+                  "All consec counts will be 0. Check Kite token / rate limit.")
 
     def _consec_candles(self, candles: list, direction: str) -> int:
         """Trailing consecutive green (call) or red (put) candles."""
