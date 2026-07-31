@@ -26,7 +26,7 @@ _DEFAULT_PARAMS = {
     "max_positions":      5,
     "hard_sl_pct":        5.0,
     "target_pct":         12.0,
-    "trail_activate_pct": 8.0,
+    "trail_activate_pct": 6.0,
     "trail_gap_pct":      5.0,
 }
 
