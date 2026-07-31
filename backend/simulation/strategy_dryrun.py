@@ -360,6 +360,150 @@ def check_ob_trail_logic() -> Tuple[bool, str]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# INTEGRATION / TRADE-PIPELINE NODES
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _test_trade_pipeline(direction: str, tag: str) -> Tuple[bool, str]:
+    """Walk the trade pipeline step by step, create a paper trade, verify DB write, clean up.
+    Skips the liquidity check (market-hours-only gate) so this works any time feed is connected."""
+    from backend.core.market_state import market
+    if not market.is_feed_connected():
+        return False, "Feed not connected — cannot test trade pipeline"
+
+    from backend.universe.instrument_cache import SYMBOL_TO_TOKEN
+    token = SYMBOL_TO_TOKEN.get(_TEST_SYMBOL)
+    if not token:
+        return False, f"{_TEST_SYMBOL} not in instrument cache"
+
+    mv = market.get_stock_move(token)
+    ltp = mv.get("ltp") if mv else None
+    if not ltp:
+        return False, f"STEP 1 FAIL — no live LTP for {_TEST_SYMBOL} (feed stale or token not subscribed)"
+
+    from backend.execution.option_selector import select_option, option_premium
+    opt_token, opt_symbol, strike, expiry = select_option(_TEST_SYMBOL, ltp, direction)
+    if not opt_token or not opt_symbol:
+        return False, f"STEP 2 FAIL — no ATM {direction.upper()} option for {_TEST_SYMBOL} @ {ltp}"
+
+    prem = option_premium(opt_token, opt_symbol)
+    if not prem:
+        return False, f"STEP 3 FAIL — option_premium returned None for {opt_symbol} (Kite quote failed)"
+
+    from backend.execution.quantity import calc_quantity
+    from backend.universe.instrument_cache import _LOT_SIZE
+    from backend.core.settings_manager import get_settings
+    settings = get_settings()
+    available_funds = float(settings.get("available_funds", 0))
+    if available_funds <= 0:
+        return False, f"STEP 4 FAIL — available_funds={available_funds} (not configured)"
+    lot_size = _LOT_SIZE.get(_TEST_SYMBOL, 250)
+    qty = calc_quantity(available_funds, prem, lot_size, max_positions=5)
+    if qty <= 0:
+        return False, f"STEP 4 FAIL — calc_quantity={qty} (premium Rs {prem:.2f} too high or funds too low)"
+
+    from backend.core.session_manager import get_or_create_session
+    from backend.core.clock import now_ist
+    from backend.database import (
+        TradeEnv, Session as DBSessionFactory, Trade,
+        TradeStatus, TradeDirection,
+    )
+
+    env = TradeEnv.PAPER
+    session = get_or_create_session(env)
+    sl_pct = 5.0 if tag == "ES" else 10.0
+    tgt_pct = 12.0 if tag == "ES" else 50.0
+
+    db = DBSessionFactory()
+    try:
+        trade = Trade(
+            session_id=session["id"], env=env, status=TradeStatus.OPEN,
+            direction=TradeDirection(direction), symbol=_TEST_SYMBOL,
+            option_symbol=opt_symbol, strike=strike, expiry=expiry,
+            option_type="CE" if direction == "call" else "PE",
+            entry_price=prem, quantity=qty, lot_size=lot_size,
+            trade_sl_pct=sl_pct,
+            trade_sl_price=round(prem * (1 - sl_pct / 100), 2),
+            target_price=round(prem * (1 + tgt_pct / 100), 2),
+            entry_logic=f"[{tag}] DRYRUN-TEST — will be deleted immediately",
+            indicators_snapshot={},
+            entered_at=now_ist(),
+        )
+        db.add(trade)
+        db.commit()
+        db.refresh(trade)
+        trade_id = trade.id
+
+        verify = db.query(Trade).filter(Trade.id == trade_id).first()
+        if not verify:
+            return False, f"STEP 5 FAIL — trade #{trade_id} not found in DB after insert"
+
+        db.delete(verify)
+        db.commit()
+    except Exception as e:
+        return False, f"STEP 5 FAIL — DB write error: {e}"
+    finally:
+        db.close()
+
+    return True, (f"PIPELINE OK — {opt_symbol} @ Rs {prem:.2f} | "
+                  f"qty={qty}x{lot_size} | trade #{trade_id} created+cleaned | "
+                  f"liquidity skipped (market-hours gate)")
+
+
+def check_es_trade_pipeline() -> Tuple[bool, str]:
+    """ES · Trade pipeline — full entry path: feed → LTP → option → premium → qty → DB write+cleanup."""
+    try:
+        return _test_trade_pipeline(_TEST_DIRECTION, "ES")
+    except Exception as e:
+        return False, str(e)
+
+
+def check_ob_trade_pipeline() -> Tuple[bool, str]:
+    """OB · Trade pipeline — full entry path (PUT): feed → LTP → option → premium → qty → DB write+cleanup."""
+    try:
+        return _test_trade_pipeline("put", "OB")
+    except Exception as e:
+        return False, str(e)
+
+
+def check_strategy_state_endpoints() -> Tuple[bool, str]:
+    """ES/OB · State health — verify both strategies return valid state with expected fields."""
+    try:
+        from backend.core.early_scalp import early_scalp
+        from backend.core.opening_breakout import opening_breakout
+
+        es_plan = early_scalp.get_plan()
+        if not es_plan:
+            return False, "ES get_plan() returned None"
+        es_status = es_plan.get("status")
+        if not es_status:
+            return False, f"ES plan missing 'status' field: {list(es_plan.keys())}"
+
+        ob_state = opening_breakout.get_state()
+        if not ob_state:
+            return False, "OB get_state() returned None"
+        ob_phase = ob_state.get("phase")
+        if not ob_phase:
+            return False, f"OB state missing 'phase' field: {list(ob_state.keys())}"
+
+        ob_plan = opening_breakout.get_plan()
+        if not ob_plan:
+            return False, "OB get_plan() returned None"
+        ob_plan_status = ob_plan.get("status")
+        if not ob_plan_status:
+            return False, f"OB plan missing 'status' field: {list(ob_plan.keys())}"
+
+        es_cands = len(es_plan.get("candidates", []))
+        ob_stocks = len(ob_plan.get("stocks", []))
+        ob_refs = ob_state.get("open_refs", 0)
+
+        return True, (f"ES: {es_status} ({es_cands} candidates) | "
+                      f"OB: {ob_phase} ({ob_stocks} stocks, {ob_refs} refs) | "
+                      f"both endpoints healthy")
+    except Exception as e:
+        return False, str(e)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # REPORTING NODES
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -438,6 +582,10 @@ DRYRUN_CHECKS = [
     ("OB · Breakout confirm", "strategy-ob",  check_ob_breakout_confirm),
     ("OB · Option selector",  "execution",    check_ob_option_selector),
     ("OB · Trail logic",      "strategy-ob",  check_ob_trail_logic),
+    # Integration / trade pipeline
+    ("ES · Trade pipeline",   "execution",    check_es_trade_pipeline),
+    ("OB · Trade pipeline",   "execution",    check_ob_trade_pipeline),
+    ("ES/OB · State health",  "integration",  check_strategy_state_endpoints),
     # Reporting pipeline
     ("Report · Costs",        "reporting",    check_reporting_costs),
     ("Report · HTML builder", "reporting",    check_reporting_html),

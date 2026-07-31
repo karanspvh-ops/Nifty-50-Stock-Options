@@ -23,6 +23,7 @@ const NODE_COLORS: Record<string, string> = {
   'strategy-es': 'bg-green-500/15 text-green-400 border-green-500/30',
   'strategy-ob': 'bg-teal-500/15 text-teal-400 border-teal-500/30',
   'execution':   'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  'integration': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
   'reporting':   'bg-blue-500/15 text-blue-400 border-blue-500/30',
 };
 
@@ -38,6 +39,9 @@ const ALL_NODES = [
   { check: 'OB · Breakout confirm', node: 'strategy-ob' },
   { check: 'OB · Option selector',  node: 'execution'   },
   { check: 'OB · Trail logic',      node: 'strategy-ob' },
+  { check: 'ES · Trade pipeline',   node: 'execution'   },
+  { check: 'OB · Trade pipeline',   node: 'execution'   },
+  { check: 'ES/OB · State health',  node: 'integration' },
   { check: 'Report · Costs',        node: 'reporting'   },
   { check: 'Report · HTML builder', node: 'reporting'   },
 ];

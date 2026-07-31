@@ -192,7 +192,12 @@ function ActiveTrades({ trades }: { trades: ScalpTrade[] }) {
 }
 
 // ── Candidate table ───────────────────────────────────────────────────────────
-function CandidateTable({ candidates }: { candidates: Candidate[] }) {
+function CandidateTable({ candidates, env, forcing, forceEntry }: {
+  candidates: Candidate[];
+  env: string;
+  forcing: string | null;
+  forceEntry: (symbol: string, direction: string) => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? candidates : candidates.slice(0, 10);
 
@@ -580,7 +585,7 @@ export default function EarlyScalpView() {
         </div>
 
         {/* Filter tabs: all / confirmed / entered */}
-        <CandidateTable candidates={plan?.candidates ?? []} />
+        <CandidateTable candidates={plan?.candidates ?? []} env={env} forcing={forcing} forceEntry={forceEntry} />
       </div>
 
       {/* ── Strategy logic summary ──────────────────────────────────────────── */}
