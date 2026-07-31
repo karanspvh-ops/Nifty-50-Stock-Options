@@ -48,6 +48,10 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._oi_cache: Dict[str, dict] = {}
         self._trail_locked: Dict[int, float] = {}
         self._trail_armed: Dict[int, bool]   = {}
+        self._prev_pnl:    Dict[int, float]  = {}
+        self._trail_peak:            Dict[int, float] = {}  # tid → highest premium (₹) at tick level
+        self._option_token_to_trade: Dict[str, int]  = {}  # option_token → tid
+        self._trade_to_option_token: Dict[int, str]  = {}  # tid → option_token (reverse map)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -87,6 +91,13 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._oi_cache.clear()
         self._trail_locked.clear()
         self._trail_armed.clear()
+        self._prev_pnl.clear()
+        # Unregister all tick callbacks before clearing token maps
+        for tok in list(self._option_token_to_trade.keys()):
+            market.unregister_tick_callback(tok)
+        self._trail_peak.clear()
+        self._option_token_to_trade.clear()
+        self._trade_to_option_token.clear()
         print("[ES] Daily reset complete.")
 
     # ── Per-tick state machine ────────────────────────────────────────────────

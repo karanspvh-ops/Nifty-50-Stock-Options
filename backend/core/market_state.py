@@ -23,6 +23,9 @@ class MarketState:
         # {"ltp": float, "volume": int, "timestamp": datetime, "prev_close": float}
         self._ticks: Dict[str, dict] = {}
 
+        # token → callable(token, ltp) — called on every tick for that token
+        self._tick_callbacks: Dict[str, object] = {}
+
         # token → {"pct_change": float, "direction": "up"/"down"/"flat"}
         self._stock_moves: Dict[str, dict] = {}
 
@@ -46,6 +49,7 @@ class MarketState:
 
     def update_tick(self, token: str, ltp: float, volume: int,
                     prev_close: float, timestamp: datetime):
+        cb = None
         with self._lock:
             self._ticks[token] = {
                 "ltp":        ltp,
@@ -63,6 +67,23 @@ class MarketState:
                     "direction":  "up" if pct > 0 else ("down" if pct < 0 else "flat"),
                     "ltp":        ltp,
                 }
+
+            cb = self._tick_callbacks.get(token)
+
+        # Call outside lock to avoid deadlock — callbacks must be lightweight
+        if cb:
+            try:
+                cb(token, ltp)
+            except Exception:
+                pass
+
+    def register_tick_callback(self, token: str, fn) -> None:
+        with self._lock:
+            self._tick_callbacks[token] = fn
+
+    def unregister_tick_callback(self, token: str) -> None:
+        with self._lock:
+            self._tick_callbacks.pop(token, None)
 
     def get_tick(self, token: str) -> Optional[dict]:
         with self._lock:
