@@ -45,6 +45,11 @@ class MarketState:
         self._trading_halted: bool = False
         self._halt_reason: str = ""
 
+        # Trade WebSocket push bridge — market_router registers queues here
+        self._trade_queues: list = []
+        self._trade_loop  = None
+        self._tq_lock     = threading.Lock()
+
     # ── Tick updates ──────────────────────────────────────────────────────────
 
     def update_tick(self, token: str, ltp: float, volume: int,
@@ -202,6 +207,33 @@ class MarketState:
     def get_halt_reason(self) -> str:
         with self._lock:
             return self._halt_reason
+
+    # ── Trade WS push bridge ──────────────────────────────────────────────────
+
+    def register_trade_queue(self, loop, q) -> None:
+        with self._tq_lock:
+            self._trade_loop = loop
+            if q not in self._trade_queues:
+                self._trade_queues.append(q)
+
+    def unregister_trade_queue(self, q) -> None:
+        with self._tq_lock:
+            if q in self._trade_queues:
+                self._trade_queues.remove(q)
+
+    def push_trade_update(self, payload: dict) -> None:
+        """Thread-safe: push a trade tick payload to all connected WS clients.
+        Called from Zerodha tick callback thread — must be fast."""
+        with self._tq_lock:
+            if not self._trade_queues or self._trade_loop is None:
+                return
+            queues = list(self._trade_queues)
+            loop   = self._trade_loop
+        for q in queues:
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, payload)
+            except Exception:
+                pass
 
     def get_status(self) -> dict:
         with self._lock:

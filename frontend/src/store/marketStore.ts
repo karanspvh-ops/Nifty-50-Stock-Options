@@ -22,6 +22,16 @@ export interface OpenTrade {
   status: string; highest_price: number | null;
   entered_at?: string | null;
 }
+export interface TradeTick {
+  trade_id: number;
+  ltp: number;
+  pnl_pct: number;
+  dynamic_sl: number | null;
+  hard_sl: number;
+  target: number | null;
+  peak_pct: number;
+  trail_armed: boolean;
+}
 export interface Settings {
   is_live: boolean; available_funds: number;
   target_profit_pct: number; trade_sl_pct: number;
@@ -37,13 +47,14 @@ interface MarketStore {
   openTrades:   OpenTrade[];
   settings:     Settings;
   activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'backtest' | 'early_scalp';
-  setFeedHealth:   (h: FeedHealth) => void;
-  setHaltStatus:   (s: { halted: boolean; reason: string }) => void;
-  setSectorMoves:  (s: Record<string, SectorData>) => void;
-  setStockMoves:   (s: Record<string, StockMove>) => void;
-  setOpenTrades:   (t: OpenTrade[]) => void;
-  setSettings:     (s: Partial<Settings>) => void;
-  setActiveView:   (v: MarketStore['activeView']) => void;
+  setFeedHealth:    (h: FeedHealth) => void;
+  setHaltStatus:    (s: { halted: boolean; reason: string }) => void;
+  setSectorMoves:   (s: Record<string, SectorData>) => void;
+  setStockMoves:    (s: Record<string, StockMove>) => void;
+  setOpenTrades:    (t: OpenTrade[]) => void;
+  updateTradeTick:  (tick: TradeTick) => void;
+  setSettings:      (s: Partial<Settings>) => void;
+  setActiveView:    (v: MarketStore['activeView']) => void;
 }
 
 export const useMarketStore = create<MarketStore>((set) => ({
@@ -58,11 +69,26 @@ export const useMarketStore = create<MarketStore>((set) => ({
     dynamic_sl_enabled: true, active_index: 'NIFTY50',
   },
   activeView: 'dashboard',
-  setFeedHealth:  (h) => set({ feedHealth: h }),
-  setHaltStatus:  (s) => set({ haltStatus: s }),
-  setSectorMoves: (s) => set({ sectorMoves: s }),
-  setStockMoves:  (s) => set({ stockMoves: s }),
-  setOpenTrades:  (t) => set({ openTrades: t }),
-  setSettings:    (s) => set((st) => ({ settings: { ...st.settings, ...s } })),
-  setActiveView:  (v) => set({ activeView: v }),
+  setFeedHealth:   (h) => set({ feedHealth: h }),
+  setHaltStatus:   (s) => set({ haltStatus: s }),
+  setSectorMoves:  (s) => set({ sectorMoves: s }),
+  setStockMoves:   (s) => set({ stockMoves: s }),
+  setOpenTrades:   (t) => set({ openTrades: t }),
+  updateTradeTick: (tick) => set((st) => ({
+    openTrades: st.openTrades.map(t =>
+      t.trade_id === tick.trade_id
+        ? {
+            ...t,
+            ltp:        tick.ltp,
+            pnl_pct:    tick.pnl_pct,
+            dynamic_sl: tick.dynamic_sl,
+            hard_sl:    tick.hard_sl,
+            target:     tick.target,
+            pnl:        undefined,  // force re-compute from ltp in TradeRow
+          }
+        : t
+    ),
+  })),
+  setSettings:     (s) => set((st) => ({ settings: { ...st.settings, ...s } })),
+  setActiveView:   (v) => set({ activeView: v }),
 }));

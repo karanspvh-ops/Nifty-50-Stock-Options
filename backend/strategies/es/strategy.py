@@ -52,6 +52,10 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._trail_peak:            Dict[int, float] = {}  # tid → highest premium (₹) at tick level
         self._option_token_to_trade: Dict[str, int]  = {}  # option_token → tid
         self._trade_to_option_token: Dict[int, str]  = {}  # tid → option_token (reverse map)
+        self._entry_cache:           Dict[int, float] = {}  # tid → entry_price (for tick-level SL)
+        self._symbol_cache:          Dict[int, str]   = {}  # tid → symbol (for WS payloads)
+        self._pending_exit:          set              = set()  # tids with in-flight tick-level exit
+        self._last_push:             Dict[int, float] = {}  # tid → last WS push monotonic time
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -98,6 +102,10 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._trail_peak.clear()
         self._option_token_to_trade.clear()
         self._trade_to_option_token.clear()
+        self._entry_cache.clear()
+        self._symbol_cache.clear()
+        self._pending_exit.clear()
+        self._last_push.clear()
         print("[ES] Daily reset complete.")
 
     # ── Per-tick state machine ────────────────────────────────────────────────

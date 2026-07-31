@@ -7,11 +7,16 @@ Edit this file when changing:
 
 Trail design (ratcheting, tick-level):
   - _trail_peak[tid] is updated on EVERY Zerodha WebSocket tick for the option token.
-  - The 10-second manage loop reads _trail_peak to compute arm/lock decisions and place exits.
-  - This means a spike to +10% that reverses within 10 seconds is still captured — the peak
-    is never missed regardless of when the manage loop wakes up.
+  - SL breach is also evaluated on every tick — exit is triggered immediately via a
+    background thread, not on the 10-second manage loop.
+  - The 10-second loop remains as a safety fallback (trail arm/lock DB sync, target exits,
+    restart recovery) but SL exits should normally fire within milliseconds of the breach.
   - Trail lock ratchets continuously: every new peak raises the floor, it never lowers.
+  - Dashboard WebSocket clients receive a live push on each tick (throttled to 10 Hz).
 """
+
+import threading
+import time as _time
 
 from backend.core.market_state   import market
 from backend.core.risk_engine    import risk_engine
@@ -21,24 +26,100 @@ from backend.core.stock_universe import get_option_token
 from backend.database import Session as DBSession, Trade, TradeStatus, TradeEnv
 from backend.strategies.es.params import ES_TAG
 
+_PUSH_INTERVAL = 0.1   # minimum seconds between WS pushes per trade (10 Hz max)
+
 
 class ESManageMixin:
     """Live position management for ES.  Touch only this file for SL/target changes."""
 
-    # ── Tick-level peak tracker ───────────────────────────────────────────────
+    # ── Tick-level peak tracker + SL check ───────────────────────────────────
 
     def _on_option_tick(self, token: str, ltp: float):
         """Called on every WebSocket tick for a monitored option.
 
-        Runs in the tick engine's WebSocket thread — must be fast and non-blocking.
-        Only updates _trail_peak; all exit decisions remain in the 10-second manage loop.
+        Runs in the Zerodha tick thread — must be fast and non-blocking.
+        Does three things:
+          1. Updates _trail_peak (highest premium seen at tick resolution)
+          2. Checks SL breach and spawns exit thread if breached
+          3. Pushes live data to dashboard WS clients (throttled)
         """
         tid = self._option_token_to_trade.get(token)
         if tid is None:
             return
-        # Track highest premium seen at tick resolution
+
+        # Skip if exit is already in flight for this trade
+        if tid in self._pending_exit:
+            return
+
+        # ── 1. Track highest premium ──────────────────────────────────────────
         if ltp > self._trail_peak.get(tid, 0.0):
             self._trail_peak[tid] = ltp
+
+        # ── 2. Tick-level SL check ────────────────────────────────────────────
+        entry = self._entry_cache.get(tid)
+        if entry is None:
+            return
+
+        pnl_pct = (ltp - entry) / entry * 100
+        sl_pct  = float(self._p("hard_sl_pct"))
+        locked  = self._trail_locked.get(tid, -sl_pct)
+
+        if pnl_pct <= locked:
+            self._pending_exit.add(tid)
+            armed  = bool(self._trail_armed.get(tid))
+            reason = (f"ES Trail SL {locked:+.1f}% [tick-level]"
+                      if armed
+                      else f"ES Hard SL -{sl_pct:.0f}% [tick-level]")
+            threading.Thread(
+                target=self._tick_sl_exit,
+                args=(tid, reason),
+                daemon=True,
+            ).start()
+            return
+
+        # ── 3. WS push (throttled to _PUSH_INTERVAL per trade) ───────────────
+        now = _time.monotonic()
+        if now - self._last_push.get(tid, 0.0) >= _PUSH_INTERVAL:
+            self._last_push[tid] = now
+            tgt_pct = float(self._p("target_pct"))
+            armed   = bool(self._trail_armed.get(tid))
+            market.push_trade_update({
+                "type":        "trade_tick",
+                "trade_id":    tid,
+                "symbol":      self._symbol_cache.get(tid, ""),
+                "ltp":         round(ltp, 2),
+                "pnl_pct":     round(pnl_pct, 2),
+                "dynamic_sl":  round(entry * (1 + locked / 100), 2) if armed else None,
+                "hard_sl":     round(entry * (1 - sl_pct / 100), 2),
+                "target":      round(entry * (1 + tgt_pct / 100), 2),
+                "peak_pct":    round((self._trail_peak.get(tid, entry) - entry) / entry * 100, 2),
+                "trail_armed": armed,
+            })
+
+    def _tick_sl_exit(self, tid: int, reason: str):
+        """Runs in a dedicated daemon thread — executes SL exit at tick speed."""
+        try:
+            result = risk_engine.force_exit_trade(tid, reason)
+            if "error" in result:
+                print(f"[ES] Tick SL exit skipped tid={tid}: {result['error']}")
+            else:
+                print(f"[ES] Tick-level SL exit: tid={tid} | {reason}")
+        except Exception as e:
+            print(f"[ES] Tick SL exit error tid={tid}: {e}")
+        finally:
+            self._pending_exit.discard(tid)
+            # Clean up tick tracking (same as manage-loop exit cleanup)
+            opt_tok = self._trade_to_option_token.pop(tid, None)
+            if opt_tok:
+                market.unregister_tick_callback(opt_tok)
+                self._option_token_to_trade.pop(opt_tok, None)
+            self._trail_armed.pop(tid,   None)
+            self._trail_locked.pop(tid,  None)
+            self._trail_peak.pop(tid,    None)
+            self._prev_pnl.pop(tid,      None)
+            self._entry_cache.pop(tid,   None)
+            self._symbol_cache.pop(tid,  None)
+            self._last_push.pop(tid,     None)
 
     # ── 10-second manage loop ─────────────────────────────────────────────────
 
@@ -58,6 +139,13 @@ class ESManageMixin:
         for t in trades:
             if not t.entry_price:
                 continue
+
+            tid = t.id
+
+            # Skip trades where a tick-level exit is already in flight
+            if tid in self._pending_exit:
+                continue
+
             try:
                 tok     = get_option_token(t.option_symbol)
                 premium = option_premium(tok, t.option_symbol)
@@ -67,22 +155,15 @@ class ESManageMixin:
                 continue
 
             pnl_pct = (premium - t.entry_price) / t.entry_price * 100
-            tid     = t.id
 
-            # ── Register tick callback on first sight of this trade ───────────
+            # ── First-sight init: set state BEFORE registering tick callback ──
             if tid not in self._trail_armed:
-                if tok and tid not in self._trade_to_option_token:
-                    self._trail_peak[tid]                  = max(premium, t.entry_price)
-                    self._option_token_to_trade[tok]       = tid
-                    self._trade_to_option_token[tid]       = tok
-                    market.register_tick_callback(tok, self._on_option_tick)
-
-                # Recover trail state from DB on restart
+                # Trail/SL state (recovered from DB or fresh)
                 if t.dynamic_sl_price and t.dynamic_sl_price > t.trade_sl_price:
                     self._trail_armed[tid]  = True
                     recovered_lock = (t.dynamic_sl_price - t.entry_price) / t.entry_price * 100
                     self._trail_locked[tid] = recovered_lock
-                    print(f"[ES] Trail state recovered from DB for {t.symbol}: locked={recovered_lock:+.1f}%")
+                    print(f"[ES] Trail recovered from DB for {t.symbol}: locked={recovered_lock:+.1f}%")
                 elif t.highest_price and t.highest_price >= t.entry_price * (1 + arm_pct / 100):
                     peak_pnl = (t.highest_price - t.entry_price) / t.entry_price * 100
                     self._trail_armed[tid]  = True
@@ -93,9 +174,20 @@ class ESManageMixin:
                     self._trail_armed[tid]  = False
                     self._trail_locked[tid] = -sl_pct
 
+                # Cache entry/symbol for tick-level SL and WS payloads
+                self._entry_cache[tid]  = t.entry_price
+                self._symbol_cache[tid] = t.symbol
+
+                # Register callback only after all state is ready (no race window)
+                if tok and tid not in self._trade_to_option_token:
+                    self._trail_peak[tid]                  = max(premium, t.entry_price)
+                    self._option_token_to_trade[tok]       = tid
+                    self._trade_to_option_token[tid]       = tok
+                    market.register_tick_callback(tok, self._on_option_tick)
+
             # ── Tick-level peak (updated by _on_option_tick between loop cycles) ──
             tick_peak  = max(self._trail_peak.get(tid, t.entry_price), premium)
-            self._trail_peak[tid] = tick_peak   # ensure current premium is captured too
+            self._trail_peak[tid] = tick_peak
             peak_pct   = (tick_peak - t.entry_price) / t.entry_price * 100
 
             # Sync highest_price to DB using tick-level peak
@@ -131,10 +223,12 @@ class ESManageMixin:
 
             locked = self._trail_locked.get(tid, -sl_pct)
 
+            # ── Loop-level exit check (SL already handled at tick level) ────────
             exit_reason = None
             if pnl_pct >= tgt_pct:
                 exit_reason = f"ES Target +{tgt_pct:.0f}%"
-            elif worst_pnl <= locked:
+            elif worst_pnl <= locked and tid not in self._pending_exit:
+                # Fallback: tick-level exit may have missed this (e.g. restart recovery)
                 if self._trail_armed.get(tid):
                     exit_reason = (f"ES Trail lock {locked:+.1f}%"
                                    + (f" [gap breach: prev={prev_pnl:+.1f}%]"
@@ -144,18 +238,24 @@ class ESManageMixin:
                                    + (f" [gap breach: prev={prev_pnl:+.1f}%]"
                                       if prev_pnl is not None and prev_pnl < pnl_pct else ""))
 
-            if exit_reason:
+            if exit_reason and tid not in self._pending_exit:
+                self._pending_exit.add(tid)
                 try:
                     risk_engine.force_exit_trade(t.id, exit_reason)
-                    # Unregister tick callback and clean up trail state
+                    # Clean up tick tracking
                     opt_tok = self._trade_to_option_token.pop(tid, None)
                     if opt_tok:
                         market.unregister_tick_callback(opt_tok)
                         self._option_token_to_trade.pop(opt_tok, None)
-                    self._trail_armed.pop(tid, None)
-                    self._trail_locked.pop(tid, None)
-                    self._trail_peak.pop(tid, None)
-                    self._prev_pnl.pop(tid, None)
+                    self._trail_armed.pop(tid,   None)
+                    self._trail_locked.pop(tid,  None)
+                    self._trail_peak.pop(tid,    None)
+                    self._prev_pnl.pop(tid,      None)
+                    self._entry_cache.pop(tid,   None)
+                    self._symbol_cache.pop(tid,  None)
+                    self._last_push.pop(tid,     None)
+                    self._pending_exit.discard(tid)
                     print(f"[ES] Exit {t.symbol} | {exit_reason} | PnL {pnl_pct:+.1f}% | Peak {peak_pct:+.1f}%")
                 except Exception as e:
+                    self._pending_exit.discard(tid)
                     print(f"[ES] Exit error {t.symbol}: {e}")

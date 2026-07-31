@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMarketStore } from '../../store/marketStore';
 import type { OpenTrade } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+const API    = 'http://localhost:8000';
+const WS_URL = 'ws://localhost:8000/api/market/ws/trades';
+const RECONNECT_MS = 3000;
 
 function fmtTime(s: string | null | undefined) {
   if (!s) return '—';
@@ -60,17 +62,41 @@ function TradeRow({ t }: { t: OpenTrade }) {
 }
 
 export default function OpenTradesPanel() {
-  const { openTrades, setOpenTrades, settings } = useMarketStore();
+  const { openTrades, setOpenTrades, updateTradeTick, settings } = useMarketStore();
+  const ws = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    const poll = async () => {
-      const res = await fetch(`${API}/api/risk/snapshot`);
-      const data = await res.json();
-      setOpenTrades(data);
+    const connect = () => {
+      try {
+        ws.current = new WebSocket(WS_URL);
+
+        ws.current.onmessage = (evt) => {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === 'snapshot') {
+            setOpenTrades(msg.trades);
+          } else if (msg.type === 'trade_tick') {
+            updateTradeTick(msg);
+          }
+        };
+
+        ws.current.onclose = () => {
+          reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
+        };
+
+        ws.current.onerror = () => {
+          ws.current?.close();
+        };
+      } catch {
+        reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
+      }
     };
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
+
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      ws.current?.close();
+    };
   }, []);
 
   if (!openTrades.length) return (
