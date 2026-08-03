@@ -6,6 +6,7 @@ Edit this file for:
   - re-validation logic at the moment of entry
 """
 
+import threading
 from datetime import datetime
 from typing import List, Optional
 
@@ -18,7 +19,7 @@ from backend.execution.order_executor import place_entry_order
 from backend.database import TradeEnv
 
 from backend.strategies.es.params import (
-    ES_TAG, SCAN_START, ENTRY_END, SQUARE_OFF,
+    ES_TAG, SCAN_START, ENTRY_START, ENTRY_END, SQUARE_OFF,
 )
 from backend.strategies.es.types import ScalpCandidate, EarlyScalpPlan
 
@@ -255,3 +256,107 @@ class ESEntryMixin:
                           f"vol={c.vol_ratio:.1f}x OI={c.oi_signal}")
             except Exception as e:
                 print(f"[ES] Entry error {c.symbol}: {e}")
+
+    # ── Tick-level entry (sub-second) ─────────────────────────────────────────
+
+    def _on_stock_tick(self, token: str, ltp: float):
+        """Tick callback for confirmed candidates during the entry window.
+
+        Runs in the Zerodha WebSocket thread — must be fast and non-blocking.
+        Spawns a daemon thread for the actual order placement (Kite API call).
+        """
+        if datetime.now().time() < ENTRY_START:
+            return
+        if token in self._entry_pending:
+            return
+
+        c = self._plan_index.get(token)
+        if not c or not c.confirmed or c.entered:
+            return
+
+        ok, why = self._revalidate(c)
+        if not ok:
+            return
+
+        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        self._entry_pending.add(token)
+        threading.Thread(
+            target=self._tick_entry,
+            args=(c, env, why),
+            daemon=True,
+        ).start()
+
+    def _tick_entry(self, c: ScalpCandidate, env: TradeEnv, why: str):
+        """Place the entry order in a daemon thread — keeps the tick thread free."""
+        try:
+            # Guard checks (DB-ok here, we're in a thread not the tick callback)
+            if self._refills_blocked(env):
+                return
+            if self._count_open(env) >= int(self._p("max_positions")):
+                return
+            if c.symbol in self._entered_symbols(env):
+                return
+
+            session = get_or_create_session(env)
+            reason = (
+                f"{ES_TAG} Early Scalp | gap {c.gap_pct:+.1f}% from prev close | "
+                f"opening move {c.opening_move:+.1f}% from 9:15 | "
+                f"1m-consec={c.consec_1m} 3m-consec={c.consec_3m} | "
+                f"vol {c.vol_ratio:.1f}x | OI={c.oi_signal} | score={c.score:.2f} | "
+                f"REVAL: {why} [tick-entry]"
+            )
+            trade = place_entry_order(
+                env=env, symbol=c.symbol, token=c.token,
+                direction=c.direction, session_id=session["id"],
+                entry_logic=reason,
+                indicators={
+                    "gap_pct": c.gap_pct, "opening_move": c.opening_move,
+                    "consec_1m": c.consec_1m, "consec_3m": c.consec_3m,
+                    "vol_ratio": c.vol_ratio, "oi_signal": c.oi_signal,
+                    "score": c.score,
+                },
+                sl_pct_override=float(self._p("hard_sl_pct")),
+                target_pct_override=float(self._p("target_pct")),
+                max_positions=int(self._p("max_positions")),
+            )
+            if trade:
+                c.entered = True
+                print(f"[ES] TICK ENTRY {c.symbol} {c.direction.upper()} | "
+                      f"gap={c.gap_pct:+.1f}% move={c.opening_move:+.1f}% "
+                      f"vol={c.vol_ratio:.1f}x OI={c.oi_signal} [tick-level]")
+        except Exception as e:
+            print(f"[ES] Tick entry error {c.symbol}: {e}")
+        finally:
+            self._entry_pending.discard(c.token)
+
+    def _register_entry_callbacks(self, env: TradeEnv):
+        """Sync tick callbacks with the current confirmed candidate list.
+
+        Called every loop tick during the entry window. Registers callbacks for
+        newly confirmed stocks, removes callbacks for stocks that are no longer
+        confirmed or have already been entered.
+        """
+        if not self._plan:
+            return
+
+        entered = self._entered_symbols(env)
+        should_have = {
+            c.token for c in self._plan.candidates
+            if c.confirmed and not c.entered and c.symbol not in entered
+        }
+
+        # Remove callbacks for tokens no longer in the confirmed set
+        for tok in list(self._entry_callbacks_registered):
+            if tok not in should_have:
+                market.unregister_tick_callback(tok)
+                self._entry_callbacks_registered.discard(tok)
+
+        # Register for newly confirmed tokens
+        for c in self._plan.candidates:
+            if c.token not in should_have:
+                continue
+            if c.token not in self._entry_callbacks_registered:
+                market.register_tick_callback(c.token, self._on_stock_tick)
+                self._entry_callbacks_registered.add(c.token)
+                print(f"[ES] Tick-entry armed: {c.symbol} {c.direction.upper()} "
+                      f"(score={c.score:.2f})")

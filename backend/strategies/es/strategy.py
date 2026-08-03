@@ -45,6 +45,10 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._params = self._load_params()
         self._last_candle_time: float = 0
         self._oi_cache: Dict[str, dict] = {}
+        # Tick-level entry state
+        self._plan_index: Dict[str, object] = {}   # token → ScalpCandidate
+        self._entry_callbacks_registered: set = set()
+        self._entry_pending: set = set()
         self._trail_locked: Dict[int, float] = {}
         self._trail_armed: Dict[int, bool]   = {}
         self._prev_pnl:    Dict[int, float]  = {}
@@ -97,6 +101,11 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         # Unregister all tick callbacks before clearing token maps
         for tok in list(self._option_token_to_trade.keys()):
             market.unregister_tick_callback(tok)
+        for tok in list(self._entry_callbacks_registered):
+            market.unregister_tick_callback(tok)
+        self._entry_callbacks_registered.clear()
+        self._entry_pending.clear()
+        self._plan_index.clear()
         self._trail_peak.clear()
         self._option_token_to_trade.clear()
         self._trade_to_option_token.clear()
@@ -159,11 +168,22 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
             self._phase = "ENTERING"
             self._maybe_refresh_candles(now)
             self._plan = self._build_plan(status="entering")
+            # Rebuild plan index for tick-level entry lookups
+            self._plan_index = {c.token: c for c in self._plan.candidates if c.confirmed}
+            # Arm tick callbacks on confirmed candidates (fires order on next tick)
+            self._register_entry_callbacks(env)
+            # Loop-level entry as fallback (catches any missed tick windows)
             self._enter_positions(env)
 
         self._manage(env)
         if t > ENTRY_END:
             self._phase = "MANAGING"
+            # Entry window closed — disarm all entry tick callbacks
+            if self._entry_callbacks_registered:
+                for tok in list(self._entry_callbacks_registered):
+                    market.unregister_tick_callback(tok)
+                self._entry_callbacks_registered.clear()
+                self._plan_index.clear()
             self._maybe_refresh_candles(now)
             self._plan = self._build_plan(status="managing")
 
