@@ -70,7 +70,12 @@ class ESFiltersMixin:
     # ── Candle helpers ────────────────────────────────────────────────────────
 
     def _maybe_refresh_candles(self, now: datetime):
-        """Pull 1-min candles for top candidates at most once per CANDLE_REFREQ seconds."""
+        """Log the top-20 scan list and seed from Kite for any stock with no tick history.
+
+        1-min candles are now built in real time from WebSocket ticks (market_state.py).
+        Kite historical_data is called at most once per CANDLE_REFREQ as a one-time seed
+        for stocks that haven't received a tick yet (e.g. backend started after 9:15).
+        """
         if _time.time() - self._last_candle_time < CANDLE_REFREQ:
             return
         self._last_candle_time = _time.time()
@@ -78,31 +83,33 @@ class ESFiltersMixin:
         moves = market.get_all_stock_moves()
         ranked = sorted(
             [(tok, mv) for tok, mv in moves.items()
-             if abs(mv.get("pct_change", 0)) >= self._p("gap_min_pct") * 0.5],
+             if abs(mv.get("pct_change", 0)) >= float(self._p("gap_min_pct")) * 0.5],
             key=lambda x: abs(x[1].get("pct_change", 0)),
             reverse=True
         )[:20]
 
+        top20_syms = [mv.get("symbol") or get_meta(tok).get("symbol", tok)
+                      for tok, mv in ranked]
+        print(f"[ES] Top-20 ({now.strftime('%H:%M:%S')}): {top20_syms}")
+
+        # Seed from Kite only for stocks that have no tick-built candle history yet
         today = now.date()
         kite  = broker.kite()
         start = datetime.combine(today, dtime(9, 0))
-        end   = now
 
-        fetched = 0
         for token, mv in ranked:
             sym = mv.get("symbol") or get_meta(token).get("symbol", "")
             if not sym:
                 continue
+            if market.get_1m_candles(token, include_forming=False):
+                continue  # already has tick-built history — no seed needed
             try:
-                cs = kite.historical_data(int(token), start, end, "minute")
+                cs = kite.historical_data(int(token), start, now, "minute")
                 cs = [c for c in cs if c["date"].date() == today]
-                self._candle_cache[sym] = cs
-                fetched += 1
+                market.seed_1m_candles(token, cs)
+                print(f"[ES] Seeded {sym}: {len(cs)} candles from Kite (no tick history yet)")
             except Exception as e:
-                print(f"[ES] CANDLE FETCH FAILED {sym}: {e}")
-        if fetched == 0 and ranked:
-            print(f"[ES] WARNING — candle fetch returned 0 stocks (tried {len(ranked)}). "
-                  "All consec counts will be 0. Check Kite token / rate limit.")
+                print(f"[ES] Seed FAILED {sym}: {e}")
 
     def _consec_candles(self, candles: list, direction: str) -> int:
         """Trailing consecutive green (call) or red (put) candles."""

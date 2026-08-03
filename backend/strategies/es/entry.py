@@ -82,7 +82,7 @@ class ESEntryMixin:
             if abs(op_move) < move_min * 0.5:
                 continue
 
-            candles_1m = self._candle_cache.get(symbol, [])
+            candles_1m = market.get_1m_candles(token)
             candles_3m = self._to_3min(candles_1m) if candles_1m else []
             consec_1m  = self._consec_candles(candles_1m, direction) if candles_1m else 0
             consec_3m  = self._consec_candles(candles_3m, direction) if candles_3m else 0
@@ -181,7 +181,7 @@ class ESEntryMixin:
         if c.direction == "put" and op_move > -move_min:
             return False, f"opening move {op_move:+.2f}% not bearish enough (need <={-move_min}%)"
 
-        candles_1m = self._candle_cache.get(c.symbol, [])
+        candles_1m = market.get_1m_candles(c.token)
         if candles_1m:
             last = candles_1m[-1]
             last_bull = last.get("close", 0) >= last.get("open", 0)

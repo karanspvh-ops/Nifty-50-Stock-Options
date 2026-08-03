@@ -44,7 +44,6 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._phase = "IDLE"
         self._params = self._load_params()
         self._last_candle_time: float = 0
-        self._candle_cache: Dict[str, list] = {}
         self._oi_cache: Dict[str, dict] = {}
         self._trail_locked: Dict[int, float] = {}
         self._trail_armed: Dict[int, bool]   = {}
@@ -91,7 +90,6 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._plan = None
         self._phase = "IDLE"
         self._last_candle_time = 0
-        self._candle_cache.clear()
         self._oi_cache.clear()
         self._trail_locked.clear()
         self._trail_armed.clear()
