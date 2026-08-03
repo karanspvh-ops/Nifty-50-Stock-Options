@@ -256,4 +256,77 @@ New dicts added to `strategy.py`: `_entry_cache`, `_symbol_cache`, `_pending_exi
 
 ---
 
-*Log maintained in session transcripts. Last updated: 2026-07-31.*
+---
+
+## 2026-08-03
+
+### [ES-007] Real-time 1-min candle builder — replaced 60s Kite polling
+- **Files:** `backend/core/market_state.py`, `backend/strategies/es/filters.py`, `backend/strategies/es/entry.py`, `backend/strategies/es/strategy.py`
+- **Time:** ~11:00 IST
+- **Git commit:** `523ee39`
+- **Type:** Architecture change — candle data source
+
+**Root cause identified:** ITC trade (03 Aug, ID=181, 09:27:33) entered with `1m-consec=5` despite the chart showing a clear red slide from 9:21 to 9:26. The old `_maybe_refresh_candles` only refreshed candles for the **top 20 stocks by pct_change**. During ITC's pullback from +3.2% to +2.1%, other stocks with larger moves displaced ITC from the top-20 list, so ITC's candle cache was never updated after the initial surge. `_build_plan` and `_revalidate` both read stale pre-slide candles showing 5 consecutive green candles.
+
+**Architecture change:**
+
+`market_state.py` — new real-time 1-min candle builder:
+```python
+def _update_1m_candle(self, token, ltp, vol_cumulative, ts):
+    # Called inside update_tick() on every WebSocket tick (under _lock)
+    # Closes the forming bar on minute boundary using cumulative volume delta
+```
+```python
+def get_1m_candles(self, token, include_forming=True) -> list:
+    # Returns today's closed 1-min candles + the live forming candle
+    # Always current to the last tick (~ms latency)
+```
+```python
+def seed_1m_candles(self, token, candles):
+    # One-time Kite backfill for stocks with no tick history (backend started late)
+    # No-op if tick data already exists for this token
+```
+
+`filters.py` — `_maybe_refresh_candles` no longer polls Kite for candle data. Now runs every 60s to:
+1. Print the top-20 scan list: `[ES] Top-20 (HH:MM:SS): [SYM1, SYM2, ...]`
+2. Seed Kite data once for any stock with no tick history yet
+
+`entry.py` — `_build_plan` and `_revalidate` now call `market.get_1m_candles(token)` instead of `self._candle_cache.get(symbol, [])`. Every consec and vol check uses live tick data.
+
+`strategy.py` — `self._candle_cache` dict removed.
+
+**Latency improvement:**
+
+| Before | After |
+|--------|-------|
+| Up to 60s stale (Kite poll throttle) | ~1 tick latency (Zerodha WebSocket) |
+| Only top-20 stocks refreshed | All subscribed stocks (~211) built in real time |
+| Top-20 exclusion caused ITC-style stale entries | Every stock's candles always current |
+
+**Volume calculation:** Uses `volume_traded` (cumulative day volume from Zerodha). Candle volume = `vol_cumulative_at_close − vol_cumulative_at_open`. The forming candle's volume is the partial volume accumulated so far in the current minute (used as-is for vol_ratio ranking — acceptable since vol_ratio is a soft ranking factor, not a gate).
+
+---
+
+---
+
+### [ES-009] Candidate detection loop reduced: 10s → 1s
+- **File:** `backend/strategies/es/params.py`
+- **Time:** ~14:00 IST
+- **Type:** Parameter change — loop cadence
+- **Trigger:** ES-008 moved order *execution* to tick speed (<100ms), but `_build_plan` (which decides which stocks are confirmed and arms callbacks) still ran every 10 seconds. A stock crossing the consec threshold mid-loop had up to 10 seconds of blind spot before being detected and armed.
+
+**Before:**
+```python
+LOOP_SEC = 10
+```
+
+**After:**
+```python
+LOOP_SEC = 1
+```
+
+**Impact:** `_build_plan` now runs every ~1 second. All operations inside are in-memory (stock moves, tick-built candles, consec checks). OI fetches are cached for 120s — no additional Kite API calls. Candidate detection lag: ≤1s. Combined with ES-008 tick entry, total worst-case lag from a stock meeting criteria to order placement: ~1 second.
+
+---
+
+*Log maintained in session transcripts. Last updated: 2026-08-03.*

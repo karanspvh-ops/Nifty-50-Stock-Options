@@ -10,7 +10,7 @@ SCAN_START    = dtime(9, 20)
 ENTRY_START   = dtime(9, 25)
 ENTRY_END     = dtime(9, 30)
 SQUARE_OFF    = dtime(10, 30)
-LOOP_SEC      = 10
+LOOP_SEC      = 1
 CANDLE_REFREQ = 60
 ES_TAG        = "[ES]"
 
