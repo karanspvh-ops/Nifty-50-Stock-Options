@@ -35,7 +35,7 @@ TRAIL_ACTIVATE_PCT  = 20.0
 TRAIL_GAP_PCT       = 10.0
 
 OB_TAG              = "[OB]"
-LOOP_SEC            = 5
+LOOP_SEC            = 1
 
 MIN_TRADES_TO_TUNE  = 15
 RETUNE_EVERY        = 5

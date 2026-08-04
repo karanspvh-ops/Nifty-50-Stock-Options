@@ -7,10 +7,13 @@ Edit this file when changing:
 
 Trail design (ratcheting, tick-level):
   - _trail_peak[tid] is updated on EVERY Zerodha WebSocket tick for the option token.
-  - SL breach is also evaluated on every tick — exit is triggered immediately via a
-    background thread, not on the 10-second manage loop.
-  - The 10-second loop remains as a safety fallback (trail arm/lock DB sync, target exits,
-    restart recovery) but SL exits should normally fire within milliseconds of the breach.
+  - Trail arm + ratchet also happen on every tick: the SL floor rises immediately each
+    time a new peak is detected, and dynamic_sl_price is written to DB in a background
+    thread without blocking the tick callback.
+  - SL breach is evaluated on every tick using the freshly-ratcheted lock — exit fires
+    immediately via a background thread.
+  - The 1-second loop remains as a safety fallback (highest_price DB sync, target exits,
+    restart recovery) but all SL/ratchet logic is primarily tick-driven.
   - Trail lock ratchets continuously: every new peak raises the floor, it never lowers.
   - Dashboard WebSocket clients receive a live push on each tick (throttled to 10 Hz).
 """
@@ -55,15 +58,35 @@ class ESManageMixin:
         if ltp > self._trail_peak.get(tid, 0.0):
             self._trail_peak[tid] = ltp
 
-        # ── 2. Tick-level SL check ────────────────────────────────────────────
+        # ── 2. Trail arm + ratchet (tick-level) ──────────────────────────────
         entry = self._entry_cache.get(tid)
         if entry is None:
             return
 
-        pnl_pct = (ltp - entry) / entry * 100
-        sl_pct  = float(self._p("hard_sl_pct"))
-        locked  = self._trail_locked.get(tid, -sl_pct)
+        peak     = self._trail_peak[tid]
+        peak_pct = (peak - entry) / entry * 100
+        sl_pct   = float(self._p("hard_sl_pct"))
+        arm_pct  = float(self._p("trail_activate_pct"))
+        gap_pct  = float(self._p("trail_gap_pct"))
 
+        if peak_pct >= arm_pct and not self._trail_armed.get(tid, False):
+            self._trail_armed[tid] = True
+
+        if self._trail_armed.get(tid):
+            new_lock = peak_pct - gap_pct
+            if new_lock > self._trail_locked.get(tid, -sl_pct):
+                self._trail_locked[tid] = new_lock
+                new_dyn_sl = round(entry * (1 + new_lock / 100), 2)
+                threading.Thread(
+                    target=self._update_es_dynamic_sl_db,
+                    args=(tid, new_dyn_sl),
+                    daemon=True,
+                ).start()
+
+        locked  = self._trail_locked.get(tid, -sl_pct)
+        pnl_pct = (ltp - entry) / entry * 100
+
+        # ── 3. Tick-level SL check ────────────────────────────────────────────
         if pnl_pct <= locked:
             self._pending_exit.add(tid)
             armed  = bool(self._trail_armed.get(tid))
@@ -77,7 +100,7 @@ class ESManageMixin:
             ).start()
             return
 
-        # ── 3. WS push (throttled to _PUSH_INTERVAL per trade) ───────────────
+        # ── 4. WS push (throttled to _PUSH_INTERVAL per trade) ───────────────
         now = _time.monotonic()
         if now - self._last_push.get(tid, 0.0) >= _PUSH_INTERVAL:
             self._last_push[tid] = now
@@ -92,7 +115,7 @@ class ESManageMixin:
                 "dynamic_sl":  round(entry * (1 + locked / 100), 2) if armed else None,
                 "hard_sl":     round(entry * (1 - sl_pct / 100), 2),
                 "target":      round(entry * (1 + tgt_pct / 100), 2),
-                "peak_pct":    round((self._trail_peak.get(tid, entry) - entry) / entry * 100, 2),
+                "peak_pct":    round(peak_pct, 2),
                 "trail_armed": armed,
             })
 
@@ -121,7 +144,17 @@ class ESManageMixin:
             self._symbol_cache.pop(tid,  None)
             self._last_push.pop(tid,     None)
 
-    # ── 10-second manage loop ─────────────────────────────────────────────────
+    def _update_es_dynamic_sl_db(self, tid: int, new_dyn_sl: float):
+        """Background thread: persist dynamic_sl_price to DB without blocking tick callback."""
+        try:
+            with DBSession() as db:
+                db.query(Trade).filter(Trade.id == tid).update(
+                    {"dynamic_sl_price": new_dyn_sl}, synchronize_session=False)
+                db.commit()
+        except Exception as e:
+            print(f"[ES] Dynamic SL DB update error tid={tid}: {e}")
+
+    # ── 1-second manage loop (safety fallback — primary ratchet/SL at tick level) ────
 
     def _manage(self, env: TradeEnv):
         sl_pct  = float(self._p("hard_sl_pct"))

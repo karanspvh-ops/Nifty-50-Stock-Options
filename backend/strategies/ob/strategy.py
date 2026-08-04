@@ -46,6 +46,14 @@ class OpeningBreakout(OBParamsMixin, OBFiltersMixin, OBStateMixin,
         self._params = self._load_params()
         self._last_tune: Optional[str] = None
         self._tune_report: dict = {}
+        # Tick-level OB position management state
+        self._ob_trail_peak:            Dict[int, float] = {}
+        self._ob_option_token_to_trade: Dict[str, int]   = {}
+        self._ob_trade_to_option_token: Dict[int, str]   = {}
+        self._ob_entry_cache:           Dict[int, float] = {}
+        self._ob_pending_exit:          set              = set()
+        self._ob_trail_armed:           Dict[int, bool]  = {}
+        self._ob_trail_locked:          Dict[int, float] = {}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -83,6 +91,16 @@ class OpeningBreakout(OBParamsMixin, OBFiltersMixin, OBStateMixin,
             self._open_ref_final.clear()
             self._plan  = None
             self._phase = "IDLE"
+            # Unregister all OB tick callbacks before clearing state
+            for tok in list(self._ob_option_token_to_trade.keys()):
+                market.unregister_tick_callback(tok)
+            self._ob_trail_peak.clear()
+            self._ob_option_token_to_trade.clear()
+            self._ob_trade_to_option_token.clear()
+            self._ob_entry_cache.clear()
+            self._ob_pending_exit.clear()
+            self._ob_trail_armed.clear()
+            self._ob_trail_locked.clear()
 
         if not self._enabled or not market.is_feed_connected():
             return
