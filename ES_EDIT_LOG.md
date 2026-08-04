@@ -329,4 +329,20 @@ LOOP_SEC = 1
 
 ---
 
-*Log maintained in session transcripts. Last updated: 2026-08-03.*
+---
+
+### [ES-010] Fix race condition — duplicate entry for same symbol
+- **File:** `backend/strategies/es/entry.py`
+- **Time:** ~14:30 IST
+- **Type:** Bug fix — race condition
+- **Trigger:** NAM-INDIA traded twice on 2026-08-04 (ID=184 and ID=185, both CALL, 440ms apart). ID=184 was loop-level (`_enter_positions`), ID=185 was tick-level (`_tick_entry`). Both fired because `_enter_positions` never added the token to `_entry_pending`, so the tick callback had no signal that an order was already in flight. Both paths checked `_entered_symbols(DB)` before either order committed — race window caused two orders for the same symbol.
+
+**Root cause:** `_entry_pending` was only populated by the tick path (`_on_stock_tick`). The loop path (`_enter_positions`) bypassed it entirely.
+
+**Fix:** Added `_entry_pending.add(c.token)` at the start of each loop-level order attempt, with `_entry_pending.discard(c.token)` in a `finally` block. If the tick callback fires during the loop-level Kite API call, it sees the token in `_entry_pending` and returns immediately.
+
+**In live mode:** this would have placed 2× lot size — double the intended capital at risk.
+
+---
+
+*Log maintained in session transcripts. Last updated: 2026-08-04.*

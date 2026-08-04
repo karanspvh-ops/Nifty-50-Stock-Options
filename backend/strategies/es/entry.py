@@ -220,8 +220,15 @@ class ESEntryMixin:
             if not c.confirmed or c.entered or c.symbol in entered:
                 continue
 
+            # Block tick callback from firing a duplicate order while this
+            # loop-level order is in flight (race condition fix — ES-010)
+            if c.token in self._entry_pending:
+                continue
+            self._entry_pending.add(c.token)
+
             ok, why = self._revalidate(c)
             if not ok:
+                self._entry_pending.discard(c.token)
                 print(f"[ES] {c.symbol} REVAL SKIP — {why}")
                 continue
 
@@ -256,6 +263,8 @@ class ESEntryMixin:
                           f"vol={c.vol_ratio:.1f}x OI={c.oi_signal}")
             except Exception as e:
                 print(f"[ES] Entry error {c.symbol}: {e}")
+            finally:
+                self._entry_pending.discard(c.token)
 
     # ── Tick-level entry (sub-second) ─────────────────────────────────────────
 
