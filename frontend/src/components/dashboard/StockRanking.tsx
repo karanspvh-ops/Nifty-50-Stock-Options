@@ -28,8 +28,8 @@ function SectorCard({ g }: { g: SectorGroup }) {
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-white font-bold text-xs uppercase tracking-wider">{g.sector}</span>
-          <span className={`text-xs font-semibold ${g.sector_pct >= 0 ? 'text-up' : 'text-down'}`}>
-            {g.sector_pct >= 0 ? '+' : ''}{g.sector_pct.toFixed(2)}%
+          <span className={`text-xs font-semibold ${(g.sector_pct ?? 0) >= 0 ? 'text-up' : 'text-down'}`}>
+            {(g.sector_pct ?? 0) >= 0 ? '+' : ''}{(g.sector_pct ?? 0).toFixed(2)}%
           </span>
         </div>
         <span className="text-[10px] text-muted">{g.up_count}▲ {g.down_count}▼</span>
@@ -56,10 +56,10 @@ function SectorCard({ g }: { g: SectorGroup }) {
               <td className="px-2 py-1 text-right text-muted text-xs">
                 {s.ltp ? `₹${s.ltp.toFixed(1)}` : '—'}
               </td>
-              <td className={`px-2 py-1 text-right text-xs font-semibold ${s.pct_change >= 0 ? 'text-up' : 'text-down'}`}>
-                {s.pct_change >= 0 ? '+' : ''}{s.pct_change.toFixed(2)}%
+              <td className={`px-2 py-1 text-right text-xs font-semibold ${(s.pct_change ?? 0) >= 0 ? 'text-up' : 'text-down'}`}>
+                {(s.pct_change ?? 0) >= 0 ? '+' : ''}{(s.pct_change ?? 0).toFixed(2)}%
               </td>
-              <td className="px-2 py-1 text-right text-xs text-accent">{s.r_factor.toFixed(2)}</td>
+              <td className="px-2 py-1 text-right text-xs text-accent">{(s.r_factor ?? 0).toFixed(2)}</td>
               <td className="px-2 py-1 text-center text-xs"><SignalArrow s={s.signal} /></td>
             </tr>
           ))}

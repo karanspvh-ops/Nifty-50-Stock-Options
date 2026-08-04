@@ -98,7 +98,7 @@ export default function App() {
         <LoginBanner />
         <EngineStatus />
         <main className="flex-1 overflow-hidden">
-          {activeView === 'dashboard'     && <Dashboard />}
+          {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
           {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (
             <div className="p-6 overflow-y-auto h-full">
