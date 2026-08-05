@@ -1,3 +1,4 @@
+import { useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer, Cell,
@@ -7,9 +8,17 @@ import { useMarketStore } from '../../store/marketStore';
 export default function SectorBarChart() {
   const { sectorMoves } = useMarketStore();
 
-  const data = Object.entries(sectorMoves)
-    .map(([sector, d]) => ({ sector, pct: d.pct_change }))
-    .sort((a, b) => b.pct - a.pct);
+  const data = useMemo(() =>
+    Object.entries(sectorMoves)
+      .map(([sector, d]) => ({ sector, pct: d.pct_change ?? 0 }))
+      .sort((a, b) => b.pct - a.pct),
+    [sectorMoves]
+  );
+
+  const tooltipFormatter = useCallback(
+    (val: unknown) => [`${Number(val).toFixed(2)}%`, 'Change'],
+    []
+  );
 
   if (!data.length) return null;
 
@@ -41,7 +50,7 @@ export default function SectorBarChart() {
           <Tooltip
             contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
             labelStyle={{ color: '#e2e8f0', fontSize: 11 }}
-            formatter={(val: any) => [`${Number(val).toFixed(2)}%`, 'Change']}
+            formatter={tooltipFormatter}
           />
           <ReferenceLine y={0} stroke="#475569" />
           <Bar dataKey="pct" radius={[2, 2, 2, 2]} maxBarSize={35}>
