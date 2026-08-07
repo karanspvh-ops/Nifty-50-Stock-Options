@@ -62,7 +62,7 @@ function TradeRow({ t }: { t: OpenTrade }) {
 }
 
 export default function OpenTradesPanel() {
-  const { openTrades, setOpenTrades, updateTradeTick, settings } = useMarketStore();
+  const { openTrades, setOpenTrades, updateTradeTick, removeTrade, settings } = useMarketStore();
   const ws = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -77,6 +77,8 @@ export default function OpenTradesPanel() {
             setOpenTrades(msg.trades);
           } else if (msg.type === 'trade_tick') {
             updateTradeTick(msg);
+          } else if (msg.type === 'trade_closed') {
+            removeTrade(msg.trade_id);
           }
         };
 

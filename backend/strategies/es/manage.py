@@ -127,6 +127,7 @@ class ESManageMixin:
                 print(f"[ES] Tick SL exit skipped tid={tid}: {result['error']}")
             else:
                 print(f"[ES] Tick-level SL exit: tid={tid} | {reason}")
+                market.push_trade_update({"type": "trade_closed", "trade_id": tid})
         except Exception as e:
             print(f"[ES] Tick SL exit error tid={tid}: {e}")
         finally:
@@ -275,6 +276,7 @@ class ESManageMixin:
                 self._pending_exit.add(tid)
                 try:
                     risk_engine.force_exit_trade(t.id, exit_reason)
+                    market.push_trade_update({"type": "trade_closed", "trade_id": tid})
                     # Clean up tick tracking
                     opt_tok = self._trade_to_option_token.pop(tid, None)
                     if opt_tok:

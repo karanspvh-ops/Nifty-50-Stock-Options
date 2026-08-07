@@ -53,6 +53,7 @@ interface MarketStore {
   setStockMoves:    (s: Record<string, StockMove>) => void;
   setOpenTrades:    (t: OpenTrade[]) => void;
   updateTradeTick:  (tick: TradeTick) => void;
+  removeTrade:      (trade_id: number) => void;
   setSettings:      (s: Partial<Settings>) => void;
   setActiveView:    (v: MarketStore['activeView']) => void;
 }
@@ -79,15 +80,21 @@ export const useMarketStore = create<MarketStore>((set) => ({
       t.trade_id === tick.trade_id
         ? {
             ...t,
-            ltp:        tick.ltp,
-            pnl_pct:    tick.pnl_pct,
-            dynamic_sl: tick.dynamic_sl,
-            hard_sl:    tick.hard_sl,
-            target:     tick.target,
-            pnl:        undefined,  // force re-compute from ltp in TradeRow
+            ltp:     tick.ltp,
+            pnl_pct: tick.pnl_pct,
+            hard_sl: tick.hard_sl,
+            target:  tick.target,
+            pnl:     undefined,
+            // dynamic_sl only ever increases — never let a tick lower it
+            dynamic_sl: tick.dynamic_sl != null
+              ? (t.dynamic_sl != null ? Math.max(t.dynamic_sl, tick.dynamic_sl) : tick.dynamic_sl)
+              : t.dynamic_sl,
           }
         : t
     ),
+  })),
+  removeTrade: (trade_id) => set((st) => ({
+    openTrades: st.openTrades.filter(t => t.trade_id !== trade_id),
   })),
   setSettings:     (s) => set((st) => ({ settings: { ...st.settings, ...s } })),
   setActiveView:   (v) => set({ activeView: v }),

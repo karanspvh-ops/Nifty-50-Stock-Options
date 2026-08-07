@@ -172,8 +172,6 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
             self._plan_index = {c.token: c for c in self._plan.candidates if c.confirmed}
             # Arm tick callbacks on confirmed candidates (fires order on next tick)
             self._register_entry_callbacks(env)
-            # Loop-level entry as fallback (catches any missed tick windows)
-            self._enter_positions(env)
 
         self._manage(env)
         if t > ENTRY_END:

@@ -99,6 +99,7 @@ class OBManageMixin:
                 print(f"[OB] Tick SL exit skipped tid={tid}: {result['error']}")
             else:
                 print(f"[OB] Tick-level SL exit: tid={tid} | {reason}")
+                market.push_trade_update({"type": "trade_closed", "trade_id": tid})
         except Exception as e:
             print(f"[OB] Tick SL exit error tid={tid}: {e}")
         finally:
@@ -197,12 +198,14 @@ class OBManageMixin:
             if pnl_pct >= target_pct and t.quantity <= 1:
                 self._ob_pending_exit.add(tid)
                 risk_engine.force_exit_trade(t.id, f"{OB_TAG} Target +{target_pct:.0f}% hit")
+                market.push_trade_update({"type": "trade_closed", "trade_id": tid})
                 self._ob_cleanup_trade(tid)
                 self._ob_pending_exit.discard(tid)
                 continue
             if pnl_pct >= second_pct:
                 self._ob_pending_exit.add(tid)
                 risk_engine.force_exit_trade(t.id, f"{OB_TAG} Runner target +{second_pct:.0f}% hit")
+                market.push_trade_update({"type": "trade_closed", "trade_id": tid})
                 self._ob_cleanup_trade(tid)
                 self._ob_pending_exit.discard(tid)
                 continue
@@ -217,6 +220,7 @@ class OBManageMixin:
                     else f"{OB_TAG} Hard SL -{hard_sl_pct:.0f}% hit [loop fallback]"
                 )
                 risk_engine.force_exit_trade(t.id, reason)
+                market.push_trade_update({"type": "trade_closed", "trade_id": tid})
                 self._ob_cleanup_trade(tid)
                 self._ob_pending_exit.discard(tid)
 
