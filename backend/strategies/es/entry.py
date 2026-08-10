@@ -348,15 +348,18 @@ class ESEntryMixin:
         if not self._plan:
             return
 
-        max_pos = int(self._p("max_positions"))
-        entered = self._entered_symbols(env)
-        # Candidates are already score-sorted; cap callbacks to top max_pos
-        # so at most max_pos tick threads can ever spawn simultaneously
+        max_pos    = int(self._p("max_positions"))
+        open_count = self._count_open(env)
+        free_slots = max(0, max_pos - open_count)
+        entered    = self._entered_symbols(env)
+        # Cap callbacks to exactly the number of free slots so that even if
+        # all registered callbacks fire simultaneously and all pass the DB
+        # check, the worst-case result is open_count + free_slots = max_pos.
         eligible = [
             c for c in self._plan.candidates
             if c.confirmed and not c.entered and c.symbol not in entered
         ]
-        should_have = {c.token for c in eligible[:max_pos]}
+        should_have = {c.token for c in eligible[:free_slots]}
 
         # Remove callbacks for tokens no longer in the confirmed set
         for tok in list(self._entry_callbacks_registered):
