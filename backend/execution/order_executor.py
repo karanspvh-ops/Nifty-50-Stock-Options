@@ -58,7 +58,7 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
     meta     = get_meta(token)
     lot_size = meta.get("lot_size", 1) or 1
 
-    if not has_liquidity(opt_token, opt_symbol, lot_size):
+    if not has_liquidity(opt_token, opt_symbol, lot_size, symbol=symbol):
         print(f"[ORDER] REJECTED — {opt_symbol} too illiquid to trade safely")
         return None
 
