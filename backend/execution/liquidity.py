@@ -16,7 +16,7 @@ from backend.core.clock    import now_ist
 from backend.execution.ban_list import is_banned
 
 MIN_OPTION_VOLUME_LOTS = 15    # lots traded in last LOOKBACK minutes (was 3 — too low)
-MIN_OI_LOTS            = 50    # minimum open interest in LOTS (was 300 units — meaningless)
+MIN_OI_LOTS            = 500   # minimum open interest in LOTS — Zerodha rejects below this
 MAX_SPREAD_PCT         = 20.0  # max bid-ask spread as % of mid
 LIQUIDITY_LOOKBACK_MIN = 10
 
