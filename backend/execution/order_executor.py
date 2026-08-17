@@ -54,6 +54,9 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
     if not premium:
         print(f"[ORDER] REJECTED — could not read {opt_symbol} premium")
         return None
+    if premium < 3.0:
+        print(f"[ORDER] REJECTED — {opt_symbol} premium ₹{premium:.2f} below ₹3 minimum (untradeable tick size in live)")
+        return None
 
     meta     = get_meta(token)
     lot_size = meta.get("lot_size", 1) or 1
