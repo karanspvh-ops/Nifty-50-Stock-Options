@@ -100,6 +100,21 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
             indicators_snapshot=indicators, entered_at=now_ist(),
         )
         db.add(trade); db.commit(); db.refresh(trade)
+        market.push_trade_update({
+            "type":          "trade_opened",
+            "trade_id":      trade.id,
+            "symbol":        symbol,
+            "option_symbol": opt_symbol,
+            "direction":     direction,
+            "env":           env.value,
+            "entry":         entry_price,
+            "hard_sl":       trade_sl_price,
+            "target":        target_price,
+            "quantity":      qty,
+            "lot_size":      lot_size,
+            "entered_at":    trade.entered_at.isoformat(),
+            "entry_logic":   entry_logic,
+        })
         print(f"[ORDER] Trade #{trade.id} | {symbol} {direction.upper()} {opt_symbol} "
               f"@ ₹{entry_price:.2f} | {env}")
         return trade

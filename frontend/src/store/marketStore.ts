@@ -53,6 +53,7 @@ interface MarketStore {
   setStockMoves:    (s: Record<string, StockMove>) => void;
   setOpenTrades:    (t: OpenTrade[]) => void;
   updateTradeTick:  (tick: TradeTick) => void;
+  addTrade:         (t: OpenTrade) => void;
   removeTrade:      (trade_id: number) => void;
   setSettings:      (s: Partial<Settings>) => void;
   setActiveView:    (v: MarketStore['activeView']) => void;
@@ -92,6 +93,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
           }
         : t
     ),
+  })),
+  addTrade: (t) => set((st) => ({
+    openTrades: st.openTrades.some(o => o.trade_id === t.trade_id)
+      ? st.openTrades
+      : [...st.openTrades, t],
   })),
   removeTrade: (trade_id) => set((st) => ({
     openTrades: st.openTrades.filter(t => t.trade_id !== trade_id),

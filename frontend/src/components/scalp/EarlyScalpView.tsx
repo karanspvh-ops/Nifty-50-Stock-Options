@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 const API = 'http://localhost:8000';
 
@@ -158,10 +158,19 @@ function ActiveTrades({ trades }: { trades: ScalpTrade[] }) {
         </thead>
         <tbody>
           {trades.map(t => {
-            const pnlCol = t.pnl_pct >= 0 ? 'text-up' : 'text-down';
+            const isClosed = t.status === 'closed';
+            const pnlCol   = t.pnl_pct >= 0 ? 'text-up' : 'text-down';
             return (
-              <tr key={t.trade_id} className="border-b border-border/40 hover:bg-border/20">
-                <td className="py-2 pr-3 font-semibold text-white">{t.symbol}</td>
+              <tr key={t.trade_id} className={`border-b border-border/40 hover:bg-border/20
+                ${isClosed ? 'opacity-50' : ''}`}>
+                <td className="py-2 pr-3 font-semibold text-white">
+                  {t.symbol}
+                  {isClosed && (
+                    <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-border text-muted font-semibold align-middle">
+                      CLOSED
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 pr-3 text-muted">{t.option_symbol || '—'}</td>
                 <td className="py-2 pr-3 text-right">₹{t.entry?.toFixed(2) ?? '—'}</td>
                 <td className="py-2 pr-3 text-right text-accent">
@@ -329,6 +338,9 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
   );
 }
 
+const WS_TRADES_URL  = 'ws://localhost:8000/api/market/ws/trades';
+const CLOSED_LINGER_MS = 60_000;
+
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function EarlyScalpView() {
   const [plan,        setPlan]        = useState<ScalpPlan | null>(null);
@@ -340,6 +352,9 @@ export default function EarlyScalpView() {
   const [env]                         = useState<'paper' | 'live'>('paper');
   const [forcing,     setForcing]     = useState<string | null>(null);
   const [forceMsg,    setForceMsg]    = useState<string | null>(null);
+  const esWs          = useRef<WebSocket | null>(null);
+  const esWsReconnect = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const closedTimers  = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // Load plan
   const loadPlan = useCallback(async () => {
@@ -353,26 +368,95 @@ export default function EarlyScalpView() {
     } catch {}
   }, [localParams]);
 
-  // Load ES trades
-  const loadTrades = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/api/trades?env=${env}`);
-      if (r.ok) {
-        const all: ScalpTrade[] = await r.json();
-        setTrades(all.filter(t =>
-          t.entry_logic?.includes('[ES]') && t.status === 'open'
-        ));
-      }
-    } catch {}
-  }, [env]);
-
+  // Plan polling (3s) — trades now driven by WebSocket below
   useEffect(() => {
     loadPlan();
-    loadTrades();
-    const id1 = setInterval(loadPlan,   3000);
-    const id2 = setInterval(loadTrades, 2000);
-    return () => { clearInterval(id1); clearInterval(id2); };
-  }, [loadPlan, loadTrades]);
+    const id1 = setInterval(loadPlan, 3000);
+    return () => { clearInterval(id1); };
+  }, [loadPlan]);
+
+  // WebSocket for instant trade updates
+  useEffect(() => {
+    const connect = () => {
+      try {
+        esWs.current = new WebSocket(WS_TRADES_URL);
+
+        esWs.current.onmessage = (evt) => {
+          const msg = JSON.parse(evt.data);
+
+          if (msg.type === 'snapshot') {
+            // Keep recently-closed trades (status='closed'); replace open ones from snapshot
+            setTrades(prev => {
+              const closed = prev.filter(t => t.status === 'closed');
+              const fresh  = (msg.trades as ScalpTrade[]).filter(t =>
+                t.entry_logic?.includes('[ES]') && t.env === env
+              );
+              return [...fresh, ...closed];
+            });
+
+          } else if (msg.type === 'trade_opened') {
+            if (msg.entry_logic?.includes('[ES]') && msg.env === env) {
+              const newTrade: ScalpTrade = {
+                trade_id:      msg.trade_id,
+                symbol:        msg.symbol,
+                option_symbol: msg.option_symbol,
+                direction:     msg.direction,
+                env:           msg.env,
+                entry:         msg.entry,
+                ltp:           null,
+                pnl_pct:       0,
+                quantity:      msg.quantity,
+                lot_size:      msg.lot_size,
+                hard_sl:       msg.hard_sl,
+                target:        msg.target,
+                status:        'open',
+                entered_at:    msg.entered_at,
+                entry_logic:   msg.entry_logic,
+              };
+              setTrades(prev =>
+                prev.some(t => t.trade_id === msg.trade_id) ? prev : [...prev, newTrade]
+              );
+            }
+
+          } else if (msg.type === 'trade_tick') {
+            setTrades(prev => prev.map(t =>
+              t.trade_id === msg.trade_id
+                ? { ...t, ltp: msg.ltp, pnl_pct: msg.pnl_pct }
+                : t
+            ));
+
+          } else if (msg.type === 'trade_closed') {
+            // Mark closed immediately, then remove after 60s
+            setTrades(prev => prev.map(t =>
+              t.trade_id === msg.trade_id ? { ...t, status: 'closed' } : t
+            ));
+            if (closedTimers.current.has(msg.trade_id)) {
+              clearTimeout(closedTimers.current.get(msg.trade_id));
+            }
+            const timer = setTimeout(() => {
+              setTrades(prev => prev.filter(t => t.trade_id !== msg.trade_id));
+              closedTimers.current.delete(msg.trade_id);
+            }, CLOSED_LINGER_MS);
+            closedTimers.current.set(msg.trade_id, timer);
+          }
+        };
+
+        esWs.current.onclose = () => {
+          esWsReconnect.current = setTimeout(connect, 3000);
+        };
+        esWs.current.onerror = () => { esWs.current?.close(); };
+      } catch {
+        esWsReconnect.current = setTimeout(connect, 3000);
+      }
+    };
+
+    connect();
+    return () => {
+      clearTimeout(esWsReconnect.current);
+      esWs.current?.close();
+      closedTimers.current.forEach(t => clearTimeout(t));
+    };
+  }, [env]);
 
   const toggleEnabled = async () => {
     const next = !enabled;
@@ -399,7 +483,6 @@ export default function EarlyScalpView() {
       const d = await r.json();
       if (d.status === 'entered') {
         setForceMsg(`✓ Entered ${d.option_symbol} @ ₹${d.entry_price} · SL ₹${d.sl_price?.toFixed(2)}`);
-        loadTrades();
       } else {
         setForceMsg(`✗ ${d.reason}`);
       }
@@ -424,9 +507,10 @@ export default function EarlyScalpView() {
   };
 
   const p = localParams ?? plan?.params;
-  const phase = plan?.phase ?? 'IDLE';
+  const phase     = plan?.phase ?? 'IDLE';
   const confirmed = plan?.candidates.filter(c => c.confirmed).length ?? 0;
   const entered   = plan?.candidates.filter(c => c.entered).length ?? 0;
+  const openCount = trades.filter(t => t.status === 'open').length;
   const trendCol  = plan?.market_trend === 'bullish' ? 'text-up'
                   : plan?.market_trend === 'bearish' ? 'text-down' : 'text-muted';
 
@@ -560,9 +644,14 @@ export default function EarlyScalpView() {
         <div className="flex items-center justify-between mb-3">
           <div className="text-sm font-semibold text-white">
             Active Positions
-            {trades.length > 0 && (
+            {openCount > 0 && (
               <span className="ml-2 text-xs text-up bg-up/10 px-1.5 py-0.5 rounded">
-                {trades.length} open
+                {openCount} open
+              </span>
+            )}
+            {trades.length > openCount && (
+              <span className="ml-1 text-xs text-muted px-1.5 py-0.5 rounded">
+                +{trades.length - openCount} recently closed
               </span>
             )}
           </div>
