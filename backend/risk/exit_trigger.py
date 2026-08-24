@@ -35,12 +35,23 @@ class RiskExitMixin:
         pnl_pct = ((price - trade.entry_price) / trade.entry_price) * 100
 
         from backend.core.clock import now_ist
-        trade.status     = status
-        trade.exit_price = price
-        trade.exited_at  = now_ist()
-        trade.pnl        = round(pnl, 2)
-        trade.pnl_pct    = round(pnl_pct, 2)
-        trade.exit_logic = reason
+        from backend.execution.option_selector import option_bid_ask
+        from backend.core.stock_universe import get_option_token
+        try:
+            opt_tok = get_option_token(trade.option_symbol)
+            bid_x, ask_x, spr_x = option_bid_ask(opt_tok, trade.option_symbol)
+        except Exception:
+            bid_x, ask_x, spr_x = None, None, None
+
+        trade.status          = status
+        trade.exit_price      = price
+        trade.exited_at       = now_ist()
+        trade.pnl             = round(pnl, 2)
+        trade.pnl_pct         = round(pnl_pct, 2)
+        trade.exit_logic      = reason
+        trade.bid_at_exit     = bid_x
+        trade.ask_at_exit     = ask_x
+        trade.spread_pct_at_exit = spr_x
         db.commit()
 
         from backend.core.settings_manager import get_settings

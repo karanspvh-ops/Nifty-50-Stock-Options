@@ -99,6 +99,14 @@ class Trade(Base):
     exit_logic          = Column(Text, nullable=True)
     indicators_snapshot = Column(JSON, default=dict)   # EMA/RSI/MACD at entry
 
+    # Bid/ask snapshot at entry and exit
+    bid_at_entry      = Column(Float, nullable=True)
+    ask_at_entry      = Column(Float, nullable=True)
+    spread_pct_at_entry = Column(Float, nullable=True)
+    bid_at_exit       = Column(Float, nullable=True)
+    ask_at_exit       = Column(Float, nullable=True)
+    spread_pct_at_exit  = Column(Float, nullable=True)
+
     # Timestamps
     entered_at = Column(DateTime, default=datetime.utcnow)
     exited_at  = Column(DateTime, nullable=True)

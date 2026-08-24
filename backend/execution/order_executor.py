@@ -21,7 +21,7 @@ from backend.core.broker           import broker
 from backend.database import Session, Trade, TradeEnv, TradeDirection, TradeStatus
 
 from backend.execution.quantity        import calc_quantity
-from backend.execution.option_selector import select_option, option_premium
+from backend.execution.option_selector import select_option, option_premium, option_bid_ask
 from backend.execution.liquidity       import has_liquidity
 
 
@@ -54,6 +54,7 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
     if not premium:
         print(f"[ORDER] REJECTED — could not read {opt_symbol} premium")
         return None
+    bid_entry, ask_entry, spread_pct_entry = option_bid_ask(opt_token, opt_symbol)
     if premium < 3.0:
         print(f"[ORDER] REJECTED — {opt_symbol} premium ₹{premium:.2f} below ₹3 minimum (untradeable tick size in live)")
         return None
@@ -98,6 +99,8 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
             trade_sl_pct=trade_sl_pct, trade_sl_price=trade_sl_price,
             target_price=target_price, entry_logic=entry_logic,
             indicators_snapshot=indicators, entered_at=now_ist(),
+            bid_at_entry=bid_entry, ask_at_entry=ask_entry,
+            spread_pct_at_entry=spread_pct_entry,
         )
         db.add(trade); db.commit(); db.refresh(trade)
         market.push_trade_update({

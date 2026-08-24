@@ -12,12 +12,12 @@ To understand or edit:
 """
 
 from backend.execution.order_executor  import place_entry_order, place_exit_order  # noqa: F401
-from backend.execution.option_selector import option_premium, current_premium, select_option  # noqa: F401
+from backend.execution.option_selector import option_premium, current_premium, select_option, option_bid_ask  # noqa: F401
 from backend.execution.quantity        import calc_quantity  # noqa: F401
 from backend.execution.liquidity       import has_liquidity as _has_liquidity  # noqa: F401
 
 __all__ = [
     "place_entry_order", "place_exit_order",
-    "option_premium", "current_premium", "select_option",
+    "option_premium", "current_premium", "select_option", "option_bid_ask",
     "calc_quantity", "_has_liquidity",
 ]

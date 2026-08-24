@@ -8,6 +8,27 @@ from backend.core.stock_universe import load_instrument_cache
 from backend.core.broker         import broker
 
 
+def option_bid_ask(opt_token: str, opt_symbol: str) -> tuple:
+    """Return (bid, ask, spread_pct) from Kite quote depth. Falls back to (None, None, None)."""
+    if not opt_symbol:
+        return None, None, None
+    try:
+        key = f"NFO:{opt_symbol}"
+        q   = broker.kite().quote([key])
+        depth = q.get(key, {}).get("depth", {})
+        buy_levels  = depth.get("buy",  [])
+        sell_levels = depth.get("sell", [])
+        bid = float(buy_levels[0]["price"])  if buy_levels  and buy_levels[0]["price"]  > 0 else None
+        ask = float(sell_levels[0]["price"]) if sell_levels and sell_levels[0]["price"] > 0 else None
+        if bid and ask and (bid + ask) > 0:
+            spread_pct = round((ask - bid) / ((ask + bid) / 2) * 100, 2)
+        else:
+            spread_pct = None
+        return bid, ask, spread_pct
+    except Exception:
+        return None, None, None
+
+
 def option_premium(opt_token: str, opt_symbol: str) -> Optional[float]:
     """Current option premium: live tick first, Kite quote fallback."""
     if not opt_symbol:
