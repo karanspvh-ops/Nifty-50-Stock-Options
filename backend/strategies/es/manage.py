@@ -169,24 +169,53 @@ class ESManageMixin:
             self._last_push.pop(tid,           None)
             self._live_ltp_registry.pop(tid,   None)
             self._position_size_cache.pop(tid, None)
+            self._option_symbol_cache.pop(tid, None)
 
     def _flush_es_snapshot(self):
-        """Write latest in-memory portfolio snapshot to DB. Called once per 1s loop."""
+        """Write latest in-memory portfolio snapshot to DB. Called once per 1s loop.
+
+        Unrealized PnL is recomputed here from a fresh kite.quote() call (not the
+        tick-cached _live_ltp_registry) so the DB row reflects live LTPs rather than
+        whatever the last WebSocket tick happened to be, which can lag by seconds.
+        """
         try:
-            from backend.core.clock import now_ist
+            from backend.core.clock  import now_ist
+            from backend.core.broker import broker
             from backend.storage.models import ESPortfolioSnapshot
-            s   = self._latest_snapshot
-            now = now_ist()
+
+            open_tids = [t for t in self._entry_cache if t not in self._pending_exit]
+            unrealized = 0.0
+            if open_tids:
+                symbols = {tid: self._option_symbol_cache.get(tid) for tid in open_tids}
+                keys    = [f"NFO:{sym}" for sym in symbols.values() if sym]
+                ltps    = {}
+                if keys:
+                    try:
+                        q = broker.kite().quote(keys)
+                        for tid, sym in symbols.items():
+                            if sym and f"NFO:{sym}" in q:
+                                ltps[tid] = float(q[f"NFO:{sym}"]["last_price"])
+                    except Exception as e:
+                        print(f"[ES] Snapshot quote fetch error: {e}")
+                for tid in open_tids:
+                    entry    = self._entry_cache.get(tid, 0.0)
+                    ltp      = ltps.get(tid, self._live_ltp_registry.get(tid, entry))
+                    pos_size = self._position_size_cache.get(tid, 0.0)
+                    unrealized += (ltp - entry) * pos_size
+
+            capital = 500000.0
+            total   = self._realized_pnl_cache + unrealized
+            now     = now_ist()
             with DBSession() as db:
                 db.add(ESPortfolioSnapshot(
                     date             = str(now.date()),
                     snapshot_time    = now,
-                    realized_pnl     = s.get("realized_pnl",     0.0),
-                    unrealized_pnl   = s.get("unrealized_pnl",   0.0),
-                    total_pnl        = s.get("total_pnl",         0.0),
-                    total_pct        = s.get("total_pct",         0.0),
-                    open_trade_count = s.get("open_trade_count",  0),
-                    capital          = s.get("capital",           500000.0),
+                    realized_pnl     = round(self._realized_pnl_cache, 2),
+                    unrealized_pnl   = round(unrealized, 2),
+                    total_pnl        = round(total, 2),
+                    total_pct        = round(total / capital * 100, 4),
+                    open_trade_count = len(open_tids),
+                    capital          = capital,
                 ))
                 db.commit()
         except Exception as e:
@@ -264,6 +293,7 @@ class ESManageMixin:
                 self._entry_cache[tid]         = t.entry_price
                 self._symbol_cache[tid]        = t.symbol
                 self._position_size_cache[tid] = t.quantity * t.lot_size
+                self._option_symbol_cache[tid] = t.option_symbol
 
                 # Register callback only after all state is ready (no race window)
                 if tok and tid not in self._trade_to_option_token:
@@ -346,6 +376,7 @@ class ESManageMixin:
                     self._last_push.pop(tid,           None)
                     self._live_ltp_registry.pop(tid,   None)
                     self._position_size_cache.pop(tid, None)
+                    self._option_symbol_cache.pop(tid, None)
                     self._pending_exit.discard(tid)
                     print(f"[ES] Exit {t.symbol} | {exit_reason} | PnL {pnl_pct:+.1f}% | Peak {peak_pct:+.1f}%")
                 except Exception as e:

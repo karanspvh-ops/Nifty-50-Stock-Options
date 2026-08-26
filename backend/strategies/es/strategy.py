@@ -61,6 +61,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._last_push:             Dict[int, float] = {}  # tid → last WS push monotonic time
         # Portfolio snapshot tracking (in-memory, flushed every 1s by _manage loop)
         self._live_ltp_registry:         Dict[int, float] = {}   # tid → latest option LTP
+        self._option_symbol_cache:       Dict[int, str]   = {}   # tid → NFO option symbol (for kite.quote)
         self._position_size_cache:       Dict[int, float] = {}   # tid → qty * lot_size
         self._realized_pnl_cache:        float            = 0.0  # sum of closed ES trades today
         self._realized_pnl_cache_seeded: bool             = False
@@ -120,6 +121,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._pending_exit.clear()
         self._last_push.clear()
         self._live_ltp_registry.clear()
+        self._option_symbol_cache.clear()
         self._position_size_cache.clear()
         self._realized_pnl_cache        = 0.0
         self._realized_pnl_cache_seeded = False
