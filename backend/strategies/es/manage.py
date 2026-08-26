@@ -119,6 +119,24 @@ class ESManageMixin:
                 "trail_armed": armed,
             })
 
+        # ── 5. Portfolio snapshot (in-memory only — flushed to DB by 1s loop) ─
+        self._live_ltp_registry[tid] = ltp
+        unrealized = sum(
+            (self._live_ltp_registry.get(t, e) - e) * self._position_size_cache.get(t, 0)
+            for t, e in self._entry_cache.items()
+            if t not in self._pending_exit
+        )
+        capital = 500000.0
+        total   = self._realized_pnl_cache + unrealized
+        self._latest_snapshot = {
+            "realized_pnl":     round(self._realized_pnl_cache, 2),
+            "unrealized_pnl":   round(unrealized, 2),
+            "total_pnl":        round(total, 2),
+            "total_pct":        round(total / capital * 100, 4),
+            "open_trade_count": len([t for t in self._entry_cache if t not in self._pending_exit]),
+            "capital":          capital,
+        }
+
     def _tick_sl_exit(self, tid: int, reason: str):
         """Runs in a dedicated daemon thread — executes SL exit at tick speed."""
         try:
@@ -132,18 +150,47 @@ class ESManageMixin:
             print(f"[ES] Tick SL exit error tid={tid}: {e}")
         finally:
             self._pending_exit.discard(tid)
+            # Update realized PnL cache before clearing entry/ltp caches
+            entry    = self._entry_cache.get(tid, 0.0)
+            last_ltp = self._live_ltp_registry.get(tid, entry)
+            pos_size = self._position_size_cache.get(tid, 0.0)
+            self._realized_pnl_cache += (last_ltp - entry) * pos_size
             # Clean up tick tracking (same as manage-loop exit cleanup)
             opt_tok = self._trade_to_option_token.pop(tid, None)
             if opt_tok:
                 market.unregister_tick_callback(opt_tok)
                 self._option_token_to_trade.pop(opt_tok, None)
-            self._trail_armed.pop(tid,   None)
-            self._trail_locked.pop(tid,  None)
-            self._trail_peak.pop(tid,    None)
-            self._prev_pnl.pop(tid,      None)
-            self._entry_cache.pop(tid,   None)
-            self._symbol_cache.pop(tid,  None)
-            self._last_push.pop(tid,     None)
+            self._trail_armed.pop(tid,         None)
+            self._trail_locked.pop(tid,        None)
+            self._trail_peak.pop(tid,          None)
+            self._prev_pnl.pop(tid,            None)
+            self._entry_cache.pop(tid,         None)
+            self._symbol_cache.pop(tid,        None)
+            self._last_push.pop(tid,           None)
+            self._live_ltp_registry.pop(tid,   None)
+            self._position_size_cache.pop(tid, None)
+
+    def _flush_es_snapshot(self):
+        """Write latest in-memory portfolio snapshot to DB. Called once per 1s loop."""
+        try:
+            from backend.core.clock import now_ist
+            from backend.storage.models import ESPortfolioSnapshot
+            s   = self._latest_snapshot
+            now = now_ist()
+            with DBSession() as db:
+                db.add(ESPortfolioSnapshot(
+                    date             = str(now.date()),
+                    snapshot_time    = now,
+                    realized_pnl     = s.get("realized_pnl",     0.0),
+                    unrealized_pnl   = s.get("unrealized_pnl",   0.0),
+                    total_pnl        = s.get("total_pnl",         0.0),
+                    total_pct        = s.get("total_pct",         0.0),
+                    open_trade_count = s.get("open_trade_count",  0),
+                    capital          = s.get("capital",           500000.0),
+                ))
+                db.commit()
+        except Exception as e:
+            print(f"[ES] Snapshot flush error: {e}")
 
     def _update_es_dynamic_sl_db(self, tid: int, new_dyn_sl: float):
         """Background thread: persist dynamic_sl_price to DB without blocking tick callback."""
@@ -190,6 +237,11 @@ class ESManageMixin:
 
             pnl_pct = (premium - t.entry_price) / t.entry_price * 100
 
+            # ── Seed realized PnL cache once per day (handles restart recovery) ──
+            if not self._realized_pnl_cache_seeded:
+                self._realized_pnl_cache        = self._net_pnl_today(env)
+                self._realized_pnl_cache_seeded = True
+
             # ── First-sight init: set state BEFORE registering tick callback ──
             if tid not in self._trail_armed:
                 # Trail/SL state (recovered from DB or fresh)
@@ -208,9 +260,10 @@ class ESManageMixin:
                     self._trail_armed[tid]  = False
                     self._trail_locked[tid] = -sl_pct
 
-                # Cache entry/symbol for tick-level SL and WS payloads
-                self._entry_cache[tid]  = t.entry_price
-                self._symbol_cache[tid] = t.symbol
+                # Cache entry/symbol/position-size for tick-level SL, WS, and snapshot
+                self._entry_cache[tid]         = t.entry_price
+                self._symbol_cache[tid]        = t.symbol
+                self._position_size_cache[tid] = t.quantity * t.lot_size
 
                 # Register callback only after all state is ready (no race window)
                 if tok and tid not in self._trade_to_option_token:
@@ -277,20 +330,28 @@ class ESManageMixin:
                 try:
                     risk_engine.force_exit_trade(t.id, exit_reason)
                     market.push_trade_update({"type": "trade_closed", "trade_id": tid})
+                    # Update realized PnL cache before clearing entry/ltp caches
+                    self._realized_pnl_cache += (premium - t.entry_price) * t.quantity * t.lot_size
                     # Clean up tick tracking
                     opt_tok = self._trade_to_option_token.pop(tid, None)
                     if opt_tok:
                         market.unregister_tick_callback(opt_tok)
                         self._option_token_to_trade.pop(opt_tok, None)
-                    self._trail_armed.pop(tid,   None)
-                    self._trail_locked.pop(tid,  None)
-                    self._trail_peak.pop(tid,    None)
-                    self._prev_pnl.pop(tid,      None)
-                    self._entry_cache.pop(tid,   None)
-                    self._symbol_cache.pop(tid,  None)
-                    self._last_push.pop(tid,     None)
+                    self._trail_armed.pop(tid,         None)
+                    self._trail_locked.pop(tid,        None)
+                    self._trail_peak.pop(tid,          None)
+                    self._prev_pnl.pop(tid,            None)
+                    self._entry_cache.pop(tid,         None)
+                    self._symbol_cache.pop(tid,        None)
+                    self._last_push.pop(tid,           None)
+                    self._live_ltp_registry.pop(tid,   None)
+                    self._position_size_cache.pop(tid, None)
                     self._pending_exit.discard(tid)
                     print(f"[ES] Exit {t.symbol} | {exit_reason} | PnL {pnl_pct:+.1f}% | Peak {peak_pct:+.1f}%")
                 except Exception as e:
                     self._pending_exit.discard(tid)
                     print(f"[ES] Exit error {t.symbol}: {e}")
+
+        # ── Snapshot flush (once per 1s loop, outside per-trade loop) ─────────
+        if self._latest_snapshot:
+            self._flush_es_snapshot()

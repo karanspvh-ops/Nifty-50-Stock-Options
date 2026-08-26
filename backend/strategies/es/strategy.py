@@ -59,6 +59,12 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._symbol_cache:          Dict[int, str]   = {}  # tid → symbol (for WS payloads)
         self._pending_exit:          set              = set()  # tids with in-flight tick-level exit
         self._last_push:             Dict[int, float] = {}  # tid → last WS push monotonic time
+        # Portfolio snapshot tracking (in-memory, flushed every 1s by _manage loop)
+        self._live_ltp_registry:         Dict[int, float] = {}   # tid → latest option LTP
+        self._position_size_cache:       Dict[int, float] = {}   # tid → qty * lot_size
+        self._realized_pnl_cache:        float            = 0.0  # sum of closed ES trades today
+        self._realized_pnl_cache_seeded: bool             = False
+        self._latest_snapshot:           dict             = {}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -113,6 +119,11 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._symbol_cache.clear()
         self._pending_exit.clear()
         self._last_push.clear()
+        self._live_ltp_registry.clear()
+        self._position_size_cache.clear()
+        self._realized_pnl_cache        = 0.0
+        self._realized_pnl_cache_seeded = False
+        self._latest_snapshot           = {}
         print("[ES] Daily reset complete.")
 
     # ── Per-tick state machine ────────────────────────────────────────────────

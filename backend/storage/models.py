@@ -192,3 +192,18 @@ class TradableSignal(Base):
     sector_pct   = Column(Float,   nullable=True)
     reason       = Column(Text,    nullable=True)
     was_traded   = Column(Boolean, default=False)
+
+
+# ── Table 9: ES Portfolio Snapshots (tick-level, in-memory flush) ─────────────
+class ESPortfolioSnapshot(Base):
+    __tablename__ = "es_portfolio_snapshots"
+
+    id               = Column(Integer,  primary_key=True, autoincrement=True)
+    date             = Column(String,   nullable=False, index=True)   # YYYY-MM-DD
+    snapshot_time    = Column(DateTime, nullable=False)               # exact IST timestamp
+    realized_pnl     = Column(Float,    default=0.0)
+    unrealized_pnl   = Column(Float,    default=0.0)
+    total_pnl        = Column(Float,    default=0.0)
+    total_pct        = Column(Float,    default=0.0)
+    open_trade_count = Column(Integer,  default=0)
+    capital          = Column(Float,    default=500000.0)
