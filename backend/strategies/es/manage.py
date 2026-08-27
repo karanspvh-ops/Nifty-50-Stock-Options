@@ -139,6 +139,7 @@ class ESManageMixin:
 
     def _tick_sl_exit(self, tid: int, reason: str):
         """Runs in a dedicated daemon thread — executes SL exit at tick speed."""
+        result = None
         try:
             result = risk_engine.force_exit_trade(tid, reason)
             if "error" in result:
@@ -150,11 +151,12 @@ class ESManageMixin:
             print(f"[ES] Tick SL exit error tid={tid}: {e}")
         finally:
             self._pending_exit.discard(tid)
-            # Update realized PnL cache before clearing entry/ltp caches
-            entry    = self._entry_cache.get(tid, 0.0)
-            last_ltp = self._live_ltp_registry.get(tid, entry)
-            pos_size = self._position_size_cache.get(tid, 0.0)
-            self._realized_pnl_cache += (last_ltp - entry) * pos_size
+            # Update realized PnL cache using the actual fill price returned by
+            # force_exit_trade — the same value written to trade.exit_price/pnl.
+            entry      = self._entry_cache.get(tid, 0.0)
+            pos_size   = self._position_size_cache.get(tid, 0.0)
+            exit_price = result.get("exit_price", entry) if isinstance(result, dict) else entry
+            self._realized_pnl_cache += (exit_price - entry) * pos_size
             # Clean up tick tracking (same as manage-loop exit cleanup)
             opt_tok = self._trade_to_option_token.pop(tid, None)
             if opt_tok:
@@ -358,10 +360,12 @@ class ESManageMixin:
             if exit_reason and tid not in self._pending_exit:
                 self._pending_exit.add(tid)
                 try:
-                    risk_engine.force_exit_trade(t.id, exit_reason)
+                    result = risk_engine.force_exit_trade(t.id, exit_reason)
                     market.push_trade_update({"type": "trade_closed", "trade_id": tid})
-                    # Update realized PnL cache before clearing entry/ltp caches
-                    self._realized_pnl_cache += (premium - t.entry_price) * t.quantity * t.lot_size
+                    # Update realized PnL cache using the actual fill price returned by
+                    # force_exit_trade — the same value written to trade.exit_price/pnl.
+                    exit_price = result.get("exit_price", premium) if isinstance(result, dict) else premium
+                    self._realized_pnl_cache += (exit_price - t.entry_price) * t.quantity * t.lot_size
                     # Clean up tick tracking
                     opt_tok = self._trade_to_option_token.pop(tid, None)
                     if opt_tok:
