@@ -310,7 +310,23 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
 
 interface DayData {
   date: string; opening: number; closing: number; dayPnl: number;
-  peak: number; excess: number; pctUsed: number;
+  peak: number; excess: number; pctUsed: number; charges: number; netPnl: number;
+  netPnlPctUtil: number;
+}
+
+// Mirrors backend/reporting/costs.py exactly — STT (sell-side), NSE exchange txn charge,
+// GST on exchange charge, SEBI fee, stamp duty (buy-side), plus flat ₹47.20/trade brokerage.
+function calcTradeCharges(t: Trade): number {
+  const entry = t.entry || 0, exit = t.exit || 0, qty = t.qty || 0, lot = t.lot_size || 1;
+  const entryVal = entry * qty * lot;
+  const exitVal  = exit  * qty * lot;
+  const stt      = 0.0015   * exitVal;
+  const exch     = 0.000355 * (entryVal + exitVal);
+  const gstOnExch = 0.18    * exch;
+  const sebi     = (entryVal + exitVal) * 10 / 10_000_000;
+  const stamp    = 0.00003  * entryVal;
+  const statutory = Math.round(stt + exch + gstOnExch + sebi + stamp);
+  return statutory + 47.2;
 }
 
 function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
@@ -335,6 +351,8 @@ function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
     let rc = 0, peak = 0;
     evs.forEach(e => { rc += e.d; if (rc > peak) peak = rc; });
     const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0), 0);
+    const charges = raw.reduce((s, t) => s + calcTradeCharges(t), 0);
+    const netPnl = dayPnl - charges;
     running += dayPnl;
     return {
       date: day,
@@ -344,6 +362,9 @@ function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
       peak:     Math.round(peak),
       excess:   Math.max(0, Math.round(peak - opening)),
       pctUsed:  opening ? Math.round(peak / opening * 1000) / 10 : 0,
+      charges:  Math.round(charges),
+      netPnl:   Math.round(netPnl),
+      netPnlPctUtil: peak ? Math.round(netPnl / peak * 1000) / 10 : 0,
     };
   });
 }
@@ -460,7 +481,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
         <table className="w-full text-left">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
-              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
+              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL', 'Charges', 'Net PnL', 'Net PnL % (Util)', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
                 <th key={h} className={`px-2 pb-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
               ))}
             </tr>
@@ -475,6 +496,13 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
                   <td className={`px-2 py-1.5 text-right font-medium ${d.closing >= d.opening ? 'text-up' : 'text-down'}`}>₹{d.closing.toLocaleString('en-IN')}</td>
                   <td className={`px-2 py-1.5 text-right font-semibold ${d.dayPnl >= 0 ? 'text-up' : 'text-down'}`}>
                     {d.dayPnl >= 0 ? '+' : '−'}₹{Math.abs(d.dayPnl).toLocaleString('en-IN')}
+                  </td>
+                  <td className="px-2 py-1.5 text-right text-muted">−₹{d.charges.toLocaleString('en-IN')}</td>
+                  <td className={`px-2 py-1.5 text-right font-semibold ${d.netPnl >= 0 ? 'text-up' : 'text-down'}`}>
+                    {d.netPnl >= 0 ? '+' : '−'}₹{Math.abs(d.netPnl).toLocaleString('en-IN')}
+                  </td>
+                  <td className={`px-2 py-1.5 text-right font-semibold ${d.netPnlPctUtil >= 0 ? 'text-up' : 'text-down'}`}>
+                    {d.netPnlPctUtil >= 0 ? '+' : '−'}{Math.abs(d.netPnlPctUtil)}%
                   </td>
                   <td className="px-2 py-1.5 text-right text-amber-400">₹{d.peak.toLocaleString('en-IN')}</td>
                   <td className={`px-2 py-1.5 text-right ${d.pctUsed > 100 ? 'text-down font-bold' : d.pctUsed > 80 ? 'text-amber-400' : 'text-muted'}`}>

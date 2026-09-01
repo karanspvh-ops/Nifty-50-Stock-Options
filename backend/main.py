@@ -48,6 +48,7 @@ from backend.agents.ml_agent         import ml_agent
 from backend.core.daily_report_scheduler import daily_report_scheduler
 from backend.core.pre_market_check      import pre_market_scheduler
 from backend.routers.simulation_router  import router as simulation_router
+from backend.market_data.nifty_options_collector import nifty_options_collector
 
 
 def _schedule_dryrun_at_905():
@@ -87,6 +88,8 @@ async def lifespan(app: FastAPI):
         refresh_instrument_list(force=True)
         tick_engine.start()
         print("[BOOT] Tick engine running.")
+        nifty_options_collector.start()
+        print("[BOOT] NIFTY options collector running (separate DB, shared feed).")
     else:
         print("[BOOT] No Zerodha token for today. Feed/trading gated until login.")
         print("[BOOT] Open the dashboard and complete the Zerodha login.")
@@ -130,6 +133,7 @@ async def lifespan(app: FastAPI):
     print("[BOOT] All systems GO. PM2 will restart on crash.")
     yield
     # ── Shutdown ─────────────────────────────────────────────────
+    nifty_options_collector.stop()
     pre_market_scheduler.stop()
     ml_agent.stop()
     pnl_agent.stop()
