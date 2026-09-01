@@ -2,8 +2,8 @@
 title Nifty 50 Trading Platform
 color 0A
 set "PROJ=C:\Users\karan\OneDrive\Desktop\Project\Algo Strategies\Nifty 50 Stock Options"
-set "SMTP_USER=spventures.inv@gmail.com"
-set "SMTP_PASS=bwutzmkwhrwxbcrz"
+REM SMTP_USER/SMTP_PASS live in .env (gitignored) and load via load_dotenv()
+REM in backend/main.py -- do not hardcode credentials here, this file is tracked in git.
 set "PYTHON=C:\Users\karan\AppData\Local\Python\bin\python3.14.exe"
 
 echo ============================================================
