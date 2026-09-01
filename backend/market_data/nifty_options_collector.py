@@ -23,9 +23,10 @@ from backend.core.broker       import broker
 from backend.storage.nifty_options_engine import NiftySession, init_nifty_options_db
 from backend.storage.nifty_options_models import NiftyOptionSnapshot
 
-_LADDER_SIZE   = 5      # strikes each side of ATM
-_MARKET_OPEN   = (9, 15)
-_MARKET_CLOSE  = (15, 30)
+_LADDER_SIZE      = 5      # strikes each side of ATM
+_MARKET_OPEN      = (9, 15)
+_MARKET_CLOSE     = (15, 30)
+_RECENTER_MINUTES = 60     # re-resolve the strike ladder this often, not just once/day
 
 
 class NiftyOptionsCollector:
@@ -33,11 +34,12 @@ class NiftyOptionsCollector:
     for what gets captured or how often — see nifty_options_models.py for schema."""
 
     def __init__(self):
-        self._running   = False
-        self._thread    = None
-        self._today     = None
-        self._contracts = {}   # token(str) -> {"tradingsymbol", "strike", "option_type", "moneyness_rank"}
-        self._expiry    = None
+        self._running        = False
+        self._thread         = None
+        self._today          = None
+        self._contracts      = {}   # token(str) -> {"tradingsymbol", "strike", "option_type", "moneyness_rank"}
+        self._expiry         = None
+        self._last_resolve_at = None   # IST datetime of the last successful ladder resolve
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -53,11 +55,15 @@ class NiftyOptionsCollector:
     def stop(self):
         self._running = False
 
-    # ── Chain resolution (once per day) ─────────────────────────────────────────
+    # ── Chain resolution (re-centers every _RECENTER_MINUTES) ──────────────────
 
     def _resolve_chain(self):
         """Fetch NIFTY option instruments fresh from Kite, pick nearest expiry,
-        build an 11-strike ladder around ATM, subscribe on the shared WS feed."""
+        build an 11-strike ladder around the CURRENT ATM, subscribe on the shared
+        WS feed. Called on first run, on a new trading day, and every
+        _RECENTER_MINUTES thereafter — so a 200-300 point NIFTY move during the
+        day re-centers the ladder instead of leaving it stuck on the morning's
+        ATM and collecting increasingly irrelevant far-OTM/far-ITM strikes."""
         if not broker.has_token():
             return False
         try:
@@ -123,12 +129,20 @@ class NiftyOptionsCollector:
             print(f"[NIFTY-DATA] subscribe failed: {e}")
             return False
 
-        self._contracts = contracts
-        self._expiry    = nearest.isoformat()
-        self._today     = today
-        print(f"[NIFTY-DATA] Chain resolved: expiry={self._expiry} spot={spot:.1f} "
+        old_strikes = {c["strike"] for c in self._contracts.values()} if self._contracts else set()
+        self._contracts       = contracts
+        self._expiry          = nearest.isoformat()
+        self._today           = today
+        self._last_resolve_at = now_ist()
+        recenter_note = " (RE-CENTERED)" if old_strikes and old_strikes != set(rank_of) else ""
+        print(f"[NIFTY-DATA] Chain resolved{recenter_note}: expiry={self._expiry} spot={spot:.1f} "
               f"strikes={ladder} contracts={len(contracts)}")
         return True
+
+    def _needs_resolve(self) -> bool:
+        if self._today != date.today() or not self._contracts or self._last_resolve_at is None:
+            return True
+        return (now_ist() - self._last_resolve_at) >= timedelta(minutes=_RECENTER_MINUTES)
 
     # ── 1-minute collection loop ─────────────────────────────────────────────
 
@@ -140,7 +154,7 @@ class NiftyOptionsCollector:
                 if not ((t.hour, t.minute) >= _MARKET_OPEN and (t.hour, t.minute) <= _MARKET_CLOSE):
                     _time.sleep(30)
                     continue
-                if self._today != date.today() or not self._contracts:
+                if self._needs_resolve():
                     if not self._resolve_chain():
                         _time.sleep(30)
                         continue
