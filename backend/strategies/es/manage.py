@@ -54,9 +54,11 @@ class ESManageMixin:
         if tid in self._pending_exit:
             return
 
-        # ── 1. Track highest premium ──────────────────────────────────────────
+        # ── 1. Track highest + lowest premium ─────────────────────────────────
         if ltp > self._trail_peak.get(tid, 0.0):
             self._trail_peak[tid] = ltp
+        if ltp < self._trail_trough.get(tid, ltp):
+            self._trail_trough[tid] = ltp
 
         # ── 2. Trail arm + ratchet (tick-level) ──────────────────────────────
         entry = self._entry_cache.get(tid)
@@ -165,6 +167,7 @@ class ESManageMixin:
             self._trail_armed.pop(tid,         None)
             self._trail_locked.pop(tid,        None)
             self._trail_peak.pop(tid,          None)
+            self._trail_trough.pop(tid,        None)
             self._prev_pnl.pop(tid,            None)
             self._entry_cache.pop(tid,         None)
             self._symbol_cache.pop(tid,        None)
@@ -300,6 +303,7 @@ class ESManageMixin:
                 # Register callback only after all state is ready (no race window)
                 if tok and tid not in self._trade_to_option_token:
                     self._trail_peak[tid]                  = max(premium, t.entry_price)
+                    self._trail_trough[tid]                = min(premium, t.entry_price)
                     self._option_token_to_trade[tok]       = tid
                     self._trade_to_option_token[tid]       = tok
                     market.register_tick_callback(tok, self._on_option_tick)
@@ -316,6 +320,18 @@ class ESManageMixin:
                         {"highest_price": tick_peak}, synchronize_session=False)
                     hp_db.commit()
                 t.highest_price = tick_peak
+
+            # ── Tick-level trough (updated by _on_option_tick between loop cycles) ──
+            tick_trough = min(self._trail_trough.get(tid, t.entry_price), premium)
+            self._trail_trough[tid] = tick_trough
+
+            # Sync lowest_price to DB using tick-level trough
+            if t.lowest_price is None or tick_trough < t.lowest_price:
+                with DBSession() as lp_db:
+                    lp_db.query(Trade).filter(Trade.id == t.id).update(
+                        {"lowest_price": tick_trough}, synchronize_session=False)
+                    lp_db.commit()
+                t.lowest_price = tick_trough
 
             # Worst pnl across this tick and the previous tick — catches SL breaches
             # that recovered within the 10-second polling gap.
@@ -374,6 +390,7 @@ class ESManageMixin:
                     self._trail_armed.pop(tid,         None)
                     self._trail_locked.pop(tid,        None)
                     self._trail_peak.pop(tid,          None)
+                    self._trail_trough.pop(tid,        None)
                     self._prev_pnl.pop(tid,            None)
                     self._entry_cache.pop(tid,         None)
                     self._symbol_cache.pop(tid,        None)

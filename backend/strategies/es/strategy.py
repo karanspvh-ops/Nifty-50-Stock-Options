@@ -53,6 +53,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._trail_armed: Dict[int, bool]   = {}
         self._prev_pnl:    Dict[int, float]  = {}
         self._trail_peak:            Dict[int, float] = {}  # tid → highest premium (₹) at tick level
+        self._trail_trough:          Dict[int, float] = {}  # tid → lowest premium (₹) at tick level
         self._option_token_to_trade: Dict[str, int]  = {}  # option_token → tid
         self._trade_to_option_token: Dict[int, str]  = {}  # tid → option_token (reverse map)
         self._entry_cache:           Dict[int, float] = {}  # tid → entry_price (for tick-level SL)
@@ -114,6 +115,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         self._entry_pending.clear()
         self._plan_index.clear()
         self._trail_peak.clear()
+        self._trail_trough.clear()
         self._option_token_to_trade.clear()
         self._trade_to_option_token.clear()
         self._entry_cache.clear()

@@ -89,6 +89,7 @@ class Trade(Base):
     dynamic_sl_price = Column(Float, nullable=True)
     target_price    = Column(Float, nullable=True)
     highest_price   = Column(Float, nullable=True)     # for trailing SL
+    lowest_price    = Column(Float, nullable=True)     # running trough while open (tick-level)
 
     # PnL
     pnl     = Column(Float, default=0.0)
