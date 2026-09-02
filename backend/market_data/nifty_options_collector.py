@@ -48,12 +48,27 @@ class NiftyOptionsCollector:
             return
         init_nifty_options_db()
         self._running = True
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="NiftyOptionsCollector")
+        self._thread = threading.Thread(target=self._run_supervised, daemon=True, name="NiftyOptionsCollector")
         self._thread.start()
         print("[NIFTY-DATA] Collector started.")
 
     def stop(self):
         self._running = False
+
+    def _run_supervised(self):
+        """Outer supervisor around _loop(). If the loop thread ever dies from
+        an uncaught exception -- exactly what happened silently for ~2 hours
+        on 2 Sep, discovered only because no rows showed up in the DB -- log
+        it loudly and respawn instead of the thread just vanishing with zero
+        visibility until the next full backend restart."""
+        while self._running:
+            try:
+                self._loop()
+            except Exception as e:
+                print(f"[NIFTY-DATA] *** Collector thread crashed: {e!r} — respawning in 5s ***")
+                _time.sleep(5)
+            else:
+                break   # _loop() returned normally (self._running went False) -- clean stop
 
     # ── Chain resolution (re-centers every _RECENTER_MINUTES) ──────────────────
 
