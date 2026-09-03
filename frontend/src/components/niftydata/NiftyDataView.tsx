@@ -114,7 +114,7 @@ export default function NiftyDataView() {
       const [s, c, rows] = await Promise.all([
         fetch(`${API}/api/nifty-data/status`).then(x => x.json()),
         fetch(`${API}/api/nifty-data/candles?range=${r}`).then(x => x.json()),
-        fetch(`${API}/api/nifty-data/snapshots?range=${r}&limit=300`).then(x => x.json()),
+        fetch(`${API}/api/nifty-data/snapshots?range=${r}&limit=200000`).then(x => x.json()),
       ]);
       setStatus(s); setCandles(c); setRows(rows);
     } catch { /* backend not reachable this tick — keep showing last known data */ }

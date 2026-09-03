@@ -64,13 +64,12 @@ def status():
 @router.get("/snapshots")
 def snapshots(
     range: str = Query("today", pattern="^(today|7d|30d|90d|all)$"),
-    limit: int = Query(300, le=20000),
+    limit: int = Query(200_000, le=200_000),
 ):
     """Latest rows first (newest snapshot_time first), flat list — the frontend
     groups by minute for display. `range` picks how far back to look; `limit`
-    caps the row count regardless (wider ranges have a lot more rows than one
-    table page should render — this is a "latest N within the range", not a
-    full dump)."""
+    is a hard safety cap only, not a "latest N" truncation — the frontend
+    requests the full range and expects every row within it back."""
     db = NiftySession()
     try:
         q = db.query(NiftyOptionSnapshot)
