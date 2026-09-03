@@ -8,6 +8,15 @@ minute writes their 1-min OHLCV + OI + bid/ask depth to a separate DB
 (nifty_options.db). Never touches trading.db, never calls strategy code,
 never places orders.
 
+Runs continuously from process start to stop() — no market-hours gate.
+Whatever Kite returns each minute (pre-market, post-market, whenever) gets
+recorded as-is; the loop only stops when the backend process does.
+
+NIFTY 50 spot candles are persisted every minute too (NiftySpotCandle),
+so the chart resumes from the last recorded candle across a restart
+instead of starting blank — a new candle series only begins when the
+calendar date actually changes, not on every boot.
+
 Data collected is deliberately raw (no Greeks) — see
 backend/storage/nifty_options_models.py for why.
 """
@@ -21,11 +30,9 @@ from backend.core.market_state import market
 from backend.core.broker       import broker
 
 from backend.storage.nifty_options_engine import NiftySession, init_nifty_options_db
-from backend.storage.nifty_options_models import NiftyOptionSnapshot
+from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
 
 _LADDER_SIZE      = 5      # strikes each side of ATM
-_MARKET_OPEN      = (9, 15)
-_MARKET_CLOSE     = (15, 30)
 _RECENTER_MINUTES = 60     # re-resolve the strike ladder this often, not just once/day
 
 
@@ -181,30 +188,25 @@ class NiftyOptionsCollector:
     # ── 1-minute collection loop ─────────────────────────────────────────────
 
     def _loop(self):
-        idle_ticks = 0
+        """No market-hours gate, deliberately. Collection runs continuously
+        from process start to process stop() -- pre-market, post-market,
+        weekends, all of it -- recording whatever Kite actually returns each
+        cycle rather than sitting idle and silently trusting a clock window.
+        This also removes the one code path (the old 30s idle-sleep branch)
+        that correlated with the silent multi-hour failures on 2 & 3 Sep;
+        every cycle now does real work and either succeeds or logs why not."""
+        tick_n = 0
         while self._running:
             try:
-                now = now_ist()
-                t   = now.time()
-                if not ((t.hour, t.minute) >= _MARKET_OPEN and (t.hour, t.minute) <= _MARKET_CLOSE):
-                    idle_ticks += 1
-                    # Heartbeat every ~5 min while idle (pre-market wait can be up to an
-                    # hour) -- 2 & 3 Sep both saw the collector silently produce zero rows
-                    # after a pre-market boot with no crash logged anywhere. This makes
-                    # the difference between "thread never started looping" (no heartbeat
-                    # ever) and "thread died/hung partway through the wait" (heartbeats
-                    # stop) directly visible next time, instead of pure silence either way.
-                    if idle_ticks % 10 == 1:
-                        print(f"[NIFTY-DATA] idle, waiting for market open (now {now.strftime('%H:%M:%S')}) — heartbeat #{idle_ticks}")
-                    _time.sleep(30)
-                    continue
-                idle_ticks = 0
+                tick_n += 1
                 if self._needs_resolve():
                     if not self._resolve_chain():
-                        _time.sleep(30)
+                        _time.sleep(15)
                         continue
                 if market.is_feed_connected():
                     self._collect_once()
+                elif tick_n % 5 == 1:
+                    print(f"[NIFTY-DATA] feed not connected — waiting (tick #{tick_n})")
             except Exception as e:
                 print(f"[NIFTY-DATA] loop error: {e}")
 
@@ -276,11 +278,37 @@ class NiftyOptionsCollector:
         db = NiftySession()
         try:
             db.add_all(rows)
+            self._persist_spot_candle(db, target_minute, today)
             db.commit()
         except Exception as e:
             print(f"[NIFTY-DATA] DB write error: {e}")
         finally:
             db.close()
+
+    def _persist_spot_candle(self, db, target_minute, today: str):
+        """Persist the just-closed NIFTY 50 index candle so the chart survives a
+        restart (market_state's tick-built candles are in-memory only) and so
+        multi-day history is possible at all. Same target-minute matching as
+        the option rows above -- skips silently if that exact minute is
+        already stored (re-resolve or a slow cycle could otherwise duplicate)."""
+        if not self._index_token:
+            return
+        candles = market.get_1m_candles(self._index_token, include_forming=True)
+        c = next((c for c in reversed(candles) if c["date"] == target_minute), None)
+        if c is None:
+            return
+        exists = (
+            db.query(NiftySpotCandle)
+            .filter(NiftySpotCandle.candle_time == target_minute)
+            .first()
+        )
+        if exists:
+            return
+        db.add(NiftySpotCandle(
+            date=today, candle_time=target_minute,
+            open=c["open"], high=c["high"], low=c["low"], close=c["close"],
+            volume=c.get("volume"),
+        ))
 
 
 nifty_options_collector = NiftyOptionsCollector()

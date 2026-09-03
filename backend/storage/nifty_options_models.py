@@ -11,7 +11,7 @@ to compute them later via Black-Scholes, whenever that's built.
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, Float, String, DateTime, JSON
+from sqlalchemy import Column, Integer, Float, String, DateTime, JSON, UniqueConstraint
 
 from backend.storage.nifty_options_engine import NiftyBase
 
@@ -56,3 +56,28 @@ class NiftyOptionSnapshot(NiftyBase):
     ask_depth        = Column(JSON,    nullable=True)
 
     created_at       = Column(DateTime, default=datetime.utcnow)
+
+
+class NiftySpotCandle(NiftyBase):
+    """Persisted NIFTY 50 index 1-min candles — one row per completed minute.
+
+    market_state's tick-built candles (market.get_1m_candles) are in-memory
+    only and reset on every backend restart. Persisting each closed candle
+    here lets the frontend chart resume from the last recorded candle across
+    a restart instead of starting blank, and makes multi-day history
+    (7d/30d/90d/all) possible at all -- market_state only ever holds today.
+    """
+    __tablename__ = "nifty_spot_candles"
+    __table_args__ = (UniqueConstraint("candle_time", name="uq_nifty_spot_candle_time"),)
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    date        = Column(String,   nullable=False, index=True)   # YYYY-MM-DD
+    candle_time = Column(DateTime, nullable=False, index=True)   # candle open/minute timestamp (IST)
+
+    open        = Column(Float, nullable=False)
+    high        = Column(Float, nullable=False)
+    low         = Column(Float, nullable=False)
+    close       = Column(Float, nullable=False)
+    volume      = Column(Integer, nullable=True)
+
+    created_at  = Column(DateTime, default=datetime.utcnow)

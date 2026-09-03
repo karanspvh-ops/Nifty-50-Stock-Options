@@ -3,8 +3,17 @@ import { Fragment, useEffect, useState, useRef } from 'react';
 const API = 'http://localhost:8000';
 
 interface Candle { time: string; open: number; high: number; low: number; close: number; }
+type RangeKey = 'today' | '7d' | '30d' | '90d' | 'all';
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: '7d',    label: '7 Days' },
+  { key: '30d',   label: '30 Days' },
+  { key: '90d',   label: '90 Days' },
+  { key: 'all',   label: 'All Time' },
+];
+
 interface Snapshot {
-  snapshot_time: string; strike: number; option_type: string; moneyness_rank: number;
+  snapshot_time: string; date: string; strike: number; option_type: string; moneyness_rank: number;
   nifty_spot: number | null; open: number | null; high: number | null; low: number | null;
   close: number | null; volume: number | null; oi: number | null;
   oi_day_high: number | null; oi_day_low: number | null;
@@ -16,9 +25,10 @@ interface Status {
   contracts: number; expiry: string | null; index_subscribed: boolean;
 }
 
-function fmtTime(iso: string) {
-  const m = iso.match(/T?(\d{2}:\d{2}:\d{2})/);
-  return m ? m[1] : iso;
+function fmtTime(iso: string, withDate = false) {
+  const m = iso.match(/(\d{4}-\d{2}-\d{2})T?(\d{2}:\d{2}:\d{2})/);
+  if (!m) return iso;
+  return withDate ? `${m[1]} ${m[2]}` : m[2];
 }
 
 function secondsAgo(iso: string | null): number | null {
@@ -28,7 +38,9 @@ function secondsAgo(iso: string | null): number | null {
 }
 
 // ── Candle chart ─────────────────────────────────────────────────────────────
-function CandleChart({ candles }: { candles: Candle[] }) {
+const MAX_CHART_CANDLES = 1500;   // beyond this, thin the series so the SVG stays responsive
+
+function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boolean }) {
   if (!candles.length) {
     return (
       <div className="h-56 flex items-center justify-center text-muted text-sm">
@@ -36,9 +48,14 @@ function CandleChart({ candles }: { candles: Candle[] }) {
       </div>
     );
   }
+  // Thin (not aggregate) for very wide ranges -- keeps every Nth real candle rather
+  // than merging OHLC, so the shape stays honest even if some detail is dropped.
+  const step = Math.max(1, Math.ceil(candles.length / MAX_CHART_CANDLES));
+  const shown = step > 1 ? candles.filter((_, i) => i % step === 0) : candles;
+
   const W = 1000, H = 220, PL = 54, PR = 12, PT = 12, PB = 22;
-  const n = candles.length;
-  const highs = candles.map(c => c.high), lows = candles.map(c => c.low);
+  const n = shown.length;
+  const highs = shown.map(c => c.high), lows = shown.map(c => c.low);
   let mn = Math.min(...lows), mx = Math.max(...highs);
   const rng = Math.max(mx - mn, 1);
   mn -= rng * 0.08; mx += rng * 0.08;
@@ -61,7 +78,7 @@ function CandleChart({ candles }: { candles: Candle[] }) {
           </text>
         </g>
       ))}
-      {candles.map((c, i) => {
+      {shown.map((c, i) => {
         const up = c.close >= c.open;
         const color = up ? '#4ade80' : '#f87171';
         const bodyTop = y(Math.max(c.open, c.close));
@@ -72,7 +89,7 @@ function CandleChart({ candles }: { candles: Candle[] }) {
             <rect x={x(i) - bw / 2} y={bodyTop} width={bw} height={Math.max(1, bodyBot - bodyTop)} fill={color} />
             {i % showEvery === 0 && (
               <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="#6b7280">
-                {fmtTime(c.time).slice(0, 5)}
+                {showDate ? fmtTime(c.time, true).slice(0, 10) : fmtTime(c.time).slice(0, 5)}
               </text>
             )}
           </g>
@@ -84,6 +101,7 @@ function CandleChart({ candles }: { candles: Candle[] }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function NiftyDataView() {
+  const [range, setRange] = useState<RangeKey>('today');
   const [status, setStatus] = useState<Status | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [rows, setRows] = useState<Snapshot[]>([]);
@@ -91,22 +109,28 @@ export default function NiftyDataView() {
   const poll = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const clock = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  const load = async () => {
+  const load = async (r: RangeKey) => {
     try {
-      const [s, c, r] = await Promise.all([
+      const [s, c, rows] = await Promise.all([
         fetch(`${API}/api/nifty-data/status`).then(x => x.json()),
-        fetch(`${API}/api/nifty-data/candles`).then(x => x.json()),
-        fetch(`${API}/api/nifty-data/snapshots?limit=300`).then(x => x.json()),
+        fetch(`${API}/api/nifty-data/candles?range=${r}`).then(x => x.json()),
+        fetch(`${API}/api/nifty-data/snapshots?range=${r}&limit=300`).then(x => x.json()),
       ]);
-      setStatus(s); setCandles(c); setRows(r);
+      setStatus(s); setCandles(c); setRows(rows);
     } catch { /* backend not reachable this tick — keep showing last known data */ }
   };
 
   useEffect(() => {
-    load();
-    poll.current = setInterval(load, 5000);
+    load(range);
+    clearInterval(poll.current);
+    // Only poll live for "today" -- historical ranges don't change once loaded.
+    if (range === 'today') poll.current = setInterval(() => load(range), 5000);
+    return () => clearInterval(poll.current);
+  }, [range]);
+
+  useEffect(() => {
     clock.current = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => { clearInterval(poll.current); clearInterval(clock.current); };
+    return () => clearInterval(clock.current);
   }, []);
 
   const staleness = secondsAgo(status?.last_snapshot_at ?? null);
@@ -132,6 +156,20 @@ export default function NiftyDataView() {
             {staleness !== null && ` — last row ${staleness}s ago`}
           </span>
         </div>
+      </div>
+
+      {/* Range switch */}
+      <div className="flex items-center gap-1 bg-surface border border-border rounded-lg p-1 w-fit">
+        {RANGES.map(r => (
+          <button
+            key={r.key}
+            onClick={() => setRange(r.key)}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+              ${range === r.key ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
+          >
+            {r.label}
+          </button>
+        ))}
       </div>
 
       {/* Status strip */}
@@ -165,18 +203,22 @@ export default function NiftyDataView() {
       {/* Candle chart */}
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-white">NIFTY 50 Spot — 1m candles (today, live)</span>
+          <span className="font-bold text-sm text-white">
+            NIFTY 50 Spot — 1m candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
+          </span>
           <span className="text-xs text-muted">{candles.length} candles</span>
         </div>
         <div className="px-4 pt-3 pb-1">
-          <CandleChart candles={candles} />
+          <CandleChart candles={candles} showDate={range !== 'today'} />
         </div>
       </div>
 
       {/* Raw data table — newest first */}
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-white">Raw Snapshots — newest first</span>
+          <span className="font-bold text-sm text-white">
+            Raw Snapshots — newest first {range !== 'today' && <span className="text-muted font-normal">({RANGES.find(r => r.key === range)?.label})</span>}
+          </span>
           <span className="text-xs text-muted">Showing latest {rows.length} rows across {grouped.length} minute(s)</span>
         </div>
         <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
@@ -215,7 +257,7 @@ export default function NiftyDataView() {
                     .map((r, ri) => (
                     <tr key={`${g.time}-${r.strike}-${r.option_type}`} className="border-b border-border/30 hover:bg-white/[0.02] text-xs">
                       <td className="px-2 py-1 text-white font-medium">
-                        {ri === 0 ? fmtTime(r.snapshot_time) : ''}
+                        {ri === 0 ? fmtTime(r.snapshot_time, range !== 'today') : ''}
                       </td>
                       <td className="px-2 py-1 text-right text-muted">
                         {ri === 0 && r.nifty_spot != null ? r.nifty_spot.toFixed(2) : ''}
