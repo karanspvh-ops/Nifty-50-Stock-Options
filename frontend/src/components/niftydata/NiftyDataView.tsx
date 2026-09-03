@@ -7,6 +7,8 @@ interface Snapshot {
   snapshot_time: string; strike: number; option_type: string; moneyness_rank: number;
   nifty_spot: number | null; open: number | null; high: number | null; low: number | null;
   close: number | null; volume: number | null; oi: number | null;
+  oi_day_high: number | null; oi_day_low: number | null;
+  buy_quantity: number | null; sell_quantity: number | null; day_volume: number | null;
   bid_price: number | null; ask_price: number | null; spread_pct: number | null;
 }
 interface Status {
@@ -188,6 +190,10 @@ export default function NiftyDataView() {
                 <th className="px-2 py-2 text-right">Rank</th>
                 <th className="px-2 py-2 text-right">Close</th>
                 <th className="px-2 py-2 text-right">OI</th>
+                <th className="px-2 py-2 text-right">OI Hi/Lo</th>
+                <th className="px-2 py-2 text-right">Buy Qty</th>
+                <th className="px-2 py-2 text-right">Sell Qty</th>
+                <th className="px-2 py-2 text-right">Day Vol</th>
                 <th className="px-2 py-2 text-right">Bid</th>
                 <th className="px-2 py-2 text-right">Ask</th>
                 <th className="px-2 py-2 text-right">Spread%</th>
@@ -195,14 +201,14 @@ export default function NiftyDataView() {
             </thead>
             <tbody>
               {grouped.length === 0 && (
-                <tr><td colSpan={10} className="px-2 py-8 text-center text-muted text-sm">
+                <tr><td colSpan={13} className="px-2 py-8 text-center text-muted text-sm">
                   No data yet today.
                 </td></tr>
               )}
               {grouped.map((g, gi) => (
                 <Fragment key={g.time}>
                   {gi > 0 && (
-                    <tr><td colSpan={10} className="h-1 bg-bg" /></tr>
+                    <tr><td colSpan={13} className="h-1 bg-bg" /></tr>
                   )}
                   {g.items
                     .sort((a, b) => a.strike - b.strike || a.option_type.localeCompare(b.option_type))
@@ -223,6 +229,14 @@ export default function NiftyDataView() {
                       </td>
                       <td className="px-2 py-1 text-right text-white">{r.close?.toFixed(2) ?? '—'}</td>
                       <td className="px-2 py-1 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
+                      <td className="px-2 py-1 text-right text-muted whitespace-nowrap">
+                        {r.oi_day_high != null ? r.oi_day_high.toLocaleString('en-IN') : '—'}
+                        {' / '}
+                        {r.oi_day_low != null ? r.oi_day_low.toLocaleString('en-IN') : '—'}
+                      </td>
+                      <td className="px-2 py-1 text-right text-up">{r.buy_quantity?.toLocaleString('en-IN') ?? '—'}</td>
+                      <td className="px-2 py-1 text-right text-down">{r.sell_quantity?.toLocaleString('en-IN') ?? '—'}</td>
+                      <td className="px-2 py-1 text-right text-muted">{r.day_volume?.toLocaleString('en-IN') ?? '—'}</td>
                       <td className="px-2 py-1 text-right text-muted">{r.bid_price?.toFixed(2) ?? '—'}</td>
                       <td className="px-2 py-1 text-right text-muted">{r.ask_price?.toFixed(2) ?? '—'}</td>
                       <td className="px-2 py-1 text-right text-muted">{r.spread_pct?.toFixed(2) ?? '—'}</td>

@@ -266,7 +266,9 @@ class NiftyOptionsCollector:
                 open=last["open"] if last else None, high=last["high"] if last else None,
                 low=last["low"] if last else None, close=last["close"] if last else None,
                 volume=last["volume"] if last else None,
-                oi=data.get("oi"),
+                oi=data.get("oi"), oi_day_high=data.get("oi_day_high"), oi_day_low=data.get("oi_day_low"),
+                buy_quantity=data.get("buy_quantity"), sell_quantity=data.get("sell_quantity"),
+                day_volume=data.get("volume"),
                 bid_price=bid, ask_price=ask, spread_pct=spread_pct,
                 bid_depth=buy_levels[:5], ask_depth=sell_levels[:5],
             ))

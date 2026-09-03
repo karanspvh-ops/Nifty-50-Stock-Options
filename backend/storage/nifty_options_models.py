@@ -38,6 +38,16 @@ class NiftyOptionSnapshot(NiftyBase):
     volume           = Column(Integer, nullable=True)
 
     oi               = Column(Integer, nullable=True)
+    oi_day_high      = Column(Integer, nullable=True)   # from Kite quote() — today's OI range so far
+    oi_day_low       = Column(Integer, nullable=True)
+
+    # Pending order-book quantities from Kite quote() — NOT open interest (OI has no
+    # buyer/seller split at the exchange level; every open contract has exactly one of
+    # each). These are live order-flow demand/supply, commonly mislabeled "buy/sell OI"
+    # on retail platforms.
+    buy_quantity     = Column(Integer, nullable=True)
+    sell_quantity    = Column(Integer, nullable=True)
+    day_volume       = Column(Integer, nullable=True)   # cumulative day volume from quote() — distinct from `volume` (1-min bar volume) above
 
     bid_price        = Column(Float,   nullable=True)   # top-of-book
     ask_price        = Column(Float,   nullable=True)
