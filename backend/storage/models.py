@@ -195,6 +195,42 @@ class TradableSignal(Base):
     was_traded   = Column(Boolean, default=False)
 
 
+# ── Table 10: OB Confirmed Candidates (breakout-confirm funnel, not just traded) ──
+class OBCandidate(Base):
+    """One row per stock that passes confirm_breakout() in the OB entry loop,
+    regardless of whether it goes on to become a trade. Lets us see the full
+    scan → confirmed → entered funnel instead of only the trades that happened.
+    Row is inserted the moment confirmation passes and updated in place as the
+    same candidate clears (or gets stopped by) the checks after confirmation."""
+    __tablename__ = "ob_candidates"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    date             = Column(String,  nullable=False, index=True)   # YYYY-MM-DD
+    env              = Column(Enum(TradeEnv), nullable=False)
+    symbol           = Column(String, nullable=False)
+    token            = Column(String, nullable=False)
+    sector           = Column(String, nullable=True)
+    direction        = Column(Enum(TradeDirection), nullable=False)   # call / put
+
+    opening_move_pct = Column(Float,   nullable=True)
+    r_factor         = Column(Float,   nullable=True)
+    consec           = Column(Integer, nullable=True)
+    vol_ratio        = Column(Float,   nullable=True)
+    vp_poc           = Column(Float,   nullable=True)
+    vp_vah           = Column(Float,   nullable=True)
+    vp_val           = Column(Float,   nullable=True)
+    confirm_reason   = Column(Text,    nullable=True)   # bo.reason from confirm_breakout
+
+    confirmed_at     = Column(DateTime, nullable=False)
+
+    # Populated after confirmation as the candidate clears (or is stopped by) the
+    # remaining gates -- vol floor, consec-exhausted, refill block, re-validation.
+    # NULL blocked_reason + was_traded=True means it went straight through.
+    blocked_reason   = Column(Text,    nullable=True)
+    was_traded       = Column(Boolean, default=False)
+    trade_id         = Column(Integer, ForeignKey("trades.id"), nullable=True)
+
+
 # ── Table 9: ES Portfolio Snapshots (tick-level, in-memory flush) ─────────────
 class ESPortfolioSnapshot(Base):
     __tablename__ = "es_portfolio_snapshots"

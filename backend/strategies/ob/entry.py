@@ -7,7 +7,7 @@ Edit this file for:
   - early gap-acceleration entry logic
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 
 from backend.core.market_state      import market
@@ -16,7 +16,7 @@ from backend.core.session_manager   import get_or_create_session, set_selected_s
 from backend.core.breakout_confirm  import confirm_breakout
 from backend.execution.order_executor import place_entry_order
 
-from backend.database import TradeEnv, SessionStatus
+from backend.database import TradeEnv, TradeDirection, SessionStatus
 from backend.core.session_manager import update_session_status
 
 from backend.strategies.ob.params import (
@@ -24,6 +24,58 @@ from backend.strategies.ob.params import (
     MIN_SECTOR_MOVERS, SECTOR_MIN_PCT, CLARITY_NET, BREADTH_MIN_PCT,
 )
 from backend.strategies.ob.types import PlanStock, TradePlan
+
+
+def _log_ob_confirmed(env, ps: "PlanStock", bo, move: float) -> Optional[int]:
+    """Insert a row the moment a candidate passes confirm_breakout() -- before any
+    of the downstream gates (vol floor, consec-exhausted, refill block, reval) run.
+    Returns the row id so the outcome can be patched in once known, or None if the
+    row wasn't written -- either way the caller should not treat entry as blocked
+    by logging (this is telemetry, not a trading gate)."""
+    try:
+        from backend.database import Session as DBSession
+        from backend.storage.models import OBCandidate
+        db = DBSession()
+        try:
+            row = OBCandidate(
+                date=date.today().isoformat(), env=env, symbol=ps.symbol, token=ps.token,
+                sector=ps.sector, direction=TradeDirection(ps.direction),
+                opening_move_pct=move, r_factor=ps.r_factor, consec=bo.consec,
+                vol_ratio=bo.vol_ratio, vp_poc=bo.vp50.get("poc"), vp_vah=bo.vp50.get("vah"),
+                vp_val=bo.vp50.get("val"), confirm_reason=bo.reason,
+                confirmed_at=datetime.now(),
+            )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return row.id
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[OB] candidate log insert failed: {e}")
+        return None
+
+
+def _log_ob_outcome(candidate_id: Optional[int], blocked_reason: Optional[str] = None,
+                     was_traded: bool = False, trade_id: Optional[int] = None):
+    """Patch the confirmed-candidate row with what happened after confirmation."""
+    if candidate_id is None:
+        return
+    try:
+        from backend.database import Session as DBSession
+        from backend.storage.models import OBCandidate
+        db = DBSession()
+        try:
+            row = db.get(OBCandidate, candidate_id)
+            if row:
+                row.blocked_reason = blocked_reason
+                row.was_traded     = was_traded
+                row.trade_id       = trade_id
+                db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[OB] candidate log update failed: {e}")
 
 
 class OBEntryMixin:
@@ -230,14 +282,22 @@ class OBEntryMixin:
             if not bo.confirmed:
                 print(f"[OB] {ps.symbol} not confirmed — {bo.reason}")
                 continue
+
+            # Persist the confirmed candidate now, before any downstream gate can
+            # short-circuit it -- this is the full scan->confirmed funnel, not just
+            # what got traded. Outcome fields get patched below as they're known.
+            candidate_id = _log_ob_confirmed(env, ps, bo, move)
+
             vol_floor = float(self._p("vol_ratio_min"))
             if bo.vol_ratio < vol_floor:
                 print(f"[OB] {ps.symbol} SKIP — vol {bo.vol_ratio:.1f}x below floor {vol_floor}x (no momentum signal)")
+                _log_ob_outcome(candidate_id, blocked_reason=f"vol {bo.vol_ratio:.1f}x below floor {vol_floor}x")
                 continue
             if bo.vol_ratio < 3.0:
                 print(f"[OB] {ps.symbol} LOW VOL {bo.vol_ratio:.1f}x — sector drift trade, liquidity check in executor")
             if bo.consec > int(self._p("consec_max")):
                 print(f"[OB] {ps.symbol} skipped — {bo.consec} consec candles > max {self._p('consec_max')} (exhausted)")
+                _log_ob_outcome(candidate_id, blocked_reason=f"{bo.consec} consec candles > max {self._p('consec_max')}")
                 continue
 
             if total_ob_today >= max_pos and net_ob_pnl > 0:
@@ -245,6 +305,9 @@ class OBEntryMixin:
                     print(f"[OB] {ps.symbol} REFILL BLOCK — "
                           f"day net +Rs.{net_ob_pnl:,.0f} after {total_ob_today} trades, "
                           f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} not spike-level")
+                    _log_ob_outcome(candidate_id, blocked_reason=(
+                        f"refill block — day net +Rs.{net_ob_pnl:,.0f} after {total_ob_today} trades, "
+                        f"not spike-level"))
                     continue
                 print(f"[OB] {ps.symbol} EXTREME CONVICTION REFILL — "
                       f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} / move {move:+.2f}% "
@@ -253,6 +316,7 @@ class OBEntryMixin:
             ok, reval_why = self._revalidate_ob(ps, move)
             if not ok:
                 print(f"[OB] {ps.symbol} REVAL SKIP — {reval_why}")
+                _log_ob_outcome(candidate_id, blocked_reason=f"reval skip — {reval_why}")
                 continue
 
             tag = "GAP-ACCEL early entry" if early else "Opening breakout"
@@ -274,5 +338,8 @@ class OBEntryMixin:
                 ps.entered = True
                 open_ob += 1
                 update_session_status(env, SessionStatus.ACTIVE)
+                _log_ob_outcome(candidate_id, was_traded=True, trade_id=trade.id)
                 print(f"[OB] ENTERED {ps.symbol} {self._plan.direction.upper()} @ "
                       f"{trade.entry_price:.2f} | SL 10% target 50%")
+            else:
+                _log_ob_outcome(candidate_id, blocked_reason="order placement failed")
