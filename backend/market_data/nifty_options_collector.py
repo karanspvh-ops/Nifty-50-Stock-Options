@@ -48,6 +48,8 @@ class NiftyOptionsCollector:
         self._expiry         = None
         self._last_resolve_at = None   # IST datetime of the last successful ladder resolve
         self._index_token    = None    # NIFTY 50 index token, for real tick-built spot candles
+        self._last_index_tick_ts = None   # last seen index tick timestamp — staleness detector
+        self._stale_logged   = False   # only log the "gone stale" transition once, not every cycle
 
     def get_index_token(self):
         """NIFTY 50 index instrument token, once resolved — used by the API layer
@@ -218,6 +220,25 @@ class NiftyOptionsCollector:
     def _collect_once(self):
         if not self._contracts:
             return
+
+        # Staleness gate: if the index hasn't received a genuinely NEW tick since
+        # our last cycle, the broker has nothing new to report (market closed,
+        # holiday, feed gap) -- skip the write instead of recording the same
+        # frozen closing price over and over. This replaces a fixed market-close
+        # clock cutoff with something that actually reflects whether new data
+        # exists, so it also self-corrects for holidays/early closes and resumes
+        # the instant real ticks start flowing again (no restart needed).
+        if self._index_token:
+            tick = market.get_tick(self._index_token)
+            ts = tick.get("timestamp") if tick else None
+            if ts is not None and ts == self._last_index_tick_ts:
+                if not self._stale_logged:
+                    print(f"[NIFTY-DATA] no new index tick since {ts} — market likely closed, pausing writes")
+                    self._stale_logged = True
+                return
+            self._last_index_tick_ts = ts
+            self._stale_logged = False
+
         kite = broker.kite()
         keys = [f"NFO:{c['tradingsymbol']}" for c in self._contracts.values()] + ["NSE:NIFTY 50"]
         try:

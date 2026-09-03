@@ -55,6 +55,19 @@ class TickEngine:
         self._subscribed_tokens = toks
         ws.subscribe(toks)
         ws.set_mode(ws.MODE_QUOTE, toks)   # QUOTE: ltp + ohlc + volume
+
+        # Re-subscribe every dynamically-added option/index token too -- this fires
+        # on EVERY reconnect (including after the machine wakes from sleep, not just
+        # the first connect), and previously only the base stock universe came back.
+        # Found via the NIFTY collector's index candles silently going stale after a
+        # laptop-sleep reconnect on 3 Sep while everything else (stocks, ES/OB) kept
+        # working fine -- this was the actual cause, not the collector itself.
+        if self._option_meta:
+            opt_toks = [int(t) for t in self._option_meta.keys()]
+            ws.subscribe(opt_toks)
+            ws.set_mode(ws.MODE_QUOTE, opt_toks)
+            print(f"[TICK ENGINE] Re-subscribed {len(opt_toks)} option/index contracts after (re)connect.")
+
         market.set_feed_reconnected()
         print(f"[TICK ENGINE] Connected. Subscribed to {len(toks)} stocks.")
 
