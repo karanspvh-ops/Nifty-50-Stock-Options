@@ -162,13 +162,24 @@ class NiftyOptionsCollector:
     # ── 1-minute collection loop ─────────────────────────────────────────────
 
     def _loop(self):
+        idle_ticks = 0
         while self._running:
             try:
                 now = now_ist()
                 t   = now.time()
                 if not ((t.hour, t.minute) >= _MARKET_OPEN and (t.hour, t.minute) <= _MARKET_CLOSE):
+                    idle_ticks += 1
+                    # Heartbeat every ~5 min while idle (pre-market wait can be up to an
+                    # hour) -- 2 & 3 Sep both saw the collector silently produce zero rows
+                    # after a pre-market boot with no crash logged anywhere. This makes
+                    # the difference between "thread never started looping" (no heartbeat
+                    # ever) and "thread died/hung partway through the wait" (heartbeats
+                    # stop) directly visible next time, instead of pure silence either way.
+                    if idle_ticks % 10 == 1:
+                        print(f"[NIFTY-DATA] idle, waiting for market open (now {now.strftime('%H:%M:%S')}) — heartbeat #{idle_ticks}")
                     _time.sleep(30)
                     continue
+                idle_ticks = 0
                 if self._needs_resolve():
                     if not self._resolve_chain():
                         _time.sleep(30)
