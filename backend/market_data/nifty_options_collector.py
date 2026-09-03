@@ -221,25 +221,6 @@ class NiftyOptionsCollector:
         if not self._contracts:
             return
 
-        # Staleness gate: if the index LTP hasn't actually moved since our last
-        # cycle, treat it as no new data (market closed, holiday, feed gap) and
-        # skip the write. NOTE: checking the tick *timestamp* alone doesn't work
-        # -- Zerodha's feed sends periodic "still alive" ticks with a fresh
-        # timestamp even when the price hasn't changed (confirmed directly: on
-        # 3 Sep the index ticked a new timestamp every single minute from 15:40
-        # to 15:49 while the LTP stayed frozen at 23873.45 the whole time). LTP
-        # equality is the real signal.
-        if self._index_token:
-            tick = market.get_tick(self._index_token)
-            ltp = tick.get("ltp") if tick else None
-            if ltp is not None and ltp == self._last_index_ltp:
-                if not self._stale_logged:
-                    print(f"[NIFTY-DATA] index LTP unchanged at {ltp} — market likely closed, pausing writes")
-                    self._stale_logged = True
-                return
-            self._last_index_ltp = ltp
-            self._stale_logged = False
-
         kite = broker.kite()
         keys = [f"NFO:{c['tradingsymbol']}" for c in self._contracts.values()] + ["NSE:NIFTY 50"]
         try:
@@ -252,6 +233,24 @@ class NiftyOptionsCollector:
         idx_data = q.get("NSE:NIFTY 50")
         if idx_data:
             spot = float(idx_data.get("last_price") or 0) or None
+
+        # Staleness gate: if the index spot hasn't actually moved since our last
+        # cycle, treat it as no new data (market closed, holiday, feed gap) and
+        # skip the write. This must compare the REST quote() spot, not a live WS
+        # tick -- if the backend gets restarted after market close, no ticks ever
+        # arrive for the index again (Kite simply stops sending them), so
+        # market.get_tick() would return None forever and the gate would never
+        # engage (confirmed: this is exactly what happened on the first attempt --
+        # rows kept writing every minute from 15:30 to 15:54 because the tick-based
+        # check always saw ltp=None post-restart). kite.quote() always returns the
+        # last traded price regardless of WS state, so it's the reliable signal.
+        if spot is not None and spot == self._last_index_ltp:
+            if not self._stale_logged:
+                print(f"[NIFTY-DATA] index spot unchanged at {spot} — market likely closed, pausing writes")
+                self._stale_logged = True
+            return
+        self._last_index_ltp = spot
+        self._stale_logged = False
 
         now   = now_ist()
         today = str(now.date())
