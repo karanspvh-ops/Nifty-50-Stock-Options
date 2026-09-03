@@ -14,7 +14,7 @@ import SystemCheckPanel      from './components/dashboard/SystemCheckPanel';
 import StrategyDryRunPanel   from './components/dashboard/StrategyDryRunPanel';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
-import BacktestView     from './components/backtest/BacktestView';
+import NiftyDataView    from './components/niftydata/NiftyDataView';
 import EarlyScalpView  from './components/scalp/EarlyScalpView';
 
 class ErrorBoundary extends Component<
@@ -119,7 +119,7 @@ export default function App() {
             </div>
           )}
           {activeView === 'reports'       && <ReportsView />}
-          {activeView === 'backtest'      && <BacktestView />}
+          {activeView === 'nifty_data'    && <NiftyDataView />}
         </main>
       </div>
     </div>

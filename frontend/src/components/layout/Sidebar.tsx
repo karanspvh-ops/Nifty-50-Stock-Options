@@ -6,7 +6,7 @@ const NAV = [
   { id: 'testing_lab',  icon: '⚗', label: 'Testing Lab'   },
   { id: 'battle_ground',icon: '⚔', label: 'Battle Ground' },
   { id: 'reports',      icon: '📊', label: 'Reports'       },
-  { id: 'backtest',     icon: '⏮', label: 'Backtest'      },
+  { id: 'nifty_data',   icon: '📈', label: 'Nifty Data'    },
 ] as const;
 
 export default function Sidebar() {

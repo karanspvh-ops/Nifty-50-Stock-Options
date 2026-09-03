@@ -46,7 +46,7 @@ interface MarketStore {
   stockMoves:   Record<string, StockMove>;
   openTrades:   OpenTrade[];
   settings:     Settings;
-  activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'backtest' | 'early_scalp';
+  activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'nifty_data' | 'early_scalp';
   setFeedHealth:    (h: FeedHealth) => void;
   setHaltStatus:    (s: { halted: boolean; reason: string }) => void;
   setSectorMoves:   (s: Record<string, SectorData>) => void;

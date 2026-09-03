@@ -49,6 +49,7 @@ from backend.core.daily_report_scheduler import daily_report_scheduler
 from backend.core.pre_market_check      import pre_market_scheduler
 from backend.routers.simulation_router  import router as simulation_router
 from backend.market_data.nifty_options_collector import nifty_options_collector
+from backend.routers.nifty_data_router import router as nifty_data_router
 
 
 def _schedule_dryrun_at_905():
@@ -179,6 +180,7 @@ app.include_router(strategy_router)
 app.include_router(early_scalp_router)
 app.include_router(broker_router)
 app.include_router(backtest_router)
+app.include_router(nifty_data_router)
 app.include_router(simulation_router)
 
 

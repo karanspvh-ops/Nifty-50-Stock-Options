@@ -40,6 +40,12 @@ class NiftyOptionsCollector:
         self._contracts      = {}   # token(str) -> {"tradingsymbol", "strike", "option_type", "moneyness_rank"}
         self._expiry         = None
         self._last_resolve_at = None   # IST datetime of the last successful ladder resolve
+        self._index_token    = None    # NIFTY 50 index token, for real tick-built spot candles
+
+    def get_index_token(self):
+        """NIFTY 50 index instrument token, once resolved — used by the API layer
+        to read live 1-min spot candles from market_state for the frontend chart."""
+        return self._index_token
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -109,9 +115,22 @@ class NiftyOptionsCollector:
         try:
             q    = kite.quote(["NSE:NIFTY 50"])
             spot = float(q["NSE:NIFTY 50"]["last_price"])
+            idx_token = str(q["NSE:NIFTY 50"].get("instrument_token") or "")
         except Exception as e:
             print(f"[NIFTY-DATA] spot fetch failed: {e}")
             return False
+
+        # Subscribe the index itself once so market_state builds real tick-built
+        # 1-min spot candles (same mechanism as every stock/option already does) --
+        # without this the frontend chart would have nothing but our own once-a-
+        # minute REST spot reads, no real OHLC.
+        if idx_token and idx_token != self._index_token:
+            try:
+                from backend.core.tick_engine import tick_engine
+                tick_engine.subscribe_options([{"token": idx_token, "tradingsymbol": "NIFTY 50", "name": "NIFTY 50"}])
+                self._index_token = idx_token
+            except Exception as e:
+                print(f"[NIFTY-DATA] index subscribe failed: {e}")
 
         strikes = sorted({float(i["strike"]) for i in chain})
         if not strikes:

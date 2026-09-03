@@ -27,6 +27,7 @@ frontend/dist/
 
 # DB / runtime
 trading.db
+nifty_options.db
 instrument_cache.json
 universe_tokens.json
 universe_lots.json
