@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 
 const API = 'http://localhost:8000';
 
@@ -100,14 +100,24 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+// Table virtualization: with the row cap removed, "today" alone can be ~8,500
+// rows and wider ranges far more -- mounting every row as a real <tr> (each
+// with a hover transition) is what was freezing the tab. Only the rows within
+// the scrolled viewport (+ overscan) are ever in the DOM at once.
+const ROW_H = 25;          // px -- must match the rendered row height below
+const VIEWPORT_H = 520;    // px -- must match the scroll container's max-h
+const OVERSCAN = 15;       // rows rendered above/below the visible window
+
 export default function NiftyDataView() {
   const [range, setRange] = useState<RangeKey>('today');
   const [status, setStatus] = useState<Status | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [rows, setRows] = useState<Snapshot[]>([]);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [scrollTop, setScrollTop] = useState(0);
   const poll = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const clock = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const load = async (r: RangeKey) => {
     try {
@@ -125,6 +135,8 @@ export default function NiftyDataView() {
     clearInterval(poll.current);
     // Only poll live for "today" -- historical ranges don't change once loaded.
     if (range === 'today') poll.current = setInterval(() => load(range), 5000);
+    setScrollTop(0);
+    scrollRef.current?.scrollTo(0, 0);
     return () => clearInterval(poll.current);
   }, [range]);
 
@@ -137,13 +149,30 @@ export default function NiftyDataView() {
   const isLive = staleness !== null && staleness < 90;
   void nowTick; // re-render trigger for the staleness clock
 
-  // Group latest-first rows by minute for a readable table (newest minute block first)
-  const grouped: { time: string; items: Snapshot[] }[] = [];
-  for (const r of rows) {
-    const bucket = grouped[grouped.length - 1];
-    if (bucket && bucket.time === r.snapshot_time) bucket.items.push(r);
-    else grouped.push({ time: r.snapshot_time, items: [r] });
-  }
+  // Flatten latest-first rows into a single list, grouped by minute (newest
+  // minute block first) -- computed once per data change, not on every render/
+  // scroll tick, and sorted once rather than re-sorting each group on every render.
+  const { flatRows, minuteCount } = useMemo(() => {
+    const out: { row: Snapshot; isGroupStart: boolean }[] = [];
+    let minutes = 0;
+    let i = 0;
+    while (i < rows.length) {
+      const time = rows[i].snapshot_time;
+      const group: Snapshot[] = [];
+      while (i < rows.length && rows[i].snapshot_time === time) { group.push(rows[i]); i++; }
+      group.sort((a, b) => a.strike - b.strike || a.option_type.localeCompare(b.option_type));
+      group.forEach((row, gi) => out.push({ row, isGroupStart: gi === 0 }));
+      minutes++;
+    }
+    return { flatRows: out, minuteCount: minutes };
+  }, [rows]);
+
+  const total = flatRows.length;
+  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const endIdx = Math.min(total, startIdx + Math.ceil(VIEWPORT_H / ROW_H) + OVERSCAN * 2);
+  const visibleRows = flatRows.slice(startIdx, endIdx);
+  const topPad = startIdx * ROW_H;
+  const botPad = (total - endIdx) * ROW_H;
 
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
@@ -219,10 +248,11 @@ export default function NiftyDataView() {
           <span className="font-bold text-sm text-white">
             Raw Snapshots — newest first {range !== 'today' && <span className="text-muted font-normal">({RANGES.find(r => r.key === range)?.label})</span>}
           </span>
-          <span className="text-xs text-muted">Showing latest {rows.length} rows across {grouped.length} minute(s)</span>
+          <span className="text-xs text-muted">Showing {rows.length} rows across {minuteCount} minute(s)</span>
         </div>
-        <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
-          <table className="w-full text-left">
+        <div ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
+             className="max-h-[520px] overflow-y-auto overflow-x-auto">
+          <table className="w-full text-left" style={{ tableLayout: 'fixed' }}>
             <thead className="sticky top-0 bg-surface2 z-10">
               <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
                 <th className="px-2 py-2">Time</th>
@@ -242,50 +272,45 @@ export default function NiftyDataView() {
               </tr>
             </thead>
             <tbody>
-              {grouped.length === 0 && (
+              {total === 0 && (
                 <tr><td colSpan={13} className="px-2 py-8 text-center text-muted text-sm">
                   No data yet today.
                 </td></tr>
               )}
-              {grouped.map((g, gi) => (
-                <Fragment key={g.time}>
-                  {gi > 0 && (
-                    <tr><td colSpan={13} className="h-1 bg-bg" /></tr>
-                  )}
-                  {g.items
-                    .sort((a, b) => a.strike - b.strike || a.option_type.localeCompare(b.option_type))
-                    .map((r, ri) => (
-                    <tr key={`${g.time}-${r.strike}-${r.option_type}`} className="border-b border-border/30 hover:bg-white/[0.02] text-xs">
-                      <td className="px-2 py-1 text-white font-medium">
-                        {ri === 0 ? fmtTime(r.snapshot_time, range !== 'today') : ''}
-                      </td>
-                      <td className="px-2 py-1 text-right text-muted">
-                        {ri === 0 && r.nifty_spot != null ? r.nifty_spot.toFixed(2) : ''}
-                      </td>
-                      <td className="px-2 py-1 text-right text-white">{r.strike.toFixed(0)}</td>
-                      <td className={`px-2 py-1 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>
-                        {r.option_type}
-                      </td>
-                      <td className={`px-2 py-1 text-right ${r.moneyness_rank === 0 ? 'text-accent font-bold' : 'text-muted'}`}>
-                        {r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
-                      </td>
-                      <td className="px-2 py-1 text-right text-white">{r.close?.toFixed(2) ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted whitespace-nowrap">
-                        {r.oi_day_high != null ? r.oi_day_high.toLocaleString('en-IN') : '—'}
-                        {' / '}
-                        {r.oi_day_low != null ? r.oi_day_low.toLocaleString('en-IN') : '—'}
-                      </td>
-                      <td className="px-2 py-1 text-right text-up">{r.buy_quantity?.toLocaleString('en-IN') ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-down">{r.sell_quantity?.toLocaleString('en-IN') ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted">{r.day_volume?.toLocaleString('en-IN') ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted">{r.bid_price?.toFixed(2) ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted">{r.ask_price?.toFixed(2) ?? '—'}</td>
-                      <td className="px-2 py-1 text-right text-muted">{r.spread_pct?.toFixed(2) ?? '—'}</td>
-                    </tr>
-                  ))}
-                </Fragment>
+              {topPad > 0 && <tr aria-hidden style={{ height: topPad }}><td colSpan={13} /></tr>}
+              {visibleRows.map(({ row: r, isGroupStart }) => (
+                <tr key={`${r.snapshot_time}-${r.strike}-${r.option_type}`} style={{ height: ROW_H }}
+                    className={`border-b border-border/30 hover:bg-white/[0.02] text-xs
+                      ${isGroupStart ? 'border-t-2 border-t-bg' : ''}`}>
+                  <td className="px-2 text-white font-medium">
+                    {isGroupStart ? fmtTime(r.snapshot_time, range !== 'today') : ''}
+                  </td>
+                  <td className="px-2 text-right text-muted">
+                    {isGroupStart && r.nifty_spot != null ? r.nifty_spot.toFixed(2) : ''}
+                  </td>
+                  <td className="px-2 text-right text-white">{r.strike.toFixed(0)}</td>
+                  <td className={`px-2 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>
+                    {r.option_type}
+                  </td>
+                  <td className={`px-2 text-right ${r.moneyness_rank === 0 ? 'text-accent font-bold' : 'text-muted'}`}>
+                    {r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
+                  </td>
+                  <td className="px-2 text-right text-white">{r.close?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
+                  <td className="px-2 text-right text-muted whitespace-nowrap">
+                    {r.oi_day_high != null ? r.oi_day_high.toLocaleString('en-IN') : '—'}
+                    {' / '}
+                    {r.oi_day_low != null ? r.oi_day_low.toLocaleString('en-IN') : '—'}
+                  </td>
+                  <td className="px-2 text-right text-up">{r.buy_quantity?.toLocaleString('en-IN') ?? '—'}</td>
+                  <td className="px-2 text-right text-down">{r.sell_quantity?.toLocaleString('en-IN') ?? '—'}</td>
+                  <td className="px-2 text-right text-muted">{r.day_volume?.toLocaleString('en-IN') ?? '—'}</td>
+                  <td className="px-2 text-right text-muted">{r.bid_price?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-muted">{r.ask_price?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-muted">{r.spread_pct?.toFixed(2) ?? '—'}</td>
+                </tr>
               ))}
+              {botPad > 0 && <tr aria-hidden style={{ height: botPad }}><td colSpan={13} /></tr>}
             </tbody>
           </table>
         </div>
