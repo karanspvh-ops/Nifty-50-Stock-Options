@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 const API = 'http://localhost:8000';
 
 interface PlanStock {
   symbol: string; token: string; opening_move: number; day_move: number;
   r_factor: number; ltp: number; est_premium: number; eligible: boolean; entered: boolean;
+  sector: string; direction: string;
+  confirmed: boolean; consec: number; vol_ratio: number;
+  vp_poc: number | null; vp_vah: number | null; vp_val: number | null;
 }
 interface Plan {
   status: string; phase: string; trend: string;
@@ -20,24 +23,40 @@ interface Tune {
 
 const PHASE_LABEL: Record<string, string> = {
   IDLE: 'Pre-market', SCANNING: 'Scanning (9:15–9:35)', PREVIEW: 'Preview (9:35–9:40)',
-  PLANNED: 'Plan finalised', ENTERING: 'Entering (≤9:45)', MANAGING: 'Managing positions',
+  PLANNED: 'Plan finalised', ENTERING: 'Entering (≤9:45)',
+  ENTERING_EXT: 'Entering — EXTENDED (≤10:00)', MANAGING: 'Managing positions',
   DONE: 'Done for today', KILLED: 'Halted',
 };
 
 export default function TradePlan() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [tune, setTune] = useState<Tune | null>(null);
-  const [gap, setGap]   = useState<number>(20);
+  const [gap, setGap]   = useState<number | null>(null);   // null until loaded from server
+  const lastEdit = useRef<number>(0);                       // ms timestamp of last local drag
 
   useEffect(() => {
     const load = async () => {
+      // 1) Persisted slider value — authoritative, independent of the plan endpoint.
+      //    Skip applying the remote value briefly after a local drag so the slider
+      //    never "fights" the user mid-interaction.
       try {
-        const [p, t] = await Promise.all([
-          fetch(`${API}/api/strategy/plan`).then(r => r.json()),
-          fetch(`${API}/api/strategy/tune`).then(r => r.json()),
-        ]);
-        setPlan(p); setTune(t);
-        if (typeof p.trail_gap_pct === 'number') setGap(p.trail_gap_pct);
+        const r = await fetch(`${API}/api/strategy/params`);
+        if (r.ok) {
+          const params = await r.json();
+          if (typeof params.trail_gap_pct === 'number' &&
+              Date.now() - lastEdit.current > 2500) {
+            setGap(params.trail_gap_pct);
+          }
+        }
+      } catch { /* offline */ }
+      // 2) Plan + tune are best-effort; a failure here must NOT touch the slider.
+      try {
+        const r = await fetch(`${API}/api/strategy/plan`);
+        if (r.ok) setPlan(await r.json());
+      } catch { /* offline */ }
+      try {
+        const r = await fetch(`${API}/api/strategy/tune`);
+        if (r.ok) setTune(await r.json());
       } catch { /* offline */ }
     };
     load();
@@ -54,6 +73,7 @@ export default function TradePlan() {
   };
 
   const saveGap = async (v: number) => {
+    lastEdit.current = Date.now();
     setGap(v);
     await fetch(`${API}/api/strategy/params`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -96,19 +116,21 @@ export default function TradePlan() {
           {/* Decision banner */}
           <div className="flex items-center gap-3 mb-3 flex-wrap">
             <span className={`text-xs px-2 py-1 rounded font-bold
-              ${bullish ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
-              {plan.trend.toUpperCase()} → {bullish ? 'BUY CALLS' : 'BUY PUTS'}
+              ${plan.trend === 'mixed' ? 'bg-yellow-500/20 text-yellow-400'
+                : bullish ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
+              {plan.trend.toUpperCase()}
+              {plan.trend === 'mixed' ? ' — best setups BOTH sides' : (bullish ? ' → BUY CALLS' : ' → BUY PUTS')}
             </span>
             <span className="text-xs text-white">
-              Sector: <span className="font-semibold">{plan.sector}</span>
+              Lead sector: <span className="font-semibold">{plan.sector}</span>
               <span className={`ml-1 ${plan.sector_pct >= 0 ? 'text-up' : 'text-down'}`}>
                 {plan.sector_pct >= 0 ? '+' : ''}{plan.sector_pct.toFixed(2)}%
               </span>
             </span>
             <span className="text-[10px] ml-auto">
               {windowOpen
-                ? <span className="text-up">🟢 Entry window OPEN (≤9:45)</span>
-                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Below is the current breakout picture for reference.</span>}
+                ? <span className="text-up">🟢 Entry window OPEN (≤9:45; if nothing fires, extends to 10:30)</span>
+                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Current breakout picture below.</span>}
             </span>
           </div>
 
@@ -118,33 +140,47 @@ export default function TradePlan() {
               <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
                 <th className="px-2 pb-2">Stock</th>
                 <th className="px-2 pb-2">Open Move</th>
-                <th className="px-2 pb-2">Day %</th>
                 <th className="px-2 pb-2">R-Factor</th>
-                <th className="px-2 pb-2">LTP</th>
+                <th className="px-2 pb-2">Momentum</th>
+                <th className="px-2 pb-2">Volume</th>
+                <th className="px-2 pb-2">VP levels (POC / VAH / VAL)</th>
                 <th className="px-2 pb-2">Status</th>
               </tr>
             </thead>
             <tbody>
-              {plan.stocks.map(s => (
+              {plan.stocks.map(s => { const b = s.direction === 'call'; return (
                 <tr key={s.token} className="border-b border-border/40">
-                  <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}</td>
+                  <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}
+                    <span className={`ml-1 text-[10px] px-1 rounded ${b ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>{b ? 'CE' : 'PE'}</span>
+                    <span className="text-muted ml-1">₹{s.ltp?.toFixed(1)}</span>
+                    <span className="block text-[9px] text-muted font-normal">{s.sector}</span>
+                  </td>
                   <td className={`px-2 py-1.5 text-xs font-semibold ${s.opening_move >= 0 ? 'text-up' : 'text-down'}`}>
                     {s.opening_move >= 0 ? '+' : ''}{s.opening_move.toFixed(2)}%
                   </td>
-                  <td className="px-2 py-1.5 text-muted text-xs">
-                    {s.day_move >= 0 ? '+' : ''}{s.day_move.toFixed(2)}%
-                  </td>
                   <td className="px-2 py-1.5 text-accent text-xs">{s.r_factor.toFixed(2)}</td>
-                  <td className="px-2 py-1.5 text-muted text-xs">₹{s.ltp?.toFixed(1)}</td>
+                  <td className="px-2 py-1.5 text-xs">
+                    <span className={s.consec >= 2 ? (b ? 'text-up' : 'text-down') : 'text-muted'}>
+                      {s.consec} {b ? '↑↑' : '↓↓'}
+                    </span>
+                  </td>
+                  <td className={`px-2 py-1.5 text-xs ${s.vol_ratio >= 1.3 ? 'text-up' : 'text-muted'}`}>
+                    {s.vol_ratio?.toFixed(1)}×
+                  </td>
+                  <td className="px-2 py-1.5 text-[11px] text-muted font-mono">
+                    {s.vp_poc ? `${s.vp_poc} / ${s.vp_vah} / ${s.vp_val}` : '—'}
+                  </td>
                   <td className="px-2 py-1.5 text-xs">
                     {s.entered
-                      ? <span className="text-up">● in trade</span>
-                      : s.eligible
-                        ? <span className="text-up">▲ triggered (≥1.5%)</span>
-                        : <span className="text-muted">waiting for 1.5%</span>}
+                      ? <span className={b ? 'text-up' : 'text-down'}>● in trade</span>
+                      : s.confirmed
+                        ? <span className={b ? 'text-up' : 'text-down'}>✓ confirmed</span>
+                        : s.eligible
+                          ? <span className="text-yellow-400">moved, awaiting confirm</span>
+                          : <span className="text-muted">waiting for ±1.5%</span>}
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
           <p className="text-[10px] text-muted mt-2">{plan.note} · SL 10% · target 50% · positional</p>
@@ -155,10 +191,11 @@ export default function TradePlan() {
       <div className="mt-3 pt-3 border-t border-border flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted uppercase tracking-wider">Trailing gap</span>
-          <input type="range" min={8} max={35} step={1} value={gap}
+          <input type="range" min={8} max={35} step={1} value={gap ?? 20}
+            disabled={gap === null}
             onChange={e => saveGap(parseInt(e.target.value))}
-            className="w-28 accent-accent" />
-          <span className="text-xs text-white font-semibold w-10">{gap}%</span>
+            className="w-28 accent-accent disabled:opacity-40" />
+          <span className="text-xs text-white font-semibold w-10">{gap === null ? '…' : `${gap}%`}</span>
         </div>
 
         {tune && tune.status === 'insufficient_data' && (
