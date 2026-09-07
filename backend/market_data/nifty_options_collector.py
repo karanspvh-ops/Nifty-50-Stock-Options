@@ -120,7 +120,7 @@ class NiftyOptionsCollector:
                   "(waiting on refresh_instrument_list())")
             return False
 
-        today = date.today()
+        today = now_ist().date()
 
         def exp_date(meta):
             try:    return date.fromisoformat(str(meta.get("expiry")))
@@ -194,7 +194,13 @@ class NiftyOptionsCollector:
         return True
 
     def _needs_resolve(self) -> bool:
-        if self._today != date.today() or not self._contracts or self._last_resolve_at is None:
+        # now_ist().date(), not date.today() -- date.today() follows the host
+        # machine's system timezone, which happens to be IST on this deployment
+        # but isn't guaranteed to stay that way. now_ist() computes IST
+        # explicitly from UTC regardless of system tz, and is what every other
+        # day-boundary/timestamp decision in this collector already uses --
+        # this was the one place still relying on the system clock's tz.
+        if self._today != now_ist().date() or not self._contracts or self._last_resolve_at is None:
             return True
         return (now_ist() - self._last_resolve_at) >= timedelta(minutes=_RECENTER_MINUTES)
 

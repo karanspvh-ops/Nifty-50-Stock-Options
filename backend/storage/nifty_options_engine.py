@@ -6,14 +6,30 @@ trading DB. Same create_all()-on-import pattern as engine.py.
 """
 
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 _BASE_DIR    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH      = os.path.join(_BASE_DIR, "nifty_options.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-nifty_engine  = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# WAL mode: readers (the frontend polling /snapshots, now uncapped and able to
+# pull thousands of rows) don't block the writer (the collector's once-a-
+# minute insert) and vice versa -- SQLite's default rollback-journal mode
+# takes an exclusive lock for writes and can make a concurrent write throw
+# "database is locked" if a read query is mid-flight. busy_timeout gives any
+# lock that does happen a few seconds to clear instead of failing immediately.
+nifty_engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+
+@event.listens_for(nifty_engine, "connect")
+def _set_sqlite_pragmas(dbapi_conn, _):
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA busy_timeout=5000")
+    cur.close()
+
+
 NiftySession  = sessionmaker(bind=nifty_engine, autocommit=False, autoflush=False)
 NiftyBase     = declarative_base()
 
