@@ -232,6 +232,39 @@ class NiftyOptionsCollector:
         if not self._contracts:
             return
 
+        # Tick-driven gate: read the index's LTP straight from the same live WS
+        # tick cache OB/ES already use (market.get_tick), not a REST call. Only
+        # proceed to the (expensive) quote() fetch + write when that LTP has
+        # actually moved since last cycle -- so a genuinely idle feed (pre-open,
+        # post-close, holiday, or any lull) costs nothing and writes nothing,
+        # instead of polling on a wall-clock timer and discovering staleness
+        # after the fact. This is the same signal OB/ES react to for every other
+        # decision; the only thing still fetched over REST is the OI/bid-ask/
+        # depth detail below, which genuinely isn't in the tick payload at the
+        # collector's current (MODE_QUOTE) subscription.
+        #
+        # Comparing LTP (not tick timestamp) is what actually works -- confirmed
+        # earlier that Kite sends periodic "still alive" ticks with a fresh
+        # timestamp but an unchanged price, so a timestamp-only check never
+        # detects a stalled market. LTP equality does, and it's true regardless
+        # of whether the LTP was read via a live tick or a REST quote() -- same
+        # underlying price either way -- so switching the read to the tick cache
+        # costs nothing in correctness and removes a REST call every cycle.
+        tick = market.get_tick(self._index_token) if self._index_token else None
+        if tick is None:
+            # No tick has arrived yet on this token this run (e.g. just
+            # subscribed, or feed briefly reconnecting) -- nothing to react to,
+            # try again next cycle rather than falling back to a REST call.
+            return
+        spot = tick.get("ltp")
+        if spot is not None and spot == self._last_index_ltp:
+            if not self._stale_logged:
+                print(f"[NIFTY-DATA] index LTP unchanged at {spot} (tick engine) — no new print, pausing writes")
+                self._stale_logged = True
+            return
+        self._last_index_ltp = spot
+        self._stale_logged = False
+
         kite = broker.kite()
         keys = [f"NFO:{c['tradingsymbol']}" for c in self._contracts.values()] + ["NSE:NIFTY 50"]
         try:
@@ -240,28 +273,9 @@ class NiftyOptionsCollector:
             print(f"[NIFTY-DATA] quote fetch error: {e}")
             return
 
-        spot = None
         idx_data = q.get("NSE:NIFTY 50")
         if idx_data:
-            spot = float(idx_data.get("last_price") or 0) or None
-
-        # Staleness gate: if the index spot hasn't actually moved since our last
-        # cycle, treat it as no new data (market closed, holiday, feed gap) and
-        # skip the write. This must compare the REST quote() spot, not a live WS
-        # tick -- if the backend gets restarted after market close, no ticks ever
-        # arrive for the index again (Kite simply stops sending them), so
-        # market.get_tick() would return None forever and the gate would never
-        # engage (confirmed: this is exactly what happened on the first attempt --
-        # rows kept writing every minute from 15:30 to 15:54 because the tick-based
-        # check always saw ltp=None post-restart). kite.quote() always returns the
-        # last traded price regardless of WS state, so it's the reliable signal.
-        if spot is not None and spot == self._last_index_ltp:
-            if not self._stale_logged:
-                print(f"[NIFTY-DATA] index spot unchanged at {spot} — market likely closed, pausing writes")
-                self._stale_logged = True
-            return
-        self._last_index_ltp = spot
-        self._stale_logged = False
+            spot = float(idx_data.get("last_price") or 0) or spot
 
         now   = now_ist()
         today = str(now.date())
