@@ -20,6 +20,8 @@ _BASE_DIR              = os.path.join(os.path.dirname(__file__), "../..")
 _INSTRUMENT_CACHE_PATH = os.path.join(_BASE_DIR, "instrument_cache.json")   # NFO options
 _TOKENS_CACHE_PATH     = os.path.join(_BASE_DIR, "universe_tokens.json")    # symbol→token
 _LOTS_CACHE_PATH       = os.path.join(_BASE_DIR, "universe_lots.json")      # symbol→lot_size
+_NIFTY_OPT_CACHE_PATH  = os.path.join(_BASE_DIR, "nifty_instrument_cache.json")  # NIFTY index options
+_NIFTY_INDEX_PATH      = os.path.join(_BASE_DIR, "nifty_index_token.json")       # NIFTY 50 index token
 
 # ── Runtime maps (rebuilt each login from Zerodha instruments) ─────────────────
 SYMBOL_TO_TOKEN: Dict[str, str] = {}
@@ -29,6 +31,16 @@ _LOT_SIZE:       Dict[str, int]  = {}   # symbol → lot size (from NFO master)
 # NFO option contract index (loaded lazily)
 _NFO_CACHE:         dict = {}   # token → meta
 _NFO_SYMBOL_INDEX:  dict = {}   # tradingsymbol → token (reverse lookup)
+
+# NIFTY 50 index option chain + the index instrument itself -- resolved in the
+# SAME refresh_instrument_list() pass OB/ES already rely on (boot + every daily
+# re-login in broker_router.py), instead of a separate kite.instruments("NFO")
+# call from the collector's own background thread. That independent call was
+# the actual cause of the collector silently failing to resolve its chain for
+# days at a stretch: OB/ES never re-fetch instruments themselves after login,
+# they just read this cache -- which is why they never had the same failure.
+_NIFTY_OPT_CACHE:  dict = {}   # token → meta, name == "NIFTY" CE/PE only
+_NIFTY_INDEX_TOKEN: Optional[str] = None
 
 
 def _rebuild_master(token_map: Dict[str, str]):
@@ -60,6 +72,15 @@ def _try_load_cache_at_import():
     except Exception:
         pass
 
+    global _NIFTY_OPT_CACHE, _NIFTY_INDEX_TOKEN
+    try:
+        if os.path.exists(_NIFTY_OPT_CACHE_PATH):
+            _NIFTY_OPT_CACHE = json.load(open(_NIFTY_OPT_CACHE_PATH))
+        if os.path.exists(_NIFTY_INDEX_PATH):
+            _NIFTY_INDEX_TOKEN = json.load(open(_NIFTY_INDEX_PATH)).get("token")
+    except Exception:
+        pass
+
 
 def refresh_instrument_list(force: bool = False) -> dict:
     """
@@ -83,15 +104,30 @@ def refresh_instrument_list(force: bool = False) -> dict:
 
         # NSE equity token resolution
         resolved: Dict[str, str] = {}
+        nifty_index_token: Optional[str] = None
         for i in nse:
             if i.get("instrument_type") == "EQ" and i.get("tradingsymbol") in SECTOR_OF:
                 resolved[i["tradingsymbol"]] = str(i["instrument_token"])
+            elif i.get("segment") == "INDICES" and i.get("tradingsymbol") == "NIFTY 50":
+                nifty_index_token = str(i["instrument_token"])
 
         # NFO cache + lot sizes
         nfo_cache = {}
+        nifty_opt_cache = {}
         for i in nfo:
             itype = i.get("instrument_type", "")
             name  = i.get("name", "")
+            if itype in ("CE", "PE") and name == "NIFTY":
+                exp = i.get("expiry")
+                nifty_opt_cache[str(i["instrument_token"])] = {
+                    "tradingsymbol":   i.get("tradingsymbol", ""),
+                    "name":            name,
+                    "expiry":          exp.isoformat() if hasattr(exp, "isoformat") else str(exp),
+                    "strike":          float(i.get("strike", 0)),
+                    "instrument_type": itype,
+                    "lot_size":        int(i.get("lot_size", 0)),
+                }
+                continue
             if name not in SECTOR_OF:
                 continue
             if itype in ("CE", "PE"):
@@ -112,10 +148,16 @@ def refresh_instrument_list(force: bool = False) -> dict:
 
         _rebuild_master(resolved)
 
+        global _NIFTY_OPT_CACHE, _NIFTY_INDEX_TOKEN
+        _NIFTY_OPT_CACHE   = nifty_opt_cache
+        _NIFTY_INDEX_TOKEN = nifty_index_token
+
         try:
-            json.dump(resolved,  open(_TOKENS_CACHE_PATH, "w"))
-            json.dump(_LOT_SIZE, open(_LOTS_CACHE_PATH, "w"))
-            json.dump(nfo_cache, open(_INSTRUMENT_CACHE_PATH, "w"))
+            json.dump(resolved,         open(_TOKENS_CACHE_PATH, "w"))
+            json.dump(_LOT_SIZE,        open(_LOTS_CACHE_PATH, "w"))
+            json.dump(nfo_cache,        open(_INSTRUMENT_CACHE_PATH, "w"))
+            json.dump(nifty_opt_cache,  open(_NIFTY_OPT_CACHE_PATH, "w"))
+            json.dump({"token": nifty_index_token}, open(_NIFTY_INDEX_PATH, "w"))
         except Exception as e:
             print(f"[UNIVERSE] cache write warning: {e}")
 
@@ -123,7 +165,7 @@ def refresh_instrument_list(force: bool = False) -> dict:
 
         from backend.universe.scanner import get_stocks_for_index
         print(f"[UNIVERSE] Zerodha instruments loaded | NSE resolved: {len(resolved)} | "
-              f"NFO options: {len(nfo_cache)} | "
+              f"NFO options: {len(nfo_cache)} | NIFTY index options: {len(nifty_opt_cache)} | "
               f"N50={len(get_stocks_for_index('NIFTY50'))}, "
               f"N100={len(get_stocks_for_index('NIFTY100'))}, "
               f"N200={len(get_stocks_for_index('NIFTY200'))}")
@@ -169,6 +211,18 @@ def get_option_token(option_symbol: str) -> Optional[str]:
 
 def load_instrument_cache() -> dict:
     return _load_nfo_cache()
+
+
+def get_nifty_option_chain() -> dict:
+    """token → meta for every NIFTY index CE/PE, resolved in the same
+    refresh_instrument_list() pass as everything else (boot + daily re-login) --
+    no separate REST call needed from the collector's own thread."""
+    return dict(_NIFTY_OPT_CACHE)
+
+
+def get_nifty_index_token() -> Optional[str]:
+    """NIFTY 50 index instrument_token (NSE:INDICES), cached from the same pass."""
+    return _NIFTY_INDEX_TOKEN
 
 
 def find_option_token(symbol: str, expiry: str, strike: float, option_type: str) -> Optional[str]:

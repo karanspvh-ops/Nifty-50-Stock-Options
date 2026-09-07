@@ -88,60 +88,73 @@ class NiftyOptionsCollector:
     # ── Chain resolution (re-centers every _RECENTER_MINUTES) ──────────────────
 
     def _resolve_chain(self):
-        """Fetch NIFTY option instruments fresh from Kite, pick nearest expiry,
-        build an 11-strike ladder around the CURRENT ATM, subscribe on the shared
-        WS feed. Called on first run, on a new trading day, and every
+        """Build an 11-strike ladder around the CURRENT ATM and subscribe on the
+        shared WS feed. Called on first run, on a new trading day, and every
         _RECENTER_MINUTES thereafter — so a 200-300 point NIFTY move during the
         day re-centers the ladder instead of leaving it stuck on the morning's
-        ATM and collecting increasingly irrelevant far-OTM/far-ITM strikes."""
+        ATM and collecting increasingly irrelevant far-OTM/far-ITM strikes.
+
+        Reads the option chain + index token from the SAME instrument cache
+        OB/ES already rely on (backend/universe/instrument_cache.py), refreshed
+        once at boot and again on every daily re-login -- instead of this
+        collector calling kite.instruments("NFO") itself from its own background
+        thread. That independent per-thread REST call was the actual cause of
+        the collector silently failing to resolve its chain for days at a
+        stretch while OB/ES kept working fine: they never re-fetch instruments
+        after login either, they just read this same cache."""
         if not broker.has_token():
             return False
-        try:
-            kite = broker.kite()
-            nfo  = kite.instruments("NFO")
-        except Exception as e:
-            print(f"[NIFTY-DATA] instrument fetch failed: {e}")
+
+        from backend.universe.instrument_cache import get_nifty_option_chain, get_nifty_index_token
+        from backend.core.tick_engine import tick_engine
+
+        idx_token = get_nifty_index_token()
+        if not idx_token:
+            print("[NIFTY-DATA] NIFTY 50 index token not in instrument cache yet "
+                  "(waiting on refresh_instrument_list())")
+            return False
+
+        chain_map = get_nifty_option_chain()
+        if not chain_map:
+            print("[NIFTY-DATA] NIFTY option chain not in instrument cache yet "
+                  "(waiting on refresh_instrument_list())")
             return False
 
         today = date.today()
-        opts = [i for i in nfo if i.get("name") == "NIFTY" and i.get("instrument_type") in ("CE", "PE")]
-        if not opts:
-            print("[NIFTY-DATA] No NIFTY option instruments found.")
-            return False
 
-        def exp_date(i):
-            e = i.get("expiry")
-            try:    return e if isinstance(e, date) else date.fromisoformat(str(e))
+        def exp_date(meta):
+            try:    return date.fromisoformat(str(meta.get("expiry")))
             except Exception: return date(2099, 1, 1)
 
-        future = [i for i in opts if exp_date(i) >= today]
+        future = {tok: meta for tok, meta in chain_map.items() if exp_date(meta) >= today}
         if not future:
-            print("[NIFTY-DATA] No future NIFTY expiries found.")
+            print("[NIFTY-DATA] No future NIFTY expiries found in cache.")
             return False
-        nearest = min(exp_date(i) for i in future)
-        chain   = [i for i in future if exp_date(i) == nearest]
-
-        try:
-            q    = kite.quote(["NSE:NIFTY 50"])
-            spot = float(q["NSE:NIFTY 50"]["last_price"])
-            idx_token = str(q["NSE:NIFTY 50"].get("instrument_token") or "")
-        except Exception as e:
-            print(f"[NIFTY-DATA] spot fetch failed: {e}")
-            return False
+        nearest = min(exp_date(meta) for meta in future.values())
+        chain   = {tok: meta for tok, meta in future.items() if exp_date(meta) == nearest}
 
         # Subscribe the index itself once so market_state builds real tick-built
-        # 1-min spot candles (same mechanism as every stock/option already does) --
-        # without this the frontend chart would have nothing but our own once-a-
-        # minute REST spot reads, no real OHLC.
-        if idx_token and idx_token != self._index_token:
+        # 1-min spot candles (same mechanism as every stock/option already does).
+        if idx_token != self._index_token:
             try:
-                from backend.core.tick_engine import tick_engine
                 tick_engine.subscribe_options([{"token": idx_token, "tradingsymbol": "NIFTY 50", "name": "NIFTY 50"}])
                 self._index_token = idx_token
             except Exception as e:
                 print(f"[NIFTY-DATA] index subscribe failed: {e}")
 
-        strikes = sorted({float(i["strike"]) for i in chain})
+        # Spot for ATM selection: prefer the live tick (same source OB/ES use) so
+        # no REST call is needed on the hot path; fall back to one-off quote()
+        # only on the very first resolve of the day before any index tick exists.
+        spot = market.get_ltp(self._index_token)
+        if spot is None:
+            try:
+                q = broker.kite().quote(["NSE:NIFTY 50"])
+                spot = float(q["NSE:NIFTY 50"]["last_price"])
+            except Exception as e:
+                print(f"[NIFTY-DATA] spot bootstrap fetch failed: {e}")
+                return False
+
+        strikes = sorted({float(meta["strike"]) for meta in chain.values()})
         if not strikes:
             return False
         atm_idx = min(range(len(strikes)), key=lambda k: abs(strikes[k] - spot))
@@ -152,21 +165,19 @@ class NiftyOptionsCollector:
 
         contracts = {}
         subs = []
-        for i in chain:
-            strike = float(i["strike"])
+        for tok, meta in chain.items():
+            strike = float(meta["strike"])
             if strike not in rank_of:
                 continue
-            tok = str(i["instrument_token"])
             contracts[tok] = {
-                "tradingsymbol":  i["tradingsymbol"],
+                "tradingsymbol":  meta["tradingsymbol"],
                 "strike":         strike,
-                "option_type":    i["instrument_type"],
+                "option_type":    meta["instrument_type"],
                 "moneyness_rank": rank_of[strike],
             }
-            subs.append({"token": tok, "tradingsymbol": i["tradingsymbol"], "name": "NIFTY"})
+            subs.append({"token": tok, "tradingsymbol": meta["tradingsymbol"], "name": "NIFTY"})
 
         try:
-            from backend.core.tick_engine import tick_engine
             tick_engine.subscribe_options(subs)
         except Exception as e:
             print(f"[NIFTY-DATA] subscribe failed: {e}")

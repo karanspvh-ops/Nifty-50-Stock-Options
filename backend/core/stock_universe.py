@@ -18,6 +18,7 @@ from backend.universe.scanner import (          # noqa: F401
 from backend.universe.instrument_cache import ( # noqa: F401
     refresh_instrument_list, load_instrument_cache,
     get_option_token, find_option_token, invalidate_nfo_cache,
+    get_nifty_option_chain, get_nifty_index_token,
     SYMBOL_TO_TOKEN, STOCK_MASTER,
 )
 from backend.universe.sector_map import (       # noqa: F401
@@ -30,6 +31,7 @@ __all__ = [
     "get_stocks_in_sector", "get_tradable_universe", "get_meta", "get_token",
     "refresh_instrument_list", "load_instrument_cache",
     "get_option_token", "find_option_token", "invalidate_nfo_cache",
+    "get_nifty_option_chain", "get_nifty_index_token",
     "SYMBOL_TO_TOKEN", "STOCK_MASTER", "SECTOR_OF",
     "NIFTY50_SYMBOLS", "NIFTY_NEXT50_SYMBOLS", "NIFTY_MIDCAP_SYMBOLS",
     "NIFTY_FNO_EXTRAS", "TRADABLE_INDEX",

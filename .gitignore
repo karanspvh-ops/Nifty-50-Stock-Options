@@ -31,6 +31,8 @@ nifty_options.db
 instrument_cache.json
 universe_tokens.json
 universe_lots.json
+nifty_instrument_cache.json
+nifty_index_token.json
 ob_params.json
 reports/
 !frontend/src/components/reports/
