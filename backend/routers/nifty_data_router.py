@@ -46,7 +46,7 @@ def status():
         last = (
             db.query(NiftyOptionSnapshot)
             .filter(NiftyOptionSnapshot.date == today)
-            .order_by(NiftyOptionSnapshot.id.desc())
+            .order_by(NiftyOptionSnapshot.snapshot_time.desc(), NiftyOptionSnapshot.id.desc())
             .first()
         )
         return {
@@ -77,7 +77,13 @@ def snapshots(
             q = q.filter(NiftyOptionSnapshot.date == str(date.today()))
         elif range != "all":
             q = q.filter(NiftyOptionSnapshot.date >= _range_start(range))
-        rows = q.order_by(NiftyOptionSnapshot.id.desc()).limit(limit).all()
+        # Sort by actual snapshot_time, not row id -- id only tracks insertion
+        # order, which matches time for the live collector's own minute-major
+        # writes but breaks for anything inserted out of chronological order
+        # (e.g. a historical backfill done contract-by-contract). id is kept
+        # only as a tiebreaker so same-timestamp rows stay in a stable order.
+        rows = q.order_by(NiftyOptionSnapshot.snapshot_time.desc(),
+                           NiftyOptionSnapshot.id.desc()).limit(limit).all()
         return [
             {
                 "snapshot_time":  r.snapshot_time.isoformat(),
