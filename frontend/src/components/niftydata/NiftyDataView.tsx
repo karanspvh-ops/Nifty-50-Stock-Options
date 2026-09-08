@@ -260,6 +260,9 @@ export default function NiftyDataView() {
                 <th className="px-2 py-2 text-right">Strike</th>
                 <th className="px-2 py-2">Type</th>
                 <th className="px-2 py-2 text-right">Rank</th>
+                <th className="px-2 py-2 text-right">Open</th>
+                <th className="px-2 py-2 text-right">High</th>
+                <th className="px-2 py-2 text-right">Low</th>
                 <th className="px-2 py-2 text-right">Close</th>
                 <th className="px-2 py-2 text-right">OI</th>
                 <th className="px-2 py-2 text-right">OI Hi/Lo</th>
@@ -273,11 +276,11 @@ export default function NiftyDataView() {
             </thead>
             <tbody>
               {total === 0 && (
-                <tr><td colSpan={13} className="px-2 py-8 text-center text-muted text-sm">
+                <tr><td colSpan={16} className="px-2 py-8 text-center text-muted text-sm">
                   No data yet today.
                 </td></tr>
               )}
-              {topPad > 0 && <tr aria-hidden style={{ height: topPad }}><td colSpan={13} /></tr>}
+              {topPad > 0 && <tr aria-hidden style={{ height: topPad }}><td colSpan={16} /></tr>}
               {visibleRows.map(({ row: r, isGroupStart }) => (
                 <tr key={`${r.snapshot_time}-${r.strike}-${r.option_type}`} style={{ height: ROW_H }}
                     className={`border-b border-border/30 hover:bg-white/[0.02] text-xs
@@ -295,6 +298,9 @@ export default function NiftyDataView() {
                   <td className={`px-2 text-right ${r.moneyness_rank === 0 ? 'text-accent font-bold' : 'text-muted'}`}>
                     {r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
                   </td>
+                  <td className="px-2 text-right text-muted">{r.open?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-up">{r.high?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-down">{r.low?.toFixed(2) ?? '—'}</td>
                   <td className="px-2 text-right text-white">{r.close?.toFixed(2) ?? '—'}</td>
                   <td className="px-2 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
                   <td className="px-2 text-right text-muted whitespace-nowrap">
@@ -310,7 +316,7 @@ export default function NiftyDataView() {
                   <td className="px-2 text-right text-muted">{r.spread_pct?.toFixed(2) ?? '—'}</td>
                 </tr>
               ))}
-              {botPad > 0 && <tr aria-hidden style={{ height: botPad }}><td colSpan={13} /></tr>}
+              {botPad > 0 && <tr aria-hidden style={{ height: botPad }}><td colSpan={16} /></tr>}
             </tbody>
           </table>
         </div>
