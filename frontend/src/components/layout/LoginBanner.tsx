@@ -4,7 +4,7 @@ const API = 'http://localhost:8000';
 
 interface BrokerStatus {
   broker: string; has_token: boolean; user: string | null;
-  token_valid_today: boolean;
+  token_valid_today: boolean; live_ok: boolean;
 }
 
 export default function LoginBanner() {
@@ -26,9 +26,13 @@ export default function LoginBanner() {
   };
   useEffect(() => { load(); const id = setInterval(load, 5000); return () => clearInterval(id); }, []);
 
-  // Only hide banner when we've confirmed the token is valid today AND loaded in memory
+  // Only hide the banner once the token is confirmed valid today AND Zerodha
+  // itself still accepts it live (live_ok) -- token_valid_today alone just
+  // means our cached file happens to be dated today, which stays true even
+  // after Zerodha force-invalidates the token mid-session. Without live_ok
+  // here, a dead token hides the only way back into login.
   if (loading) return null;
-  if (st?.token_valid_today && st?.has_token) return null;
+  if (st?.token_valid_today && st?.has_token && st?.live_ok) return null;
 
   const openLogin = async () => {
     const r = await (await fetch(`${API}/api/broker/login-url`)).json();
