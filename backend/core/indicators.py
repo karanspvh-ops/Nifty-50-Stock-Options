@@ -18,7 +18,7 @@ def _to_df(candles: List[dict]) -> pd.DataFrame:
     df.columns = [c.lower() for c in df.columns]
     # Normalise timestamp column
     if "ts" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["ts"])
+        df["timestamp"] = pd.to_datetime(df["ts"], format="mixed", utc=True).dt.tz_localize(None)
     df = df.sort_values("timestamp").reset_index(drop=True)
     for col in ("open", "high", "low", "close"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -95,34 +95,34 @@ def compute_indicators(candles: List[dict]) -> Optional[dict]:
         "bb_mid":      safe(last["bb_mid"]),
         "volume":      int(last["volume"]),
         "vol_sma20":   safe(last["vol_sma20"]),
-        # Cross signals
-        "ema5_cross_above_ema20": (
+        # Cross signals — cast to Python bool to avoid numpy.bool_ serialization issues
+        "ema5_cross_above_ema20": bool(
             safe(prev["ema5"]) is not None and
             prev["ema5"] < prev["ema20"] and
             last["ema5"]  > last["ema20"]
         ),
-        "ema5_cross_below_ema20": (
+        "ema5_cross_below_ema20": bool(
             safe(prev["ema5"]) is not None and
             prev["ema5"] > prev["ema20"] and
             last["ema5"]  < last["ema20"]
         ),
-        "macd_cross_up": (
+        "macd_cross_up": bool(
             safe(prev["macd"]) is not None and
             prev["macd"] < prev["macd_signal"] and
             last["macd"] > last["macd_signal"]
         ),
-        "macd_cross_down": (
+        "macd_cross_down": bool(
             safe(prev["macd"]) is not None and
             prev["macd"] > prev["macd_signal"] and
             last["macd"] < last["macd_signal"]
         ),
-        "volume_spike": (
+        "volume_spike": bool(
             safe(last["vol_sma20"]) is not None and
             last["vol_sma20"] > 0 and
             last["volume"] >= last["vol_sma20"] * 1.5
         ),
-        "is_trending": safe(last["adx"]) is not None and last["adx"] > 20,
-        "is_sideways": safe(last["adx"]) is not None and last["adx"] < 20,
+        "is_trending": bool(safe(last["adx"]) is not None and last["adx"] > 20),
+        "is_sideways": bool(safe(last["adx"]) is not None and last["adx"] < 20),
     }
 
 

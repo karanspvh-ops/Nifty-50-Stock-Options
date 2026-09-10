@@ -22,6 +22,9 @@ module.exports = {
       max_restarts: 999,
       restart_delay: 2000,
       env: {
+        // SMTP_* and other secrets live in .env (gitignored) and load via
+        // load_dotenv() in backend/main.py — do not put credentials here,
+        // this file is tracked in git.
         PYTHONPATH: "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options"
       },
       log_file    : "./logs/trading-engine.log",
@@ -31,8 +34,8 @@ module.exports = {
     },
     {
       name        : "trading-frontend",
-      script      : "npm",
-      args        : "run preview -- --port 3000 --host",
+      script      : "cmd",
+      args        : "/c npm run preview -- --port 3000 --host",
       cwd         : "C:\\Users\\karan\\OneDrive\\Desktop\\Project\\Algo Strategies\\Nifty 50 Stock Options\\frontend",
       interpreter : "none",
       watch       : false,
