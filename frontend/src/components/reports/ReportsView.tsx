@@ -885,13 +885,42 @@ export default function ReportsView() {
     return filtered;
   }, [allTrades, period, customFrom, customTo]);
 
-  // Enrich with trade_statement from generated pnl report
+  // Enrich with trade_statement from each trade's OWN day's generated pnl report --
+  // NOT just the single `pnl` state above, which only ever holds today's report.
+  // The backend already supports a per-date report (/api/reports/pnl/{env}?date=...),
+  // this just wires the frontend up to actually use it: fetch (and cache) the report
+  // for every distinct date present in the currently filtered trades, so narration
+  // survives switching to "Last 7 Days" / a custom range / "All Time" instead of
+  // silently disappearing for every day except today.
+  const stmtCache = useRef<Record<string, Record<number, string>>>({});
+  const [stmtVersion, setStmtVersion] = useState(0);
+
+  useEffect(() => {
+    const dates = Array.from(new Set(trades.map(t => (t.entered_at || '').slice(0, 10)).filter(Boolean)));
+    const missing = dates.filter(d => !(d in stmtCache.current));
+    if (!missing.length) return;
+    (async () => {
+      await Promise.all(missing.map(async d => {
+        const map: Record<number, string> = {};
+        try {
+          const r = await fetch(`${API}/api/reports/pnl/${env}?date=${d}`).then(x => x.json());
+          (r?.trades as any[] | undefined)?.forEach(t => { if (t.id && t.trade_statement) map[t.id] = t.trade_statement; });
+        } catch { /* leave this date's map empty -- raw trade still renders, just without narration */ }
+        stmtCache.current[d] = map;
+      }));
+      setStmtVersion(v => v + 1);
+    })();
+  }, [trades, env]);
+
   const enrichedTrades = useMemo<Trade[]>(() => {
-    if (!pnl?.trades) return trades;
-    const stmtMap: Record<number, string> = {};
-    (pnl.trades as any[]).forEach(t => { if (t.id && t.trade_statement) stmtMap[t.id] = t.trade_statement; });
-    return trades.map(t => stmtMap[t.id] ? { ...t, trade_statement: stmtMap[t.id] } : t);
-  }, [trades, pnl]);
+    return trades.map(t => {
+      const d = (t.entered_at || '').slice(0, 10);
+      const stmt = stmtCache.current[d]?.[t.id];
+      return stmt ? { ...t, trade_statement: stmt } : t;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stmtVersion is the real
+    // trigger for re-reading stmtCache.current (a ref, so it isn't itself a dependency)
+  }, [trades, stmtVersion]);
 
   // ── Strategy slices ──────────────────────────────────────────────────────────
   const esTrades = useMemo(() => enrichedTrades.filter(t => getStrategy(t.entry_logic) === 'ES'), [enrichedTrades]);
