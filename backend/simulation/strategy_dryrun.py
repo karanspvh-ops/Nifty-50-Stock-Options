@@ -31,16 +31,27 @@ def _get_test_candles() -> List[dict]:
         token = SYMBOL_TO_TOKEN.get(_TEST_SYMBOL)
         if not token:
             return []
-        last_day = date.today() - timedelta(days=1)
-        while last_day.weekday() >= 5:
-            last_day -= timedelta(days=1)
-        kite    = broker.kite()
-        candles = kite.historical_data(
-            int(token),
-            datetime.combine(last_day, dtime(9, 0)),
-            datetime.combine(last_day, dtime(10, 30)),
-            "minute",
-        )
+        kite = broker.kite()
+        # Walk backward over recent weekdays until one actually has candles --
+        # skipping weekends alone misses NSE trading holidays (e.g. a Monday
+        # festival holiday), which are weekdays with zero candles but not a
+        # Kite/token problem. See backend/simulation/checks.py's
+        # check_historical_data() for the same fix, same reasoning.
+        day = date.today() - timedelta(days=1)
+        candles = []
+        last_day = day
+        for _ in range(7):
+            if day.weekday() < 5:
+                candles = kite.historical_data(
+                    int(token),
+                    datetime.combine(day, dtime(9, 0)),
+                    datetime.combine(day, dtime(10, 30)),
+                    "minute",
+                )
+                if candles:
+                    last_day = day
+                    break
+            day -= timedelta(days=1)
         _candle_cache["candles"] = candles
         _candle_cache["ltp"]     = candles[-1]["close"] if candles else 0.0
         _candle_cache["day"]     = last_day
