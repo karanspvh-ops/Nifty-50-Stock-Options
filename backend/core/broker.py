@@ -109,6 +109,12 @@ class Broker:
             except Exception:
                 pass
         d["token_valid_today"] = d.get("token_date") == date.today().isoformat()
+        # token_valid_today only checks the cached file's date -- it says nothing
+        # about whether Zerodha still actually accepts the token (it can be
+        # force-invalidated mid-day). live_ok is the real signal the frontend's
+        # login banner needs to decide whether to show itself; without it, a
+        # dead-but-same-day-dated token hides the only way back into login.
+        d["live_ok"] = self.is_authenticated()
         return d
 
     # ── Access ────────────────────────────────────────────────────────────────

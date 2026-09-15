@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, Component, type ReactNode } from 'react';
 import { useMarketSocket } from './hooks/useMarketSocket';
 import { useMarketStore } from './store/marketStore';
 import Sidebar      from './components/layout/Sidebar';
@@ -10,14 +10,43 @@ import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
 import TradableSignals  from './components/dashboard/TradableSignals';
 import TradePlan        from './components/dashboard/TradePlan';
+import SystemCheckPanel      from './components/dashboard/SystemCheckPanel';
+import StrategyDryRunPanel   from './components/dashboard/StrategyDryRunPanel';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
+import NiftyDataView    from './components/niftydata/NiftyDataView';
+import EarlyScalpView  from './components/scalp/EarlyScalpView';
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+  static getDerivedStateFromError(e: Error) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-8 text-down">
+          <div className="font-bold mb-2">Render error</div>
+          <pre className="text-xs text-muted whitespace-pre-wrap">
+            {(this.state.error as Error).message}
+            {'\n\n'}
+            {(this.state.error as Error).stack}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const API = 'http://localhost:8000';
 
 function Dashboard() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
+      <SystemCheckPanel />
+      <StrategyDryRunPanel />
       <OpenTradesPanel />
       <TradePlan />
       <SectorHeatmap />
@@ -48,12 +77,17 @@ export default function App() {
   useMarketSocket();
   const { activeView, setSettings } = useMarketStore();
 
-  // Load persisted settings on startup
+  // Load settings on startup — retry every 2s until the backend responds
   useEffect(() => {
-    fetch(`${API}/api/settings`)
-      .then(r => r.json())
-      .then(data => setSettings(data))
-      .catch(() => {});
+    let cancelled = false;
+    const load = () => {
+      fetch(`${API}/api/settings/`)
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(data => { if (!cancelled) setSettings(data); })
+        .catch(() => { if (!cancelled) setTimeout(load, 2000); });
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   return (
@@ -64,7 +98,8 @@ export default function App() {
         <LoginBanner />
         <EngineStatus />
         <main className="flex-1 overflow-hidden">
-          {activeView === 'dashboard'     && <Dashboard />}
+          {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
+          {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (
             <div className="p-6 overflow-y-auto h-full">
               <h1 className="text-white font-bold text-lg mb-4">
@@ -84,6 +119,7 @@ export default function App() {
             </div>
           )}
           {activeView === 'reports'       && <ReportsView />}
+          {activeView === 'nifty_data'    && <NiftyDataView />}
         </main>
       </div>
     </div>

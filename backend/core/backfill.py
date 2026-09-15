@@ -108,7 +108,7 @@ def _run():
         return
 
     kite   = broker.kite()
-    stocks = get_stocks_for_index("NIFTY200")
+    stocks = get_stocks_for_index("FNO")
     print(f"[BACKFILL] Enriching {len(stocks)} stocks via Kite historical...")
     api_loaded = 0
     for i, s in enumerate(stocks):

@@ -61,8 +61,7 @@ def get_candles(token: str, n: int = Query(50, le=100)):
 
 @router.get("/stocks")
 def list_stocks(index: Optional[str] = Query(None)):
-    idx = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("FNO", fno_only=True)        # combined F&O universe (~211)
     moves   = market.get_all_stock_moves()
     result  = []
     for s in stocks:
@@ -96,8 +95,7 @@ def stock_ranking(
     order="most_likely"  → strongest movers first (best to trade)
     order="least_likely" → weakest / flattest first
     """
-    idx     = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("FNO", fno_only=True)        # combined F&O universe (~211)
     moves   = market.get_all_stock_moves()
     sectors_live = market.get_sector_moves()
 
@@ -209,6 +207,48 @@ async def market_ws(websocket: WebSocket):
     except Exception as e:
         ws_manager.disconnect(websocket)
         print(f"[WS] Client error: {e}")
+
+
+@router.websocket("/ws/trades")
+async def trades_ws(websocket: WebSocket):
+    """
+    Push-based open-trades stream for the dashboard.
+
+    Fires on every Zerodha option tick for open ES positions (throttled to 10 Hz
+    per trade by the ES manage mixin). Falls back to a 2-second snapshot heartbeat
+    when no ticks are flowing (market closed, no open positions, etc.).
+
+    Message types:
+      {"type": "snapshot", "trades": [...]}   — full list (on connect + heartbeat)
+      {"type": "trade_tick", "trade_id": N, "ltp": ..., "pnl_pct": ..., ...}
+    """
+    from backend.core.risk_engine import risk_engine
+    await websocket.accept()
+    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+    market.register_trade_queue(loop, q)
+    try:
+        # Send full snapshot immediately so the UI isn't blank on connect
+        await websocket.send_json({
+            "type":   "snapshot",
+            "trades": risk_engine.get_open_risk_snapshot(),
+        })
+        while True:
+            try:
+                payload = await asyncio.wait_for(q.get(), timeout=2.0)
+                await websocket.send_json(payload)
+            except asyncio.TimeoutError:
+                # Heartbeat: re-send full snapshot every 2 s when no ticks arrive
+                await websocket.send_json({
+                    "type":   "snapshot",
+                    "trades": risk_engine.get_open_risk_snapshot(),
+                })
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[WS-TRADES] Error: {e}")
+    finally:
+        market.unregister_trade_queue(q)
 
 
 @router.websocket("/ws/candles/{token}")

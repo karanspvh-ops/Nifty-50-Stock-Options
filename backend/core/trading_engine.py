@@ -195,6 +195,13 @@ class TradingEngine:
             )
             from backend.core.stock_universe import get_token
             for trade in open_trades:
+                # [OB] / [ES] trades are managed by their own engines (custom
+                # SL / trail / target). This generic RSI/MACD/EMA trend-exit
+                # was built for this engine's own entries and cuts winners
+                # short when applied to those strategies' wider-running trades.
+                logic = trade.entry_logic or ""
+                if logic.startswith("[OB]") or logic.startswith("[ES]"):
+                    continue
                 token = get_token(trade.symbol)
                 if not token:
                     continue

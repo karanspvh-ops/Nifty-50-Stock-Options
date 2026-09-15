@@ -39,8 +39,8 @@ class TickEngine:
 
     # ── Token list ────────────────────────────────────────────────────────────
     def _stock_tokens(self) -> list:
-        # Always stream the full NIFTY200 superset; index switch is a view filter.
-        stocks = get_stocks_for_index("NIFTY200")
+        # Stream the full F&O-tradable universe (NIFTY 200 + extras = ~211 stocks).
+        stocks = get_stocks_for_index("FNO")
         toks = []
         for s in stocks:
             try:
@@ -55,6 +55,19 @@ class TickEngine:
         self._subscribed_tokens = toks
         ws.subscribe(toks)
         ws.set_mode(ws.MODE_QUOTE, toks)   # QUOTE: ltp + ohlc + volume
+
+        # Re-subscribe every dynamically-added option/index token too -- this fires
+        # on EVERY reconnect (including after the machine wakes from sleep, not just
+        # the first connect), and previously only the base stock universe came back.
+        # Found via the NIFTY collector's index candles silently going stale after a
+        # laptop-sleep reconnect on 3 Sep while everything else (stocks, ES/OB) kept
+        # working fine -- this was the actual cause, not the collector itself.
+        if self._option_meta:
+            opt_toks = [int(t) for t in self._option_meta.keys()]
+            ws.subscribe(opt_toks)
+            ws.set_mode(ws.MODE_QUOTE, opt_toks)
+            print(f"[TICK ENGINE] Re-subscribed {len(opt_toks)} option/index contracts after (re)connect.")
+
         market.set_feed_reconnected()
         print(f"[TICK ENGINE] Connected. Subscribed to {len(toks)} stocks.")
 
@@ -119,12 +132,12 @@ class TickEngine:
     def _sector_loop(self):
         while self._running:
             try:
-                index   = get_active_index()
-                sectors = get_sectors_for_index(index)
+                index   = "FNO"                 # combined F&O-tradable universe…
+                sectors = get_sectors_for_index(index, fno_only=True)   # …F&O only
                 result  = {}
                 moves   = market.get_all_stock_moves()
                 for sector in sectors:
-                    stocks, pcts, lst = get_stocks_in_sector(sector, index), [], []
+                    stocks, pcts, lst = get_stocks_in_sector(sector, index, fno_only=True), [], []
                     for s in stocks:
                         mv = moves.get(s["token"])
                         if mv:
