@@ -100,19 +100,26 @@ def check_historical_data() -> Tuple[bool, str]:
         if not token:
             return False, "RELIANCE not in instrument cache — run refresh_instrument_list() first"
 
-        # Most recent weekday
-        yesterday = date.today() - timedelta(days=1)
-        while yesterday.weekday() >= 5:
-            yesterday -= timedelta(days=1)
+        # Walk backward over recent weekdays until one actually has candles --
+        # skipping weekends alone isn't enough, an NSE trading holiday (e.g. a
+        # Monday festival holiday) is also a weekday with zero candles, and
+        # that's not a Kite/token problem, just an expected empty day. Only
+        # fail this check if several consecutive weekdays are ALL empty, which
+        # would actually indicate a real API/token issue.
+        kite = broker.kite()
+        day = date.today() - timedelta(days=1)
+        tried = []
+        for _ in range(7):
+            if day.weekday() < 5:
+                start   = datetime.combine(day, dtime(9, 15))
+                end     = datetime.combine(day, dtime(15, 30))
+                candles = kite.historical_data(int(token), start, end, "5minute")
+                if candles:
+                    return True, f"Fetched {len(candles)} candles for RELIANCE ({day})"
+                tried.append(str(day))
+            day -= timedelta(days=1)
 
-        kite   = broker.kite()
-        start  = datetime.combine(yesterday, dtime(9, 15))
-        end    = datetime.combine(yesterday, dtime(15, 30))
-        candles = kite.historical_data(int(token), start, end, "5minute")
-
-        if not candles:
-            return False, f"No candles returned for RELIANCE on {yesterday} (market holiday?)"
-        return True, f"Fetched {len(candles)} candles for RELIANCE ({yesterday})"
+        return False, f"No candles for RELIANCE on any of the last weekdays tried ({', '.join(tried)})"
     except Exception as e:
         return False, f"Historical data fetch failed: {e}"
 
