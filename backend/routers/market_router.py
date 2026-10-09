@@ -215,8 +215,8 @@ async def trades_ws(websocket: WebSocket):
     Push-based open-trades stream for the dashboard.
 
     Fires on every Zerodha option tick for open ES positions (throttled to 10 Hz
-    per trade by the ES manage mixin). Falls back to a 2-second snapshot heartbeat
-    when no ticks are flowing (market closed, no open positions, etc.).
+    per trade by the ES manage mixin). A full snapshot is also re-sent every 2 s
+    regardless of tick flow, so any missed open/close event self-corrects.
 
     Message types:
       {"type": "snapshot", "trades": [...]}   — full list (on connect + heartbeat)
@@ -227,22 +227,34 @@ async def trades_ws(websocket: WebSocket):
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
     q: asyncio.Queue = asyncio.Queue()
     market.register_trade_queue(loop, q)
+
+    async def send_snapshot():
+        # get_open_risk_snapshot() does a DB query plus a per-trade premium lookup
+        # that falls back to a blocking Kite REST call. Run in a worker thread so
+        # it can never freeze the event loop that serves every HTTP request and
+        # every other WebSocket (it used to run inline, per client, every 2 s).
+        trades = await loop.run_in_executor(None, risk_engine.get_open_risk_snapshot)
+        await websocket.send_json({"type": "snapshot", "trades": trades})
+
+    SNAPSHOT_EVERY = 2.0
     try:
         # Send full snapshot immediately so the UI isn't blank on connect
-        await websocket.send_json({
-            "type":   "snapshot",
-            "trades": risk_engine.get_open_risk_snapshot(),
-        })
+        await send_snapshot()
+        last_snapshot = loop.time()
         while True:
             try:
-                payload = await asyncio.wait_for(q.get(), timeout=2.0)
+                wait = max(0.05, SNAPSHOT_EVERY - (loop.time() - last_snapshot))
+                payload = await asyncio.wait_for(q.get(), timeout=wait)
                 await websocket.send_json(payload)
             except asyncio.TimeoutError:
-                # Heartbeat: re-send full snapshot every 2 s when no ticks arrive
-                await websocket.send_json({
-                    "type":   "snapshot",
-                    "trades": risk_engine.get_open_risk_snapshot(),
-                })
+                pass
+            # Resync every 2 s even while ticks are flowing. Before, the snapshot
+            # only fired when the queue was idle, so a missed trade_closed (dropped
+            # socket, tab asleep) was never corrected while trades were live --
+            # exactly when stale "open" rows matter most.
+            if loop.time() - last_snapshot >= SNAPSHOT_EVERY:
+                await send_snapshot()
+                last_snapshot = loop.time()
     except WebSocketDisconnect:
         pass
     except Exception as e:

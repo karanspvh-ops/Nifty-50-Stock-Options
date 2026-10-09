@@ -43,6 +43,7 @@ class RiskExitMixin:
         except Exception:
             bid_x, ask_x, spr_x = None, None, None
 
+        trade_id              = trade.id
         trade.status          = status
         trade.exit_price      = price
         trade.exited_at       = now_ist()
@@ -53,6 +54,13 @@ class RiskExitMixin:
         trade.ask_at_exit     = ask_x
         trade.spread_pct_at_exit = spr_x
         db.commit()
+
+        # Tell every connected dashboard/ES screen the moment the row is committed.
+        # This is the one choke point all exits pass through (ES/OB strategy exits,
+        # the generic hard-SL/target checker, the portfolio kill switch), so no
+        # close path can skip the push. Previously only the ES/OB manage loops
+        # pushed it, so checker-closed trades stayed "open" on screen.
+        market.push_trade_update({"type": "trade_closed", "trade_id": trade_id})
 
         from backend.core.settings_manager import get_settings
         settings      = get_settings()

@@ -176,6 +176,23 @@ class ESManageMixin:
             self._position_size_cache.pop(tid, None)
             self._option_symbol_cache.pop(tid, None)
 
+    def _drop_tick_tracking(self, tid: int):
+        """Unregister a trade's option tick callback and free its per-trade caches.
+
+        Used for trades closed outside ES's own exit paths (those clean up
+        themselves inline). Deliberately does NOT touch _realized_pnl_cache.
+        """
+        opt_tok = self._trade_to_option_token.pop(tid, None)
+        if opt_tok:
+            market.unregister_tick_callback(opt_tok)
+            self._option_token_to_trade.pop(opt_tok, None)
+        for cache in (self._trail_armed, self._trail_locked, self._trail_peak,
+                      self._trail_trough, self._prev_pnl, self._entry_cache,
+                      self._symbol_cache, self._last_push, self._live_ltp_registry,
+                      self._position_size_cache, self._option_symbol_cache):
+            cache.pop(tid, None)
+        print(f"[ES] Dropped tick tracking for tid={tid} (closed outside ES exit path)")
+
     def _flush_es_snapshot(self):
         """Write latest in-memory portfolio snapshot to DB. Called once per 1s loop.
 
@@ -250,6 +267,22 @@ class ESManageMixin:
                 Trade.status == TradeStatus.OPEN,
                 Trade.entry_logic.like(f"%{ES_TAG}%"),
             ).all()
+
+        # Reconcile tick tracking against the DB. Trades ES is still tracking but
+        # that are no longer OPEN were closed by someone else (the generic risk
+        # checker's "Target hit" / "Hard SL hit", a manual exit, the kill switch).
+        # Without this their tick callback kept pushing live prices for a dead
+        # trade, so the screen showed it as alive, and their caches leaked.
+        open_ids = {t.id for t in trades}
+        stale = [tid for tid in list(self._entry_cache)
+                 if tid not in open_ids and tid not in self._pending_exit]
+        if stale:
+            with DBSession() as db:
+                closed_rows = db.query(Trade.id, Trade.exit_logic).filter(Trade.id.in_(stale)).all()
+            for tid, exit_logic in closed_rows:
+                if (exit_logic or "").startswith("ES"):
+                    continue   # ES's own exit path is mid-cleanup -- don't race it
+                self._drop_tick_tracking(tid)
 
         for t in trades:
             if not t.entry_price:

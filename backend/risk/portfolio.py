@@ -62,6 +62,10 @@ class RiskPortfolioMixin:
                     "status":        t.status,
                     "highest_price": t.highest_price,
                     "entered_at":    str(t.entered_at) if t.entered_at else None,
+                    # The ES screen's snapshot handler keeps only rows whose
+                    # entry_logic contains "[ES]"; without this field it filtered
+                    # out every open trade and wiped them from the ES section.
+                    "entry_logic":   t.entry_logic,
                 })
             return result
         finally:
