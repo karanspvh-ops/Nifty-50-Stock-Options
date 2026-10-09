@@ -86,11 +86,51 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
 
     def _loop(self):
         while self._running:
+            t0 = time.perf_counter()
+            self._stage_ms = {}
             try:
                 self._tick()
             except Exception as e:
                 print(f"[ES] tick error: {e}")
+            self._log_cycle_timing((time.perf_counter() - t0) * 1000)
             time.sleep(LOOP_SEC)
+
+    # ── Loop timing (diagnostic) ──────────────────────────────────────────────
+    # Target exits only fire inside _manage, once per loop cycle. If a cycle is
+    # much longer than LOOP_SEC (e.g. REST OI lookups in _build_plan around
+    # 09:25-09:30), exits are delayed by that amount. This logs slow cycles and a
+    # one-line summary per minute so we can measure it instead of guessing.
+
+    SLOW_CYCLE_MS = 1500
+
+    def _timed(self, name, fn, *a, **kw):
+        t0 = time.perf_counter()
+        try:
+            return fn(*a, **kw)
+        finally:
+            d = getattr(self, "_stage_ms", None)
+            if d is not None:
+                d[name] = d.get(name, 0.0) + (time.perf_counter() - t0) * 1000
+
+    def _log_cycle_timing(self, total_ms: float):
+        st = getattr(self, "_stage_ms", {}) or {}
+        agg = getattr(self, "_timing_agg", None)
+        now = time.time()
+        if agg is None or now - agg["since"] >= 60:
+            if agg and agg["n"]:
+                worst = ", ".join(f"{k}={v:.0f}" for k, v in sorted(agg["stage_max"].items()))
+                print(f"[ES-TIMING] 1min: cycles={agg['n']} avg={agg['sum']/agg['n']:.0f}ms "
+                      f"max={agg['max']:.0f}ms slow={agg['slow']} | stage max ms: {worst}")
+            agg = self._timing_agg = {"since": now, "n": 0, "sum": 0.0, "max": 0.0,
+                                      "slow": 0, "stage_max": {}}
+        agg["n"] += 1; agg["sum"] += total_ms; agg["max"] = max(agg["max"], total_ms)
+        for k, v in st.items():
+            agg["stage_max"][k] = max(agg["stage_max"].get(k, 0.0), v)
+        if total_ms >= self.SLOW_CYCLE_MS:
+            agg["slow"] += 1
+            parts = ", ".join(f"{k}={v:.0f}ms" for k, v in st.items())
+            print(f"[ES-TIMING] SLOW cycle {total_ms:.0f}ms at "
+                  f"{datetime.now().strftime('%H:%M:%S')} | {parts}")
 
     # ── Daily reset ───────────────────────────────────────────────────────────
 
@@ -175,20 +215,20 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
 
         if t < ENTRY_START:
             self._phase = "SCANNING"
-            self._maybe_refresh_candles(now)
-            self._plan = self._build_plan(status="scanning")
+            self._timed("candles", self._maybe_refresh_candles, now)
+            self._plan = self._timed("plan", self._build_plan, status="scanning")
             return
 
         if t <= ENTRY_END:
             self._phase = "ENTERING"
-            self._maybe_refresh_candles(now)
-            self._plan = self._build_plan(status="entering")
+            self._timed("candles", self._maybe_refresh_candles, now)
+            self._plan = self._timed("plan", self._build_plan, status="entering")
             # Rebuild plan index for tick-level entry lookups
             self._plan_index = {c.token: c for c in self._plan.candidates if c.confirmed}
             # Arm tick callbacks on confirmed candidates (fires order on next tick)
-            self._register_entry_callbacks(env)
+            self._timed("entry_cb", self._register_entry_callbacks, env)
 
-        self._manage(env)
+        self._timed("manage", self._manage, env)
         if t > ENTRY_END:
             self._phase = "MANAGING"
             # Entry window closed — disarm all entry tick callbacks
@@ -197,8 +237,8 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
                     market.unregister_tick_callback(tok)
                 self._entry_callbacks_registered.clear()
                 self._plan_index.clear()
-            self._maybe_refresh_candles(now)
-            self._plan = self._build_plan(status="managing")
+            self._timed("candles", self._maybe_refresh_candles, now)
+            self._plan = self._timed("plan", self._build_plan, status="managing")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
