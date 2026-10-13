@@ -1,5 +1,6 @@
 import { useEffect, Component, type ReactNode } from 'react';
 import { useMarketSocket } from './hooks/useMarketSocket';
+import { useTradesSocket } from './hooks/useTradesSocket';
 import { useMarketStore } from './store/marketStore';
 import Sidebar      from './components/layout/Sidebar';
 import Header       from './components/layout/Header';
@@ -75,6 +76,7 @@ function EngineStatus() {
 
 export default function App() {
   useMarketSocket();
+  useTradesSocket();
   const { activeView, setSettings } = useMarketStore();
 
   // Load settings on startup — retry every 2s until the backend responds

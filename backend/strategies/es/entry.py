@@ -299,7 +299,7 @@ class ESEntryMixin:
         """Place the entry order in a daemon thread — keeps the tick thread free."""
         try:
             # Guard checks (DB-ok here, we're in a thread not the tick callback)
-            if self._refills_blocked(env):
+            if self._refills_blocked(env, inflight=max(0, len(self._entry_pending) - 1)):
                 return
             if self._count_open(env) >= int(self._p("max_positions")):
                 return

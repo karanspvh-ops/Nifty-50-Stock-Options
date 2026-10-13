@@ -55,8 +55,12 @@ class ESStateMixin:
             ).all()
         return sum((t.pnl or 0) for t in trades)
 
-    def _refills_blocked(self, env: TradeEnv) -> bool:
-        """After 5 ES trades entered and day PnL is positive, protect the gain."""
-        if self._count_today(env) < 5:
-            return False
-        return self._net_pnl_today(env) > 0
+    MAX_TRADES_PER_DAY = 5
+
+    def _refills_blocked(self, env: TradeEnv, inflight: int = 0) -> bool:
+        """Hard daily cap: at most 5 ES trades entered per day, no refills after that.
+
+        `inflight` counts entries whose order is being placed but not yet in the DB,
+        so simultaneous tick-entry threads cannot overshoot the cap.
+        """
+        return self._count_today(env) + inflight >= self.MAX_TRADES_PER_DAY

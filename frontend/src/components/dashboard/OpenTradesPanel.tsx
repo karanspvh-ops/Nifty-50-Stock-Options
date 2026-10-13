@@ -1,13 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
 import { useMarketStore } from '../../store/marketStore';
 import type { OpenTrade } from '../../store/marketStore';
 
 const API    = 'http://localhost:8000';
-const WS_URL = 'ws://localhost:8000/api/market/ws/trades';
-const RECONNECT_MS   = 3000;
-const CLOSED_LINGER_MS = 60_000;
-
-type ClosedTrade = OpenTrade & { _closed_at: number };
 
 function fmtTime(s: string | null | undefined) {
   if (!s) return '—';
@@ -77,91 +71,10 @@ function TradeRow({ t, closed }: { t: OpenTrade; closed?: boolean }) {
 }
 
 export default function OpenTradesPanel() {
-  const { openTrades, setOpenTrades, updateTradeTick, removeTrade, addTrade, settings } = useMarketStore();
-  const ws             = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const closeTimers    = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const [closedTrades, setClosedTrades] = useState<Map<number, ClosedTrade>>(new Map());
-
-  useEffect(() => {
-    const connect = () => {
-      try {
-        ws.current = new WebSocket(WS_URL);
-
-        ws.current.onmessage = (evt) => {
-          const msg = JSON.parse(evt.data);
-
-          if (msg.type === 'snapshot') {
-            setOpenTrades(msg.trades);
-
-          } else if (msg.type === 'trade_opened') {
-            addTrade({
-              trade_id:      msg.trade_id,
-              symbol:        msg.symbol,
-              option_symbol: msg.option_symbol,
-              direction:     msg.direction,
-              env:           msg.env,
-              entry:         msg.entry,
-              ltp:           null,
-              pnl_pct:       0,
-              quantity:      msg.quantity,
-              lot_size:      msg.lot_size,
-              hard_sl:       msg.hard_sl,
-              dynamic_sl:    null,
-              target:        msg.target,
-              status:        'open',
-              highest_price: null,
-              entered_at:    msg.entered_at,
-            });
-
-          } else if (msg.type === 'trade_tick') {
-            updateTradeTick(msg);
-
-          } else if (msg.type === 'trade_closed') {
-            // Capture the trade before removing so we can linger it for 60s
-            const trade = useMarketStore.getState().openTrades.find(t => t.trade_id === msg.trade_id);
-            if (trade) {
-              const closed: ClosedTrade = { ...trade, _closed_at: Date.now() };
-              setClosedTrades(prev => new Map(prev).set(msg.trade_id, closed));
-              // Clear any prior timer for this trade (shouldn't happen, but safety)
-              if (closeTimers.current.has(msg.trade_id)) {
-                clearTimeout(closeTimers.current.get(msg.trade_id));
-              }
-              const timer = setTimeout(() => {
-                setClosedTrades(prev => {
-                  const next = new Map(prev);
-                  next.delete(msg.trade_id);
-                  return next;
-                });
-                closeTimers.current.delete(msg.trade_id);
-              }, CLOSED_LINGER_MS);
-              closeTimers.current.set(msg.trade_id, timer);
-            }
-            removeTrade(msg.trade_id);
-          }
-        };
-
-        ws.current.onclose = () => {
-          reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
-        };
-
-        ws.current.onerror = () => {
-          ws.current?.close();
-        };
-      } catch {
-        reconnectTimer.current = setTimeout(connect, RECONNECT_MS);
-      }
-    };
-
-    connect();
-    return () => {
-      clearTimeout(reconnectTimer.current);
-      ws.current?.close();
-      closeTimers.current.forEach(t => clearTimeout(t));
-    };
-  }, []);
-
-  const closedList = Array.from(closedTrades.values());
+  // Shared live-trades store (fed by the app-wide socket in useTradesSocket)
+  const openTrades = useMarketStore(s => s.openTrades);
+  const closedList = useMarketStore(s => s.closedTrades);
+  const settings   = useMarketStore(s => s.settings);
   const hasAny     = openTrades.length > 0 || closedList.length > 0;
 
   if (!hasAny) return (

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
 
@@ -47,22 +48,67 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [filter, setFilter]   = useState<StratFilter>('ALL');
 
+  // Live layer: the same app-wide store that drives the dashboard and ES screen.
+  const liveOpen     = useMarketStore(s => s.openTrades);
+  const liveClosed   = useMarketStore(s => s.closedTrades);
+  const tradesVersion = useMarketStore(s => s.tradesVersion);
+
+  // History comes from the DB; refetch the instant a trade opens or closes
+  // (tradesVersion) instead of waiting for the next poll.
   useEffect(() => {
+    let alive = true;
     const load = async () => {
-      const res = await fetch(`${API}/api/trades?env=${env}`);
-      setTrades(await res.json());
+      try {
+        const res = await fetch(`${API}/api/trades?env=${env}`);
+        const d = await res.json();
+        if (alive) setTrades(d);
+      } catch {}
     };
     load();
     const id = setInterval(load, 5000);
-    return () => clearInterval(id);
-  }, [env]);
+    return () => { alive = false; clearInterval(id); };
+  }, [env, tradesVersion]);
 
-  // ── Always show today's trades only ───────────────────────────────────────
+  // ── Today's trades, overlaid with live state so nothing waits on the DB poll ─
   const rangedTrades = useMemo(() => {
     const cutoff = new Date();
     cutoff.setHours(0, 0, 0, 0);
-    return trades.filter(t => t.entered_at && new Date(t.entered_at) >= cutoff);
-  }, [trades]);
+    const openMap   = new Map(liveOpen.map(t => [t.trade_id, t]));
+    const closedMap = new Map(liveClosed.map(t => [t.trade_id, t]));
+    const dbIds     = new Set(trades.map(t => t.id));
+
+    const merged: Trade[] = trades.map(t => {
+      const c = closedMap.get(t.id);
+      if (c && t.status === 'open') {
+        return { ...t, status: c.status === 'closed' ? 'closed' : c.status,
+                 exit_price: c.exit_price ?? t.exit_price,
+                 pnl: c.pnl ?? t.pnl, pnl_pct: c.pnl_pct ?? t.pnl_pct,
+                 exited_at: t.exited_at ?? new Date(c.closed_at).toISOString(),
+                 exit_logic: c.exit_reason ?? t.exit_logic };
+      }
+      const o = openMap.get(t.id);
+      if (o && t.status === 'open') {
+        return { ...t, live_ltp: o.ltp ?? t.live_ltp,
+                 pnl: o.pnl ?? t.pnl, pnl_pct: o.pnl_pct ?? t.pnl_pct };
+      }
+      return t;
+    });
+    // Trades the live feed knows about but the DB list hasn't returned yet
+    for (const o of liveOpen) {
+      if (dbIds.has(o.trade_id) || o.env !== env) continue;
+      merged.push({
+        id: o.trade_id, symbol: o.symbol, direction: o.direction,
+        option_symbol: o.option_symbol ?? '', strike: null, expiry: null, option_type: null,
+        entry_price: o.entry, exit_price: null, live_ltp: o.ltp,
+        quantity: o.quantity ?? null, lot_size: o.lot_size ?? null,
+        pnl: o.pnl ?? 0, pnl_pct: o.pnl_pct, status: 'open',
+        entered_at: o.entered_at ?? new Date().toISOString(), exited_at: null,
+        entry_logic: o.entry_logic ?? '', exit_logic: '',
+      });
+    }
+    merged.sort((a, b) => b.id - a.id);
+    return merged.filter(t => t.entered_at && new Date(t.entered_at) >= cutoff);
+  }, [trades, liveOpen, liveClosed, env]);
 
   // ── Strategy-level totals (for the stat cards) ────────────────────────────
   const esTrades = rangedTrades.filter(t => getStrategy(t.entry_logic) === 'ES');

@@ -215,7 +215,7 @@ async def trades_ws(websocket: WebSocket):
     Push-based open-trades stream for the dashboard.
 
     Fires on every Zerodha option tick for open ES positions (throttled to 10 Hz
-    per trade by the ES manage mixin). A full snapshot is also re-sent every 2 s
+    per trade by the ES manage mixin). A full snapshot is also re-sent every 1 s
     regardless of tick flow, so any missed open/close event self-corrects.
 
     Message types:
@@ -232,11 +232,11 @@ async def trades_ws(websocket: WebSocket):
         # get_open_risk_snapshot() does a DB query plus a per-trade premium lookup
         # that falls back to a blocking Kite REST call. Run in a worker thread so
         # it can never freeze the event loop that serves every HTTP request and
-        # every other WebSocket (it used to run inline, per client, every 2 s).
+        # every other WebSocket (it used to run inline, per client, every 1 s).
         trades = await loop.run_in_executor(None, risk_engine.get_open_risk_snapshot)
         await websocket.send_json({"type": "snapshot", "trades": trades})
 
-    SNAPSHOT_EVERY = 2.0
+    SNAPSHOT_EVERY = 1.0
     try:
         # Send full snapshot immediately so the UI isn't blank on connect
         await send_snapshot()
@@ -248,7 +248,7 @@ async def trades_ws(websocket: WebSocket):
                 await websocket.send_json(payload)
             except asyncio.TimeoutError:
                 pass
-            # Resync every 2 s even while ticks are flowing. Before, the snapshot
+            # Resync every 1 s even while ticks are flowing. Before, the snapshot
             # only fired when the queue was idle, so a missed trade_closed (dropped
             # socket, tab asleep) was never corrected while trades were live --
             # exactly when stale "open" rows matter most.

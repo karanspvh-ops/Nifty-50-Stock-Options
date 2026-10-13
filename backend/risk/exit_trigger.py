@@ -60,7 +60,15 @@ class RiskExitMixin:
         # the generic hard-SL/target checker, the portfolio kill switch), so no
         # close path can skip the push. Previously only the ES/OB manage loops
         # pushed it, so checker-closed trades stayed "open" on screen.
-        market.push_trade_update({"type": "trade_closed", "trade_id": trade_id})
+        market.push_trade_update({
+            "type":       "trade_closed",
+            "trade_id":   trade_id,
+            "exit_price": price,
+            "pnl":        round(pnl, 2),
+            "pnl_pct":    round(pnl_pct, 2),
+            "status":     str(getattr(status, "value", status)),
+            "exit_logic": reason,
+        })
 
         from backend.core.settings_manager import get_settings
         settings      = get_settings()

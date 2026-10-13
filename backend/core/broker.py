@@ -55,6 +55,7 @@ class Broker:
         self._kite.set_access_token(self._access_token)
         self._profile_name = data.get("user_name")
         self._save_token(data)
+        self._auth_cache = None
         print(f"[BROKER] Login OK | user: {self._profile_name}")
         return data
 
@@ -89,16 +90,37 @@ class Broker:
     def has_token(self) -> bool:
         return self._access_token is not None
 
+    AUTH_CACHE_SEC = 30
+
     def is_authenticated(self) -> bool:
-        """Verify the token actually works (a light profile call)."""
+        """Verify the token still works (a light profile call, cached 30 s).
+
+        Only a genuine token rejection from Zerodha means "logged out". Timeouts,
+        rate limits and network blips keep the last known answer -- before, any
+        exception returned False, so the login banner flashed on and off while the
+        session was perfectly healthy.
+        """
         if not self._access_token:
             return False
+        import time
+        now = time.time()
+        cached = getattr(self, "_auth_cache", None)
+        if cached and now - cached[0] < self.AUTH_CACHE_SEC:
+            return cached[1]
         try:
             p = self._kite.profile()
             self._profile_name = p.get("user_name", self._profile_name)
-            return True
-        except Exception:
-            return False
+            ok = True
+        except Exception as e:
+            from kiteconnect.exceptions import TokenException
+            if isinstance(e, TokenException):
+                ok = False
+            else:
+                # transient failure: trust the last verdict (default: valid)
+                print(f"[BROKER] profile check transient error (ignored): {e}")
+                ok = cached[1] if cached else True
+        self._auth_cache = (now, ok)
+        return ok
 
     def status(self) -> dict:
         d = {"broker": "zerodha", "has_token": self.has_token(),

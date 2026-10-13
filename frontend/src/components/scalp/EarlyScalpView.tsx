@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
 
@@ -338,13 +339,9 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
   );
 }
 
-const WS_TRADES_URL  = 'ws://localhost:8000/api/market/ws/trades';
-const CLOSED_LINGER_MS = 60_000;
-
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function EarlyScalpView() {
   const [plan,        setPlan]        = useState<ScalpPlan | null>(null);
-  const [trades,      setTrades]      = useState<ScalpTrade[]>([]);
   const [enabled,     setEnabledState]= useState(true);
   const [localParams, setLocalParams] = useState<ScalpPlan['params'] | null>(null);
   const [saving,      setSaving]      = useState(false);
@@ -352,9 +349,19 @@ export default function EarlyScalpView() {
   const [env]                         = useState<'paper' | 'live'>('paper');
   const [forcing,     setForcing]     = useState<string | null>(null);
   const [forceMsg,    setForceMsg]    = useState<string | null>(null);
-  const esWs          = useRef<WebSocket | null>(null);
-  const esWsReconnect = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const closedTimers  = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Trades come from the shared app-wide live store -- identical to the dashboard
+  // and Testing Lab, and they survive switching screens.
+  const storeOpen   = useMarketStore(s => s.openTrades);
+  const storeClosed = useMarketStore(s => s.closedTrades);
+  const trades = useMemo<ScalpTrade[]>(() => {
+    const isEs = (t: { entry_logic?: string | null; env: string }) =>
+      !!t.entry_logic?.includes('[ES]') && t.env === env;
+    return [
+      ...storeOpen.filter(isEs).map(t => t as unknown as ScalpTrade),
+      ...storeClosed.filter(isEs).map(t => t as unknown as ScalpTrade),
+    ];
+  }, [storeOpen, storeClosed, env]);
 
   // Load plan
   const loadPlan = useCallback(async () => {
@@ -374,89 +381,6 @@ export default function EarlyScalpView() {
     const id1 = setInterval(loadPlan, 3000);
     return () => { clearInterval(id1); };
   }, [loadPlan]);
-
-  // WebSocket for instant trade updates
-  useEffect(() => {
-    const connect = () => {
-      try {
-        esWs.current = new WebSocket(WS_TRADES_URL);
-
-        esWs.current.onmessage = (evt) => {
-          const msg = JSON.parse(evt.data);
-
-          if (msg.type === 'snapshot') {
-            // Keep recently-closed trades (status='closed'); replace open ones from snapshot
-            setTrades(prev => {
-              const closed = prev.filter(t => t.status === 'closed');
-              const fresh  = (msg.trades as ScalpTrade[]).filter(t =>
-                t.entry_logic?.includes('[ES]') && t.env === env
-              );
-              return [...fresh, ...closed];
-            });
-
-          } else if (msg.type === 'trade_opened') {
-            if (msg.entry_logic?.includes('[ES]') && msg.env === env) {
-              const newTrade: ScalpTrade = {
-                trade_id:      msg.trade_id,
-                symbol:        msg.symbol,
-                option_symbol: msg.option_symbol,
-                direction:     msg.direction,
-                env:           msg.env,
-                entry:         msg.entry,
-                ltp:           null,
-                pnl_pct:       0,
-                quantity:      msg.quantity,
-                lot_size:      msg.lot_size,
-                hard_sl:       msg.hard_sl,
-                target:        msg.target,
-                status:        'open',
-                entered_at:    msg.entered_at,
-                entry_logic:   msg.entry_logic,
-              };
-              setTrades(prev =>
-                prev.some(t => t.trade_id === msg.trade_id) ? prev : [...prev, newTrade]
-              );
-            }
-
-          } else if (msg.type === 'trade_tick') {
-            setTrades(prev => prev.map(t =>
-              t.trade_id === msg.trade_id
-                ? { ...t, ltp: msg.ltp, pnl_pct: msg.pnl_pct }
-                : t
-            ));
-
-          } else if (msg.type === 'trade_closed') {
-            // Mark closed immediately, then remove after 60s
-            setTrades(prev => prev.map(t =>
-              t.trade_id === msg.trade_id ? { ...t, status: 'closed' } : t
-            ));
-            if (closedTimers.current.has(msg.trade_id)) {
-              clearTimeout(closedTimers.current.get(msg.trade_id));
-            }
-            const timer = setTimeout(() => {
-              setTrades(prev => prev.filter(t => t.trade_id !== msg.trade_id));
-              closedTimers.current.delete(msg.trade_id);
-            }, CLOSED_LINGER_MS);
-            closedTimers.current.set(msg.trade_id, timer);
-          }
-        };
-
-        esWs.current.onclose = () => {
-          esWsReconnect.current = setTimeout(connect, 3000);
-        };
-        esWs.current.onerror = () => { esWs.current?.close(); };
-      } catch {
-        esWsReconnect.current = setTimeout(connect, 3000);
-      }
-    };
-
-    connect();
-    return () => {
-      clearTimeout(esWsReconnect.current);
-      esWs.current?.close();
-      closedTimers.current.forEach(t => clearTimeout(t));
-    };
-  }, [env]);
 
   const toggleEnabled = async () => {
     const next = !enabled;
