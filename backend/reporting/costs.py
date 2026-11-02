@@ -32,3 +32,11 @@ def calc_statutory(t: dict) -> int:
     stamp       = 0.00003  * entry_val
 
     return round(stt + exchange + gst_on_exch + sebi + stamp)
+
+
+def calc_trade_charges(t: dict) -> float:
+    """All-in charges for one round-trip trade: brokerage + statutory costs.
+
+    Gross PnL minus this is what actually leaves/enters the account.
+    """
+    return calc_brokerage() + calc_statutory(t)

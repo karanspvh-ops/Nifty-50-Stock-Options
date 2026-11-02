@@ -6,6 +6,8 @@ list of trades (e.g., add Sharpe ratio, max drawdown, streak counts).
 
 from typing import List, Optional
 
+from backend.reporting.costs import calc_trade_charges
+
 
 def trade_capital(t: dict) -> float:
     """Capital deployed for one trade: entry × qty × lot_size."""
@@ -15,9 +17,11 @@ def trade_capital(t: dict) -> float:
 def build_stats(trades: List[dict]) -> dict:
     """Aggregate summary stats for a list of trade dicts (from email_sender or pnl_builder)."""
     if not trades:
-        return {"n": 0, "net": 0, "wins": 0, "win_pct": 0, "pf": 0, "avg_cap": 0}
+        return {"n": 0, "gross": 0, "charges": 0, "net": 0, "wins": 0, "win_pct": 0, "pf": 0, "avg_cap": 0}
 
-    net  = sum(t["pnl"] for t in trades)
+    gross   = sum(t["pnl"] for t in trades)
+    charges = sum(calc_trade_charges(t) for t in trades)
+    net     = gross - charges        # after brokerage, STT, exchange, GST, SEBI, stamp duty
     wins = sum(1 for t in trades if t["pnl"] > 0)
     caps = [trade_capital(t) for t in trades if trade_capital(t)]
     gp   = sum(t["pnl"] for t in trades if t["pnl"] > 0)
@@ -26,6 +30,8 @@ def build_stats(trades: List[dict]) -> dict:
 
     return {
         "n":        len(trades),
+        "gross":    gross,
+        "charges":  charges,
         "net":      net,
         "wins":     wins,
         "win_pct":  round(wins / len(trades) * 100) if trades else 0,

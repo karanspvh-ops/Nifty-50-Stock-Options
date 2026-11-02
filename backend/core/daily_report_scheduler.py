@@ -204,6 +204,7 @@ class DailyReportScheduler:
                 }
                 for t in closed
             ]
+            from backend.reporting.costs import calc_trade_charges
             prior_es = (
                 db.query(Trade)
                 .filter(Trade.env == TradeEnv.PAPER,
@@ -212,7 +213,10 @@ class DailyReportScheduler:
                         Trade.entry_logic.like("[ES]%"))
                 .all()
             )
-            es_start_balance = 500_000 + sum((t.pnl or 0) for t in prior_es)
+            es_start_balance = 500_000 + sum(
+                (t.pnl or 0) - calc_trade_charges({
+                    "entry": t.entry_price, "exit": t.exit_price,
+                    "qty": t.quantity, "lot_size": t.lot_size}) for t in prior_es)
         finally:
             db.close()
 
@@ -238,35 +242,19 @@ class DailyReportScheduler:
         smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.getenv("SMTP_PORT", "587"))
 
-        def capital(t):
-            return (t.get("entry") or 0) * (t.get("qty") or 0) * (t.get("lot_size") or 1)
-
-        def stats(ts):
-            net  = sum(t["pnl"] for t in ts)
-            wins = sum(1 for t in ts if t["pnl"] > 0)
-            caps = [capital(t) for t in ts if capital(t)]
-            gp   = sum(t["pnl"] for t in ts if t["pnl"] > 0)
-            gl   = abs(sum(t["pnl"] for t in ts if t["pnl"] < 0))
-            pf   = round(gp / gl, 2) if gl else ("&infin;" if gp > 0 else 0)
-            return {
-                "n": len(ts), "net": net, "wins": wins,
-                "win_pct": round(wins / len(ts) * 100) if ts else 0,
-                "pf": pf,
-                "avg_cap": round(sum(caps) / len(caps)) if caps else 0,
-            }
-
+        from backend.reporting.stats import build_stats
         es_trades = [t for t in trades if t["logic"].startswith("[ES]")]
         ob_trades = [t for t in trades if t["logic"].startswith("[OB]")]
-        all_s, es_s, ob_s = stats(trades), stats(es_trades), stats(ob_trades)
+        all_s, es_s, ob_s = build_stats(trades), build_stats(es_trades), build_stats(ob_trades)
 
-        from backend.routers.reports_router import _build_report_html
-        html_body = _build_report_html(
+        from backend.reporting.html_builder import build_report_html
+        html_body = build_report_html(
             today_str, "PAPER", today_str, all_s, es_s, ob_s, es_trades, ob_trades,
             es_start_balance
         )
 
         net = all_s["net"]
-        subject_pnl = f"{'+'if net>=0 else '−'}₹{abs(int(net)):,}"
+        subject_pnl = f"net {'+'if net>=0 else '−'}₹{abs(int(net)):,}"
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"SPVH AMC Daily Report — {today_str} — {subject_pnl}"
         msg["From"]    = smtp_user

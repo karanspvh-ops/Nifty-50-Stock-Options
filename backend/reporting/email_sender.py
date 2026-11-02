@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session as DBSession
 from backend.database      import Session, Trade, TradeStatus, TradeEnv
 from backend.reporting.stats       import build_stats
 from backend.reporting.html_builder import build_report_html
+from backend.reporting.costs        import calc_trade_charges
 
 
 def _query_trades(env: TradeEnv, from_dt: datetime, to_dt: datetime) -> list:
@@ -73,7 +74,10 @@ def _query_trades(env: TradeEnv, from_dt: datetime, to_dt: datetime) -> list:
             )
             .all()
         )
-        es_start_balance = 500_000 + sum((t.pnl or 0) for t in prior_es)
+        es_start_balance = 500_000 + sum(
+            (t.pnl or 0) - calc_trade_charges({
+                "entry": t.entry_price, "exit": t.exit_price,
+                "qty": t.quantity, "lot_size": t.lot_size}) for t in prior_es)
         return trades, es_start_balance
     finally:
         db.close()

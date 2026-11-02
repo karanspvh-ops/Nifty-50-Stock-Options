@@ -13,7 +13,7 @@ from collections import defaultdict
 from datetime import datetime as _dt
 from typing import List
 
-from backend.reporting.costs import calc_brokerage, calc_statutory
+from backend.reporting.costs import calc_brokerage, calc_statutory, calc_trade_charges
 from backend.reporting.stats import trade_capital
 
 
@@ -39,7 +39,17 @@ def stats_table_html(st: dict, label: str = "Summary") -> str:
           <div style="font-size:22px;font-weight:700;color:#111">{st['win_pct']}%</div>
         </td>
         <td style="padding:4px 16px 4px 0;vertical-align:top">
-          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Net PnL</div>
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Gross PnL</div>
+          <div style="font-size:22px;font-weight:700;color:{"#22c55e" if st.get("gross", st["net"]) >= 0 else "#ef4444"}">
+            {"+" if st.get("gross", st["net"])>=0 else "−"}₹{abs(int(st.get("gross", st["net"]))):,}
+          </div>
+        </td>
+        <td style="padding:4px 16px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Charges &amp; Taxes</div>
+          <div style="font-size:22px;font-weight:700;color:#64748b">−₹{int(st.get("charges", 0)):,}</div>
+        </td>
+        <td style="padding:4px 16px 4px 0;vertical-align:top">
+          <div style="font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.5px">Net PnL (after charges)</div>
           <div style="font-size:22px;font-weight:700;color:{pnl_color}">
             {"+" if st['net']>=0 else "−"}₹{abs(int(st['net'])):,}
           </div>
@@ -84,9 +94,10 @@ def trade_table_html(trades: List[dict]) -> str:
     col_headers = (
         f'<th style="{th}">Symbol</th>'
         f'<th style="{th}">Entry</th><th style="{th}">Exit</th>'
-        f'<th style="{th}">Capital</th><th style="{th}">PnL</th><th style="{th}">%</th>'
+        f'<th style="{th}">Capital</th><th style="{th}">Gross PnL</th><th style="{th}">%</th>'
         f'<th style="{th}">Peak</th>'
-        f'<th style="{th}">Brokerage</th><th style="{th}">Statutory</th>'
+        f'<th style="{th}">Brokerage</th><th style="{th}">Taxes &amp; Fees</th>'
+        f'<th style="{th}">Net PnL</th>'
         f'<th style="{th}">In</th><th style="{th}">Out</th>'
     )
     td = "padding:6px 8px;border-bottom:1px solid #e2e8f0;color:#111;font-size:12px"
@@ -94,7 +105,9 @@ def trade_table_html(trades: List[dict]) -> str:
     html = ""
     for date_key in sorted_dates:
         day_trades = by_date[date_key]
-        day_pnl   = sum(t["pnl"] for t in day_trades)
+        day_gross = sum(t["pnl"] for t in day_trades)
+        day_ch    = sum(calc_trade_charges(t) for t in day_trades)
+        day_pnl   = day_gross - day_ch          # net of charges and taxes
         day_bg    = "#dcfce7" if day_pnl >= 0 else "#fee2e2"
         day_color = "#15803d" if day_pnl >= 0 else "#b91c1c"
         day_sign  = "+" if day_pnl >= 0 else "−"
@@ -103,11 +116,13 @@ def trade_table_html(trades: List[dict]) -> str:
             f'style="width:100%;border-collapse:collapse;margin-bottom:20px">'
             f'<thead>'
             f'<tr style="background:{day_bg}">'
-            f'<td colspan="9" style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">'
+            f'<td colspan="7" style="padding:7px 12px;font-size:12px;font-weight:700;color:#1e293b">'
             f'{_fmt_day(date_key)}</td>'
-            f'<td colspan="2" style="padding:7px 12px;text-align:right;font-size:12px;'
+            f'<td colspan="5" style="padding:7px 12px;text-align:right;font-size:12px;'
             f'font-weight:700;color:{day_color}">'
-            f'{day_sign}₹{abs(int(day_pnl)):,} &nbsp;·&nbsp; '
+            f'Net {day_sign}₹{abs(int(day_pnl)):,} '
+            f'<span style="font-weight:500;color:#475569">(gross {"+" if day_gross>=0 else "−"}₹{abs(int(day_gross)):,}'
+            f' − charges ₹{int(day_ch):,})</span> &nbsp;·&nbsp; '
             f'{len(day_trades)} trade{"s" if len(day_trades)!=1 else ""}</td>'
             f'</tr>'
             f'<tr>{col_headers}</tr>'
@@ -118,6 +133,8 @@ def trade_table_html(trades: List[dict]) -> str:
             broker     = calc_brokerage()
             statutory  = calc_statutory(t)
             pnl_color  = "#15803d" if t["pnl"] >= 0 else "#b91c1c"
+            t_net      = t["pnl"] - calc_trade_charges(t)
+            net_color  = "#15803d" if t_net >= 0 else "#b91c1c"
             peak       = t.get("peak")
             peak_pct   = t.get("peak_pct")
             peak_color = "#15803d" if (peak_pct or 0) >= 0 else "#b91c1c"
@@ -145,12 +162,14 @@ def trade_table_html(trades: List[dict]) -> str:
                 f'<td style="{td}">₹{t["entry"]:.2f}</td>'
                 f'<td style="{td}">{exit_cell}</td>'
                 f'<td style="{td}">{f"₹{int(cap):,}" if cap else "—"}</td>'
-                f'<td style="{td};color:{pnl_color};font-weight:700">'
+                f'<td style="{td};color:{pnl_color};font-weight:600">'
                 f'{"+" if t["pnl"]>=0 else "−"}₹{abs(int(t["pnl"])):,}</td>'
-                f'<td style="{td};color:{pnl_color};font-weight:600">{t["pnl_pct"]:.1f}%</td>'
+                f'<td style="{td};color:{pnl_color}">{t["pnl_pct"]:.1f}%</td>'
                 f'<td style="{td};color:{peak_color}">{peak_cell}</td>'
                 f'<td style="{td};color:#64748b">₹{int(broker)}</td>'
                 f'<td style="{td};color:#64748b">₹{statutory}</td>'
+                f'<td style="{td};color:{net_color};font-weight:700">'
+                f'{"+" if t_net>=0 else "−"}₹{abs(int(t_net)):,}</td>'
                 f'<td style="{td};color:#475569">{entered}</td>'
                 f'<td style="{td};color:#475569">{exited}</td>'
                 f'</tr>'
@@ -301,7 +320,8 @@ def es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
             rc += delta
             if rc > peak: peak = rc
 
-        day_pnl     = sum(t.get("pnl") or 0 for t in raw)
+        # Net of charges: they leave the account as each trade closes
+        day_pnl     = sum((t.get("pnl") or 0) - calc_trade_charges(t) for t in raw)
         running_bal += day_pnl
         days_data.append({
             "date":     day,
@@ -347,7 +367,7 @@ def es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
         f'<thead><tr>'
         f'<th style="{th}">Date</th><th style="{th}">Opening</th>'
         f'<th style="{th}">Peak Concurrent</th><th style="{th}">Headroom</th>'
-        f'<th style="{th}">% Used</th><th style="{th}">Status</th><th style="{th}">Day PnL</th>'
+        f'<th style="{th}">% Used</th><th style="{th}">Status</th><th style="{th}">Day PnL (net)</th>'
         f'</tr></thead><tbody>{summary_rows}</tbody></table>'
     )
 
@@ -397,7 +417,7 @@ def es_capital_section(es_trades: list, start_balance: float = 500_000) -> str:
             f'</tr><tr>'
             f'<th style="{th}">Symbol</th><th style="{th}">In</th><th style="{th}">Out</th>'
             f'<th style="{th}">Duration</th><th style="{th}">Capital</th>'
-            f'<th style="{th}">Concurrent at Entry</th><th style="{th}">PnL</th>'
+            f'<th style="{th}">Concurrent at Entry</th><th style="{th}">Gross PnL</th>'
             f'</tr>'
             f'</thead><tbody>{trade_rows}</tbody></table>'
             f'</div>'
