@@ -86,8 +86,8 @@ function calcStatutory(t: Trade): number {
   const ls       = t.lot_size || 1;
   const entryVal = t.entry * t.qty * ls;
   const exitVal  = t.exit  * t.qty * ls;
-  const stt         = 0.00125  * exitVal;                         // 0.125% on sell premium
-  const exchange    = 0.00053  * (entryVal + exitVal);            // NSE F&O transaction charge
+  const stt         = 0.0015   * exitVal;                         // 0.15% STT on sell premium
+  const exchange    = 0.000355 * (entryVal + exitVal);            // NSE F&O transaction charge
   const gstOnExch   = 0.18     * exchange;                        // 18% GST on exchange charges
   const sebi        = (entryVal + exitVal) * 10 / 10_000_000;    // ₹10 per crore
   const stamp       = 0.00003  * entryVal;                        // 0.003% stamp on buy
@@ -282,7 +282,7 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
           <tr>
             <th style="${th}">Symbol</th><th style="${th}">In</th><th style="${th}">Out</th>
             <th style="${th}">Duration</th><th style="${th}">Capital</th>
-            <th style="${th}">Concurrent at Entry</th><th style="${th}">PnL</th>
+            <th style="${th}">Concurrent at Entry</th><th style="${th}">Gross PnL</th>
           </tr>
         </thead><tbody>${rows}</tbody>
       </table>
@@ -707,12 +707,14 @@ function generatePDF(
   const filename = `SPVH_AMC_Report_${dateSuffix}.pdf`;
 
   const calcStats = (ts: Trade[]) => {
-    const net    = ts.reduce((s, t) => s + (t.pnl || 0), 0);
+    const gross   = ts.reduce((s, t) => s + (t.pnl || 0), 0);
+    const charges = ts.reduce((s, t) => s + calcTradeCharges(t), 0);
+    const net     = gross - charges;            // after brokerage, STT, exchange, GST, SEBI, stamp duty
     const wins   = ts.filter(t => (t.pnl || 0) > 0).length;
     const caps   = ts.map(capitalUsed).filter(Boolean);
     const avgCap = caps.length ? Math.round(caps.reduce((a, b) => a + b, 0) / caps.length) : 0;
     const pf     = profitFactor(ts);
-    return { n: ts.length, net, wins, winPct: ts.length ? Math.round(wins / ts.length * 100) : 0, pf, avgCap };
+    return { n: ts.length, gross, charges, net, wins, winPct: ts.length ? Math.round(wins / ts.length * 100) : 0, pf, avgCap };
   };
   const all = calcStats(allTrades);
   const es  = calcStats(esTrades);
@@ -728,7 +730,9 @@ function generatePDF(
     return `<table cellpadding="0" cellspacing="0" style="width:100%;margin:6px 0"><tr>
       ${stat('Total Trades', String(s.n))}
       ${stat('Win Rate', `${s.winPct}%`)}
-      ${stat('Net PnL', fmtPnL(s.net), pnlColor)}
+      ${stat('Gross PnL', fmtPnL(s.gross), s.gross >= 0 ? '#16a34a' : '#dc2626')}
+      ${stat('Charges &amp; Taxes', `−₹${Math.round(s.charges).toLocaleString('en-IN')}`, '#64748b')}
+      ${stat('Net PnL (after charges)', fmtPnL(s.net), pnlColor)}
       ${stat('Profit Factor', isFinite(s.pf) ? String(s.pf) : '∞')}
       ${stat('Avg Capital', s.avgCap ? fmtRs(s.avgCap) : '—')}
     </tr></table>`;
@@ -755,7 +759,9 @@ function generatePDF(
 
     return sortedDates.map(day => {
       const dayTrades = byDate.get(day)!;
-      const dayPnl   = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      const dayGross = dayTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+      const dayCh    = dayTrades.reduce((s, t) => s + calcTradeCharges(t), 0);
+      const dayPnl   = dayGross - dayCh;     // net of charges and taxes
       const dayBg    = dayPnl >= 0 ? '#dcfce7' : '#fee2e2';
       const dayColor = dayPnl >= 0 ? '#15803d' : '#b91c1c';
       const daySign  = dayPnl >= 0 ? '+' : '−';
@@ -766,6 +772,8 @@ function generatePDF(
         const broker     = calcBrokerage();
         const statutory  = calcStatutory(t);
         const pnlColor   = (t.pnl || 0) >= 0 ? '#15803d' : '#b91c1c';
+        const tNet       = (t.pnl || 0) - calcTradeCharges(t);
+        const netColor   = tNet >= 0 ? '#15803d' : '#b91c1c';
         const peakColor  = (t.peak_pct ?? 0) >= 0 ? '#15803d' : '#b91c1c';
         const bg         = i % 2 === 0 ? '#ffffff' : '#f8fafc';
         const symLabel   = [
@@ -782,11 +790,12 @@ function generatePDF(
           <td style="${td}">${t.entry ? `₹${t.entry.toFixed(2)}` : '—'}</td>
           <td style="${td}">${t.exit  ? `₹${t.exit.toFixed(2)}`  : '—'}</td>
           <td style="${td}">${cap ? fmtRs(cap) : '—'}</td>
-          <td style="${td};color:${pnlColor};font-weight:700">${fmtPnL(t.pnl || 0)}</td>
-          <td style="${td};color:${pnlColor};font-weight:600">${(t.pnl_pct || 0).toFixed(1)}%</td>
+          <td style="${td};color:${pnlColor};font-weight:600">${fmtPnL(t.pnl || 0)}</td>
+          <td style="${td};color:${pnlColor}">${(t.pnl_pct || 0).toFixed(1)}%</td>
           <td style="${td};color:${peakColor}">${peakCell}</td>
           <td style="${td};color:#64748b">₹${broker.toFixed(0)}</td>
           <td style="${td};color:#64748b">₹${statutory}</td>
+          <td style="${td};color:${netColor};font-weight:700">${fmtPnL(tNet)}</td>
           <td style="${td};color:#475569">${fmtTime(t.entered_at)}</td>
           <td style="${td};color:#475569">${fmtTime(t.exited_at)}</td>
         </tr>`;
@@ -797,15 +806,16 @@ function generatePDF(
       return `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin-bottom:20px">
         <thead>
           <tr style="background:${dayBg};page-break-after:avoid">
-            <td colspan="9" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
-            <td colspan="2" style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
+            <td colspan="7" style="padding:7px 10px;font-size:12px;font-weight:700;color:#1e293b">${fmtDay(day)}</td>
+            <td colspan="5" style="padding:7px 10px;text-align:right;font-size:12px;font-weight:700;color:${dayColor}">Net ${daySign}₹${Math.abs(Math.round(dayPnl)).toLocaleString('en-IN')} <span style="font-weight:500;color:#475569">(gross ${dayGross >= 0 ? '+' : '−'}₹${Math.abs(Math.round(dayGross)).toLocaleString('en-IN')} − charges ₹${Math.round(dayCh).toLocaleString('en-IN')})</span> &nbsp;·&nbsp; ${dayTrades.length} trade${dayTrades.length !== 1 ? 's' : ''}</td>
           </tr>
           <tr style="page-break-after:avoid">
             <th style="${thStyle}">Symbol</th>
             <th style="${thStyle}">Entry</th><th style="${thStyle}">Exit</th>
-            <th style="${thStyle}">Capital</th><th style="${thStyle}">PnL</th><th style="${thStyle}">%</th>
+            <th style="${thStyle}">Capital</th><th style="${thStyle}">Gross PnL</th><th style="${thStyle}">%</th>
             <th style="${thStyle}">Peak</th>
-            <th style="${thStyle}">Brokerage</th><th style="${thStyle}">Statutory</th>
+            <th style="${thStyle}">Brokerage</th><th style="${thStyle}">Taxes &amp; Fees</th>
+            <th style="${thStyle}">Net PnL</th>
             <th style="${thStyle}">In</th><th style="${thStyle}">Out</th>
           </tr>
         </thead>
