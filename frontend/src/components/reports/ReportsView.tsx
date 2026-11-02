@@ -81,6 +81,9 @@ function capitalUsed(t: Trade): number {
 // ₹20 + 18% GST per leg × 2 legs (buy + sell)
 function calcBrokerage(): number { return 47.2; }
 
+// Trade P&L after brokerage and all statutory charges
+const netOf = (t: Trade) => (t.pnl || 0) - calcTradeCharges(t);
+
 function calcStatutory(t: Trade): number {
   if (!t.entry || !t.exit || !t.qty) return 0;
   const ls       = t.lot_size || 1;
@@ -1096,26 +1099,29 @@ export default function ReportsView() {
 
   const stats = useMemo(() => {
     const calc = (ts: Trade[]) => {
-      const net   = ts.reduce((s, t) => s + (t.pnl || 0), 0);
+      const gross   = ts.reduce((s, t) => s + (t.pnl || 0), 0);
+      const charges = ts.reduce((s, t) => s + calcTradeCharges(t), 0);
+      const net     = gross - charges;     // after brokerage, STT, exchange, GST, SEBI, stamp duty
       const wins  = ts.filter(t => (t.pnl || 0) > 0).length;
       const caps  = ts.map(capitalUsed).filter(Boolean);
       const avgCap = caps.length ? caps.reduce((a, b) => a + b, 0) / caps.length : 0;
-      return { net, wins, n: ts.length, pf: profitFactor(ts), avgCap };
+      return { gross, charges, net, wins, n: ts.length, pf: profitFactor(ts), avgCap };
     };
     return { es: calc(esTrades), ob: calc(obTrades), all: calc(enrichedTrades) };
   }, [esTrades, obTrades, enrichedTrades]);
 
   // ── Per-day breakdown ────────────────────────────────────────────────────────
   const byDay = useMemo(() => {
-    const map: Record<string, { es: number; ob: number; net: number; esN: number; obN: number; wins: number; n: number }> = {};
+    const map: Record<string, { es: number; ob: number; net: number; gross: number; charges: number; esN: number; obN: number; wins: number; n: number }> = {};
     enrichedTrades.forEach(t => {
       const d = t.entered_at?.slice(0, 10) ?? '';
-      if (!map[d]) map[d] = { es: 0, ob: 0, net: 0, esN: 0, obN: 0, wins: 0, n: 0 };
+      if (!map[d]) map[d] = { es: 0, ob: 0, net: 0, gross: 0, charges: 0, esN: 0, obN: 0, wins: 0, n: 0 };
       const pnl = t.pnl || 0;
+      const ch  = calcTradeCharges(t);
       const s = getStrategy(t.entry_logic);
-      if (s === 'ES') { map[d].es += pnl; map[d].esN++; }
-      else if (s === 'OB') { map[d].ob += pnl; map[d].obN++; }
-      map[d].net += pnl; map[d].n++;
+      if (s === 'ES') { map[d].es += pnl - ch; map[d].esN++; }
+      else if (s === 'OB') { map[d].ob += pnl - ch; map[d].obN++; }
+      map[d].net += pnl - ch; map[d].gross += pnl; map[d].charges += ch; map[d].n++;
       if (pnl > 0) map[d].wins++;
     });
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
@@ -1235,10 +1241,12 @@ export default function ReportsView() {
           {/* Combined summary */}
           <div className="bg-surface rounded-xl border border-border p-4">
             <div className="text-[10px] uppercase tracking-wider text-muted mb-3">{periodLabel} — Combined</div>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
               {[
                 { label: 'Total Trades',   val: String(stats.all.n) },
                 { label: 'Win Rate',        val: `${stats.all.n ? Math.round(stats.all.wins / stats.all.n * 100) : 0}%` },
+                { label: 'Gross PnL',       val: fmtPnL(stats.all.gross), color: stats.all.gross >= 0 ? 'text-up' : 'text-down' },
+                { label: 'Charges & Taxes', val: `−${fmtRs(stats.all.charges)}`, color: 'text-muted' },
                 { label: 'Net PnL',         val: fmtPnL(stats.all.net), color: stats.all.net >= 0 ? 'text-up' : 'text-down' },
                 { label: 'Profit Factor',   val: isFinite(stats.all.pf) ? String(stats.all.pf) : '∞' },
                 { label: 'Avg Capital',     val: stats.all.avgCap ? fmtRs(stats.all.avgCap) : '—' },
@@ -1266,8 +1274,9 @@ export default function ReportsView() {
                   <div className="text-white font-bold text-lg">{stats.es.n ? Math.round(stats.es.wins / stats.es.n * 100) : 0}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL</div>
+                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL (after charges)</div>
                   <div className={`font-bold text-lg ${stats.es.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.es.net)}</div>
+                  <div className="text-muted text-[10px] mt-0.5">gross {fmtPnL(stats.es.gross)} · charges −{fmtRs(stats.es.charges)}</div>
                 </div>
               </div>
               <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
@@ -1289,8 +1298,9 @@ export default function ReportsView() {
                   <div className="text-white font-bold text-lg">{stats.ob.n ? Math.round(stats.ob.wins / stats.ob.n * 100) : 0}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL</div>
+                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL (after charges)</div>
                   <div className={`font-bold text-lg ${stats.ob.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.ob.net)}</div>
+                  <div className="text-muted text-[10px] mt-0.5">gross {fmtPnL(stats.ob.gross)} · charges −{fmtRs(stats.ob.charges)}</div>
                 </div>
               </div>
               <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
@@ -1310,8 +1320,10 @@ export default function ReportsView() {
                 <thead>
                   <tr className="text-muted text-[10px] uppercase tracking-wider bg-border/20 border-b border-border">
                     <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2 text-purple-400">ES</th>
-                    <th className="px-3 py-2 text-blue-400">OB</th>
+                    <th className="px-3 py-2 text-purple-400">ES (net)</th>
+                    <th className="px-3 py-2 text-blue-400">OB (net)</th>
+                    <th className="px-3 py-2">Gross</th>
+                    <th className="px-3 py-2">Charges</th>
                     <th className="px-3 py-2">Net</th>
                     <th className="px-3 py-2">Trades</th>
                     <th className="px-3 py-2">Win%</th>
@@ -1327,6 +1339,8 @@ export default function ReportsView() {
                       <td className={`px-3 py-2 font-mono font-semibold ${d.ob >= 0 ? 'text-up' : 'text-down'}`}>
                         {d.obN > 0 ? <>{fmtPnL(d.ob)}<span className="text-muted ml-1 font-normal text-[10px]">{d.obN}t</span></> : <span className="text-muted">—</span>}
                       </td>
+                      <td className={`px-3 py-2 font-mono ${d.gross >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(d.gross)}</td>
+                      <td className="px-3 py-2 font-mono text-muted">−{fmtRs(d.charges)}</td>
                       <td className={`px-3 py-2 font-mono font-bold ${d.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(d.net)}</td>
                       <td className="px-3 py-2 text-muted">{d.n}</td>
                       <td className="px-3 py-2 text-muted">{d.n ? Math.round(d.wins / d.n * 100) : 0}%</td>
@@ -1336,6 +1350,8 @@ export default function ReportsView() {
                     <td className="px-3 py-2 text-muted text-[10px] uppercase tracking-wider">Total</td>
                     <td className={`px-3 py-2 font-mono ${stats.es.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.es.net)}</td>
                     <td className={`px-3 py-2 font-mono ${stats.ob.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.ob.net)}</td>
+                    <td className={`px-3 py-2 font-mono ${stats.all.gross >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.all.gross)}</td>
+                    <td className="px-3 py-2 font-mono text-muted">−{fmtRs(stats.all.charges)}</td>
                     <td className={`px-3 py-2 font-mono ${stats.all.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.all.net)}</td>
                     <td className="px-3 py-2 text-muted">{stats.all.n}</td>
                     <td className="px-3 py-2 text-muted">{stats.all.n ? Math.round(stats.all.wins / stats.all.n * 100) : 0}%</td>
@@ -1383,9 +1399,11 @@ export default function ReportsView() {
                           </span>
                         )}
                       </div>
-                      <span className={`font-semibold ${(t.pnl || 0) >= 0 ? 'text-up' : 'text-down'}`}>
-                        {(t.pnl || 0) >= 0 ? '+' : ''}₹{(t.pnl || 0).toFixed(2)}
-                        <span className="text-muted ml-1 text-[10px]">({(t.pnl_pct || 0).toFixed(1)}%)</span>
+                      <span className={`font-semibold ${netOf(t) >= 0 ? 'text-up' : 'text-down'}`}>
+                        Net {netOf(t) >= 0 ? '+' : '−'}₹{Math.abs(netOf(t)).toFixed(2)}
+                        <span className="text-muted ml-1 text-[10px] font-normal">
+                          (gross {(t.pnl || 0) >= 0 ? '+' : '−'}₹{Math.abs(t.pnl || 0).toFixed(2)} − charges ₹{calcTradeCharges(t).toFixed(2)} · {(t.pnl_pct || 0).toFixed(1)}%)
+                        </span>
                       </span>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-x-3 gap-y-1 text-[11px]">
