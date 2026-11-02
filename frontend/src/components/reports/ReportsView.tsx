@@ -218,7 +218,8 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
     let rc = 0, peak = 0;
     evs.forEach(e => { rc += e.d; if (rc > peak) peak = rc; });
 
-    const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0), 0);
+    // Net of charges: charges leave the account as each trade closes
+    const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0) - calcTradeCharges(t), 0);
     days.push({ date: day, opening, peak: Math.round(peak), headroom: Math.round(opening - peak), breached: peak > opening, dayPnl, trades: rich });
     runningBal += dayPnl;
   }
@@ -244,7 +245,7 @@ function esCapitalSection(esTrades: Trade[], startBalance: number = 500_000): st
     <thead><tr>
       <th style="${th}">Date</th><th style="${th}">Opening</th>
       <th style="${th}">Peak Concurrent</th><th style="${th}">Headroom</th>
-      <th style="${th}">% Used</th><th style="${th}">Status</th><th style="${th}">Day PnL</th>
+      <th style="${th}">% Used</th><th style="${th}">Status</th><th style="${th}">Day PnL (net)</th>
     </tr></thead><tbody>${summaryRows}</tbody></table>`;
 
   const detailHtml = days.map(d => {
@@ -312,6 +313,7 @@ interface DayData {
   date: string; opening: number; closing: number; dayPnl: number;
   peak: number; excess: number; pctUsed: number; charges: number; netPnl: number;
   netPnlPctUtil: number;
+  high: number; low: number; nTrades: number;   // intraday capital path (after charges)
 }
 
 // Mirrors backend/reporting/costs.py exactly — STT (sell-side), NSE exchange txn charge,
@@ -337,6 +339,8 @@ function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
     const d = (t.entered_at || '').slice(0, 10);
     if (d) { if (!byDay.has(d)) byDay.set(d, []); byDay.get(d)!.push(t); }
   });
+  // Capital is reduced by charges the moment each trade is closed -- there is no
+  // "charge-free" capital in the real account -- so every balance below is net.
   let running = base;
   return [...byDay.keys()].sort().map(day => {
     const raw = byDay.get(day)!;
@@ -350,14 +354,28 @@ function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
     evs.sort((a, b) => a.ts - b.ts);
     let rc = 0, peak = 0;
     evs.forEach(e => { rc += e.d; if (rc > peak) peak = rc; });
-    const dayPnl = raw.reduce((s, t) => s + (t.pnl || 0), 0);
+
+    // Intraday capital path (realised, after charges) in exit order -> candle high/low
+    const byExit = [...raw].sort((a, b) =>
+      parseTs(a.exited_at || '').getTime() - parseTs(b.exited_at || '').getTime());
+    let eq = opening, high = opening, low = opening;
+    byExit.forEach(t => {
+      eq += (t.pnl || 0) - calcTradeCharges(t);
+      if (eq > high) high = eq;
+      if (eq < low)  low  = eq;
+    });
+
+    const dayPnl  = raw.reduce((s, t) => s + (t.pnl || 0), 0);
     const charges = raw.reduce((s, t) => s + calcTradeCharges(t), 0);
-    const netPnl = dayPnl - charges;
-    running += dayPnl;
+    const netPnl  = dayPnl - charges;
+    running += netPnl;
     return {
       date: day,
       opening:  Math.round(opening),
       closing:  Math.round(running),
+      high:     Math.round(high),
+      low:      Math.round(low),
+      nTrades:  raw.length,
       dayPnl:   Math.round(dayPnl),
       peak:     Math.round(peak),
       excess:   Math.max(0, Math.round(peak - opening)),
@@ -369,65 +387,193 @@ function computeStrategyGrowth(trades: Trade[], base = 500_000): DayData[] {
   });
 }
 
-function StrategyGrowthChart({ data, accentColor }: { data: DayData[]; accentColor: string }) {
-  if (!data.length) return null;
-  const W = 840, H = 190;
-  const PL = 55, PR = 45, PT = 18, PB = 34;
-  const PW = W - PL - PR, PH = H - PT - PB;
+const fmtINR = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const fmtSignedINR = (n: number) => `${n >= 0 ? '+' : '−'}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
+const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions) => {
+  try { return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', opts); } catch { return d; }
+};
+
+/**
+ * Candlestick chart of daily capital: open = opening capital, close = closing capital
+ * (both after charges), wick = intraday high / low of the realised capital path.
+ * Wheel = zoom at the cursor, drag = pan, buttons for quick zoom. The Y axis rescales
+ * to whatever is in view, so zooming in always shows the detail.
+ */
+function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
   const N = data.length;
-  const allBals = [data[0].opening, ...data.map(d => d.closing)];
-  let mn = Math.min(...allBals), mx = Math.max(...allBals);
-  const rng = Math.max(mx - mn, 30_000);
-  mn -= rng * 0.12; mx += rng * 0.12;
-  const xi = (i: number) => PL + (i / Math.max(N, 1)) * PW;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(840);
+  const [vis, setVis] = useState(() => Math.min(N, 45));   // candles in view
+  const [off, setOff] = useState(0);                        // candles hidden past the right edge
+  const [hover, setHover] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const drag = useRef<{ x: number; off: number } | null>(null);
+
+  const H = 340, PL = 66, PR = 14, PT = 14, PB = 30;
+  const PW = Math.max(100, width - PL - PR), PH = H - PT - PB;
+  const MIN_VIS = Math.min(N, 5);
+
+  const clampView = useCallback((v: number, o: number) => {
+    const nv = Math.min(N, Math.max(MIN_VIS, v));
+    return { vis: nv, off: Math.min(Math.max(0, N - nv), Math.max(0, o)) };
+  }, [N, MIN_VIS]);
+
+  // Always-current copy for the (non-React) wheel listener
+  const live = useRef({ vis, off, N, PW, clampView });
+  live.current = { vis, off, N, PW, clampView };
+
+  useEffect(() => {
+    const el = wrapRef.current; if (!el) return;
+    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    ro.observe(el); setWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const zoomAt = useCallback((factor: number, frac: number) => {
+    const { vis: v, off: o, N: n, clampView: cv } = live.current;
+    const end = n - o, start = end - v;
+    const centre = start + frac * v;
+    const nv = Math.min(n, Math.max(Math.min(n, 5), v * factor));
+    const nStart = centre - frac * nv;
+    const r = cv(nv, n - (nStart + nv));
+    setVis(r.vis); setOff(r.off);
+  }, []);
+
+  useEffect(() => {
+    const el = wrapRef.current; if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const { vis: v, off: o, PW: pw, clampView: cv } = live.current;
+      const rect = el.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (e.clientX - rect.left - PL) / pw));
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {      // sideways scroll = pan
+        const shift = ((e.deltaX || e.deltaY) / pw) * v;
+        const r = cv(v, o - shift); setOff(r.off); return;
+      }
+      zoomAt(Math.exp(e.deltaY * 0.0015), frac);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoomAt]);
+
+  const end   = N - off;
+  const start = end - vis;
+  const cw    = PW / vis;
+  const i0 = Math.max(0, Math.floor(start)), i1 = Math.min(N - 1, Math.ceil(end) - 1);
+  const shown = data.slice(i0, i1 + 1);
+  const xc = (i: number) => PL + (i - start + 0.5) * cw;
+
+  let mn = Math.min(...shown.map(d => d.low)), mx = Math.max(...shown.map(d => d.high));
+  if (!isFinite(mn) || !isFinite(mx)) { mn = base * 0.95; mx = base * 1.05; }
+  const rng = Math.max(mx - mn, 5_000);
+  mn -= rng * 0.08; mx += rng * 0.08;
   const yi = (v: number) => PT + (1 - (v - mn) / (mx - mn)) * PH;
-  const b5y = yi(500_000);
-  const pts = allBals.map((v, i) => `${xi(i).toFixed(1)},${yi(v).toFixed(1)}`).join(' ');
-  const final = data[data.length - 1]?.closing ?? data[0].opening;
-  const lineColor = final >= data[0].opening ? '#4ade80' : '#f87171';
-  const showEvery = Math.max(1, Math.ceil(N / 16));
+  const fmtL = (v: number) => `₹${(v / 100000).toFixed(mx - mn < 150_000 ? 2 : 1)}L`;
+
+  const labelEvery = Math.max(1, Math.ceil(58 / cw));
+  const bodyW = Math.max(1.5, Math.min(26, cw * 0.62));
+
+  const idxAt = (clientX: number) => {
+    const rect = wrapRef.current!.getBoundingClientRect();
+    const i = Math.floor(start + (clientX - rect.left - PL) / cw);
+    return i >= 0 && i < N ? i : null;
+  };
+  const onDown = (e: React.PointerEvent) => {
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    drag.current = { x: e.clientX, off }; setDragging(true);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (drag.current) {
+      const r = clampView(vis, drag.current.off + (e.clientX - drag.current.x) / cw);
+      setOff(r.off); setHover(null);
+    } else setHover(idxAt(e.clientX));
+  };
+  const onUp = () => { drag.current = null; setDragging(false); };
+
+  const btn = 'px-2 py-0.5 rounded border border-border text-[11px] text-muted hover:text-white hover:bg-white/5';
+  const rangeTxt = shown.length
+    ? `${dayLabel(shown[0].date, { day: '2-digit', month: 'short' })} – ${dayLabel(shown[shown.length - 1].date, { day: '2-digit', month: 'short', year: '2-digit' })} · ${shown.length} of ${N} days`
+    : '';
+  const hd = hover != null ? data[hover] : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: 'visible', display: 'block' }}>
-      {[0, 1, 2, 3, 4].map(k => {
-        const v = mn + (mx - mn) * k / 4;
-        const y = yi(v);
-        if (y < PT - 2 || y > H - PB + 2) return null;
-        return (
-          <g key={k}>
-            <line x1={PL} y1={y} x2={W - PR} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-            <text x={PL - 6} y={y} textAnchor="end" dominantBaseline="middle" fontSize="9" fill="#4b5563">
-              ₹{(v / 100000).toFixed(1)}L
-            </text>
-          </g>
-        );
-      })}
-      {b5y >= PT - 2 && b5y <= H - PB + 2 && (
-        <g>
-          <line x1={PL} y1={b5y} x2={W - PR} y2={b5y} stroke="#374151" strokeWidth="1" strokeDasharray="5,4" />
-          <text x={W - PR + 5} y={b5y} dominantBaseline="middle" fontSize="8" fill="#374151">₹5L base</text>
-        </g>
-      )}
-      <polyline points={pts} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinejoin="round"
-        strokeLinecap="round" />
-      <polyline points={pts} fill="none" stroke={accentColor} strokeWidth="1" strokeLinejoin="round"
-        strokeLinecap="round" opacity="0.35" />
-      <circle cx={xi(0)} cy={yi(data[0].opening)} r={3} fill="#6b7280" />
-      {data.map((d, i) => {
-        const cx = xi(i + 1), cy = yi(d.closing);
-        const mc = d.dayPnl >= 0 ? '#4ade80' : '#f87171';
-        const r  = N > 25 ? 2.5 : 4;
-        const lbl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch { return d.date.slice(5); } })();
-        return (
-          <g key={d.date}>
-            <circle cx={cx} cy={cy} r={r} fill={mc} stroke="rgba(0,0,0,0.6)" strokeWidth="1.5" />
-            {(i + 1) % showEvery === 0 && (
-              <text x={cx} y={H - 4} textAnchor="middle" fontSize="9" fill="#4b5563">{lbl}</text>
+    <div>
+      <div className="flex items-center justify-between mb-1 text-[11px] text-muted">
+        <span>{rangeTxt}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="hidden sm:inline mr-1 opacity-60">scroll = zoom · drag = move</span>
+          <button className={btn} onClick={() => zoomAt(1.5, 0.5)}>−</button>
+          <button className={btn} onClick={() => zoomAt(1 / 1.5, 0.5)}>+</button>
+          <button className={btn} onClick={() => { const r = clampView(Math.min(N, 30), 0); setVis(r.vis); setOff(r.off); }}>30D</button>
+          <button className={btn} onClick={() => { setVis(N); setOff(0); }}>All</button>
+        </span>
+      </div>
+      <div ref={wrapRef} className="relative select-none" style={{ touchAction: 'none' }}>
+        <svg width={width} height={H} style={{ display: 'block', cursor: dragging ? 'grabbing' : 'crosshair' }}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+          onPointerCancel={onUp} onPointerLeave={() => { if (!drag.current) setHover(null); }}>
+          <defs><clipPath id="cc-clip"><rect x={PL} y={PT - 4} width={PW} height={PH + 8} /></clipPath></defs>
+          {[0, 1, 2, 3, 4].map(k => {
+            const v = mn + (mx - mn) * k / 4, y = yi(v);
+            return (
+              <g key={k}>
+                <line x1={PL} y1={y} x2={width - PR} y2={y} stroke="rgba(255,255,255,0.06)" />
+                <text x={PL - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#6b7280">{fmtL(v)}</text>
+              </g>
+            );
+          })}
+          {yi(base) >= PT && yi(base) <= PT + PH && (
+            <g>
+              <line x1={PL} y1={yi(base)} x2={width - PR} y2={yi(base)} stroke="#4b5563" strokeDasharray="5,4" />
+              <text x={width - PR - 2} y={yi(base) - 4} textAnchor="end" fontSize="9" fill="#6b7280">₹5L base</text>
+            </g>
+          )}
+          <g clipPath="url(#cc-clip)">
+            {hover != null && (
+              <rect x={xc(hover) - cw / 2} y={PT} width={cw} height={PH} fill="rgba(255,255,255,0.05)" />
             )}
+            {shown.map((d, k) => {
+              const i = i0 + k, x = xc(i);
+              const up = d.closing >= d.opening, col = up ? '#4ade80' : '#f87171';
+              const yTop = yi(Math.max(d.opening, d.closing)), yBot = yi(Math.min(d.opening, d.closing));
+              return (
+                <g key={d.date}>
+                  <line x1={x} y1={yi(d.high)} x2={x} y2={yi(d.low)} stroke={col} strokeWidth={Math.min(2, Math.max(1, bodyW / 6))} />
+                  <rect x={x - bodyW / 2} y={yTop} width={bodyW} height={Math.max(1.5, yBot - yTop)} fill={col} rx={bodyW > 6 ? 1 : 0} />
+                </g>
+              );
+            })}
           </g>
-        );
-      })}
-    </svg>
+          {shown.map((d, k) => {
+            const i = i0 + k;
+            if (k % labelEvery !== 0) return null;
+            return (
+              <text key={d.date} x={xc(i)} y={H - 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+                {dayLabel(d.date, { day: '2-digit', month: 'short' })}
+              </text>
+            );
+          })}
+        </svg>
+        {hd && hover != null && (
+          <div className="absolute z-10 pointer-events-none rounded-md border border-border bg-bg/95 px-2.5 py-2 text-[11px] leading-5 shadow-lg"
+            style={{ top: 8, left: Math.min(Math.max(xc(hover) + 14, 8), width - 200) }}>
+            <div className="font-semibold text-white mb-0.5">
+              {dayLabel(hd.date, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+              <span className="text-muted font-normal"> · {hd.nTrades} trades</span>
+            </div>
+            <div className="grid grid-cols-[auto_auto] gap-x-3 text-muted">
+              <span>Open</span><span className="text-right text-white">{fmtINR(hd.opening)}</span>
+              <span>High</span><span className="text-right text-white">{fmtINR(hd.high)}</span>
+              <span>Low</span><span className="text-right text-white">{fmtINR(hd.low)}</span>
+              <span>Close</span><span className="text-right text-white">{fmtINR(hd.closing)}</span>
+              <span>Charges</span><span className="text-right">−{fmtINR(hd.charges)}</span>
+              <span>Net PnL</span>
+              <span className={`text-right font-semibold ${hd.netPnl >= 0 ? 'text-up' : 'text-down'}`}>{fmtSignedINR(hd.netPnl)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -444,11 +590,11 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
 
   const final    = data[data.length - 1].closing;
   const totalPnL = final - 500_000;
-  const winDays  = data.filter(d => d.dayPnl > 0).length;
+  const winDays  = data.filter(d => d.netPnl > 0).length;
   const overDays = data.filter(d => d.excess > 0).length;
   const stats = [
     { lbl: 'Current Balance', val: `₹${final.toLocaleString('en-IN')}`,  color: final >= 500_000 ? '#4ade80' : '#f87171' },
-    { lbl: 'Total PnL',       val: `${totalPnL >= 0 ? '+' : '−'}₹${Math.abs(totalPnL).toLocaleString('en-IN')}`, color: totalPnL >= 0 ? '#4ade80' : '#f87171' },
+    { lbl: 'Total PnL (net)', val: `${totalPnL >= 0 ? '+' : '−'}₹${Math.abs(totalPnL).toLocaleString('en-IN')}`, color: totalPnL >= 0 ? '#4ade80' : '#f87171' },
     { lbl: 'Up / Total Days', val: `${winDays} / ${data.length}`,         color: '#94a3b8' },
     ...(overDays > 0 ? [{ lbl: '⚠ Over Limit', val: `${overDays} days`,  color: '#f87171' }] : []),
   ];
@@ -459,7 +605,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
       <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="font-bold text-sm" style={{ color: accentColor }}>{label}</span>
-          <span className="text-muted text-xs">₹5L base &nbsp;·&nbsp; all-time</span>
+          <span className="text-muted text-xs">₹5L base &nbsp;·&nbsp; all-time &nbsp;·&nbsp; after charges</span>
         </div>
         <div className="flex gap-6">
           {stats.map(s => (
@@ -473,7 +619,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
 
       {/* Chart */}
       <div className="px-4 pt-3 pb-1">
-        <StrategyGrowthChart data={data} accentColor={accentColor} />
+        <CapitalCandleChart data={data} base={500_000} />
       </div>
 
       {/* Table */}
@@ -481,7 +627,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
         <table className="w-full text-left">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
-              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL', 'Charges', 'Net PnL', 'Net PnL % (Util)', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
+              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL (gross)', 'Charges', 'Net PnL', 'Net PnL % (Util)', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
                 <th key={h} className={`px-2 pb-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
               ))}
             </tr>
@@ -933,7 +1079,7 @@ export default function ReportsView() {
   const esStartBalance = useMemo(() => {
     const cutoff = cutoffForPeriod(period, customFrom);
     const prior = allEsTrades.filter(t => t.entered_at && parseTs(t.entered_at) < cutoff);
-    return 500_000 + prior.reduce((s, t) => s + (t.pnl || 0), 0);
+    return 500_000 + prior.reduce((s, t) => s + (t.pnl || 0) - calcTradeCharges(t), 0);
   }, [allEsTrades, period, customFrom]);
 
   const allObTrades = useMemo(() => allTrades.filter(t => getStrategy(t.entry_logic) === 'OB'), [allTrades]);
