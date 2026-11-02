@@ -23,6 +23,9 @@ class MarketState:
         # {"ltp": float, "volume": int, "timestamp": datetime, "prev_close": float}
         self._ticks: Dict[str, dict] = {}
 
+        # token → callable(token, ltp) — called on every tick for that token
+        self._tick_callbacks: Dict[str, object] = {}
+
         # token → {"pct_change": float, "direction": "up"/"down"/"flat"}
         self._stock_moves: Dict[str, dict] = {}
 
@@ -33,6 +36,14 @@ class MarketState:
         # Each candle: {"ts": str, "open": f, "high": f, "low": f, "close": f, "volume": int}
         self._candles: Dict[str, List[dict]] = {}
 
+        # Real-time 1-min candle builder (built from WebSocket ticks, not Kite polling)
+        # _rt_forming:  token → current in-progress candle (not yet closed)
+        #               {"date": datetime, "open", "high", "low", "close", "volume", "_vol_start"}
+        # _rt_candles:  token → list of closed 1-min candles (max 100 per token)
+        #               {"date": datetime, "open", "high", "low", "close", "volume"}
+        self._rt_forming: Dict[str, dict] = {}
+        self._rt_candles: Dict[str, List[dict]] = {}
+
         # Global feed health
         self._feed_connected: bool = False
         self._feed_last_tick: Optional[datetime] = None
@@ -42,10 +53,16 @@ class MarketState:
         self._trading_halted: bool = False
         self._halt_reason: str = ""
 
+        # Trade WebSocket push bridge — market_router registers queues here
+        self._trade_queues: list = []
+        self._trade_loop  = None
+        self._tq_lock     = threading.Lock()
+
     # ── Tick updates ──────────────────────────────────────────────────────────
 
     def update_tick(self, token: str, ltp: float, volume: int,
                     prev_close: float, timestamp: datetime):
+        cb = None
         with self._lock:
             self._ticks[token] = {
                 "ltp":        ltp,
@@ -63,6 +80,104 @@ class MarketState:
                     "direction":  "up" if pct > 0 else ("down" if pct < 0 else "flat"),
                     "ltp":        ltp,
                 }
+
+            # Build real-time 1-min candle from this tick
+            self._update_1m_candle(token, ltp, volume, timestamp)
+
+            cb = self._tick_callbacks.get(token)
+
+        # Call outside lock to avoid deadlock — callbacks must be lightweight
+        if cb:
+            try:
+                cb(token, ltp)
+            except Exception:
+                pass
+
+    def _update_1m_candle(self, token: str, ltp: float, vol_cumulative: int, ts: datetime):
+        """Build real-time 1-min OHLCV candles from WebSocket ticks.
+
+        Called under self._lock on every tick. vol_cumulative is the day's
+        cumulative volume_traded from Zerodha — delta vs candle start = bar volume.
+        """
+        minute = ts.replace(second=0, microsecond=0)
+        cur    = self._rt_forming.get(token)
+
+        if cur is None:
+            self._rt_forming[token] = {
+                "date": minute, "open": ltp, "high": ltp, "low": ltp, "close": ltp,
+                "volume": 0, "_vol_start": vol_cumulative,
+            }
+            return
+
+        if minute > cur["date"]:
+            # Minute boundary crossed — close the forming candle
+            closed = {
+                "date":   cur["date"],
+                "open":   cur["open"],
+                "high":   cur["high"],
+                "low":    cur["low"],
+                "close":  cur["close"],
+                "volume": max(vol_cumulative - cur["_vol_start"], 0),
+            }
+            hist = self._rt_candles.setdefault(token, [])
+            hist.append(closed)
+            if len(hist) > 100:
+                self._rt_candles[token] = hist[-100:]
+            # Start fresh forming candle for the new minute
+            self._rt_forming[token] = {
+                "date": minute, "open": ltp, "high": ltp, "low": ltp, "close": ltp,
+                "volume": 0, "_vol_start": vol_cumulative,
+            }
+        else:
+            # Same minute — update OHLCV
+            cur["high"]   = max(cur["high"],  ltp)
+            cur["low"]    = min(cur["low"],   ltp)
+            cur["close"]  = ltp
+            cur["volume"] = max(vol_cumulative - cur["_vol_start"], 0)
+
+    def register_tick_callback(self, token: str, fn) -> None:
+        with self._lock:
+            self._tick_callbacks[token] = fn
+
+    def unregister_tick_callback(self, token: str) -> None:
+        with self._lock:
+            self._tick_callbacks.pop(token, None)
+
+    # ── Real-time 1-min candles ───────────────────────────────────────────────
+
+    def get_1m_candles(self, token: str, include_forming: bool = True) -> List[dict]:
+        """Return tick-built 1-min candles for today.
+
+        include_forming=True (default): appends the current in-progress candle
+        so callers always see the freshest close/high/low, not a 60-second-stale
+        snapshot from a historical API call.
+        """
+        from datetime import date as _date
+        today = _date.today()
+        with self._lock:
+            closed = [c for c in self._rt_candles.get(token, [])
+                      if c["date"].date() == today]
+            if include_forming:
+                cur = self._rt_forming.get(token)
+                if cur and cur["date"].date() == today:
+                    closed = closed + [{
+                        "date":   cur["date"],
+                        "open":   cur["open"],
+                        "high":   cur["high"],
+                        "low":    cur["low"],
+                        "close":  cur["close"],
+                        "volume": cur["volume"],
+                    }]
+            return closed
+
+    def seed_1m_candles(self, token: str, candles: list):
+        """One-time backfill from Kite historical data (called at scan start
+        for stocks not yet seen by the tick engine today).
+        No-op if tick-built history already exists for this token."""
+        with self._lock:
+            if self._rt_candles.get(token):
+                return  # tick data already flowing — don't overwrite
+            self._rt_candles[token] = list(candles)[-100:]
 
     def get_tick(self, token: str) -> Optional[dict]:
         with self._lock:
@@ -181,6 +296,33 @@ class MarketState:
     def get_halt_reason(self) -> str:
         with self._lock:
             return self._halt_reason
+
+    # ── Trade WS push bridge ──────────────────────────────────────────────────
+
+    def register_trade_queue(self, loop, q) -> None:
+        with self._tq_lock:
+            self._trade_loop = loop
+            if q not in self._trade_queues:
+                self._trade_queues.append(q)
+
+    def unregister_trade_queue(self, q) -> None:
+        with self._tq_lock:
+            if q in self._trade_queues:
+                self._trade_queues.remove(q)
+
+    def push_trade_update(self, payload: dict) -> None:
+        """Thread-safe: push a trade tick payload to all connected WS clients.
+        Called from Zerodha tick callback thread — must be fast."""
+        with self._tq_lock:
+            if not self._trade_queues or self._trade_loop is None:
+                return
+            queues = list(self._trade_queues)
+            loop   = self._trade_loop
+        for q in queues:
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, payload)
+            except Exception:
+                pass
 
     def get_status(self) -> dict:
         with self._lock:

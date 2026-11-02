@@ -61,8 +61,7 @@ def get_candles(token: str, n: int = Query(50, le=100)):
 
 @router.get("/stocks")
 def list_stocks(index: Optional[str] = Query(None)):
-    idx = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("FNO", fno_only=True)        # combined F&O universe (~211)
     moves   = market.get_all_stock_moves()
     result  = []
     for s in stocks:
@@ -96,8 +95,7 @@ def stock_ranking(
     order="most_likely"  → strongest movers first (best to trade)
     order="least_likely" → weakest / flattest first
     """
-    idx     = index or get_active_index()
-    stocks  = get_stocks_for_index(idx)
+    stocks  = get_stocks_for_index("FNO", fno_only=True)        # combined F&O universe (~211)
     moves   = market.get_all_stock_moves()
     sectors_live = market.get_sector_moves()
 
@@ -209,6 +207,60 @@ async def market_ws(websocket: WebSocket):
     except Exception as e:
         ws_manager.disconnect(websocket)
         print(f"[WS] Client error: {e}")
+
+
+@router.websocket("/ws/trades")
+async def trades_ws(websocket: WebSocket):
+    """
+    Push-based open-trades stream for the dashboard.
+
+    Fires on every Zerodha option tick for open ES positions (throttled to 10 Hz
+    per trade by the ES manage mixin). A full snapshot is also re-sent every 1 s
+    regardless of tick flow, so any missed open/close event self-corrects.
+
+    Message types:
+      {"type": "snapshot", "trades": [...]}   — full list (on connect + heartbeat)
+      {"type": "trade_tick", "trade_id": N, "ltp": ..., "pnl_pct": ..., ...}
+    """
+    from backend.core.risk_engine import risk_engine
+    await websocket.accept()
+    loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    q: asyncio.Queue = asyncio.Queue()
+    market.register_trade_queue(loop, q)
+
+    async def send_snapshot():
+        # get_open_risk_snapshot() does a DB query plus a per-trade premium lookup
+        # that falls back to a blocking Kite REST call. Run in a worker thread so
+        # it can never freeze the event loop that serves every HTTP request and
+        # every other WebSocket (it used to run inline, per client, every 1 s).
+        trades = await loop.run_in_executor(None, risk_engine.get_open_risk_snapshot)
+        await websocket.send_json({"type": "snapshot", "trades": trades})
+
+    SNAPSHOT_EVERY = 1.0
+    try:
+        # Send full snapshot immediately so the UI isn't blank on connect
+        await send_snapshot()
+        last_snapshot = loop.time()
+        while True:
+            try:
+                wait = max(0.05, SNAPSHOT_EVERY - (loop.time() - last_snapshot))
+                payload = await asyncio.wait_for(q.get(), timeout=wait)
+                await websocket.send_json(payload)
+            except asyncio.TimeoutError:
+                pass
+            # Resync every 1 s even while ticks are flowing. Before, the snapshot
+            # only fired when the queue was idle, so a missed trade_closed (dropped
+            # socket, tab asleep) was never corrected while trades were live --
+            # exactly when stale "open" rows matter most.
+            if loop.time() - last_snapshot >= SNAPSHOT_EVERY:
+                await send_snapshot()
+                last_snapshot = loop.time()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[WS-TRADES] Error: {e}")
+    finally:
+        market.unregister_trade_queue(q)
 
 
 @router.websocket("/ws/candles/{token}")
