@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Warning, X, CircleNotch } from '@phosphor-icons/react';
 import type { LiveStatus } from './useLiveStatus';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 const NAMES: Record<string, string> = { ES: 'Early Scalp', OB: 'Opening Breakout' };
 

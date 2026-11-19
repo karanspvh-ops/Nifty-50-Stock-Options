@@ -3,7 +3,7 @@ import { ShieldCheck, ShieldWarning, CircleNotch, CaretDown } from '@phosphor-ic
 import SystemCheckPanel from '../dashboard/SystemCheckPanel';
 import StrategyDryRunPanel from '../dashboard/StrategyDryRunPanel';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface Run { running: boolean; done: boolean; passed: number; total: number }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useMarketStore } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 type StratFilter = 'ALL' | 'ES' | 'OB' | 'TE';
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Wallet } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 const rs = (v: number | undefined) =>
   v == null ? '—' : `${v < 0 ? '−' : ''}₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;

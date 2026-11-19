@@ -1,7 +1,7 @@
 import { useMarketStore } from '../../store/marketStore';
 import type { OpenTrade } from '../../store/marketStore';
 
-const API    = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 function fmtTime(s: string | null | undefined) {
   if (!s) return '—';

@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useMarketStore } from '../store/marketStore';
 
-const WS_URL       = 'ws://localhost:8000/api/market/ws/trades';
+import { wsUrl } from '../lib/api';
+const WS_PATH = '/api/market/ws/trades';
 const RECONNECT_MS = 1000;
 // The backend sends a snapshot every second, so silence for this long means the
 // socket is dead even though the browser hasn't noticed (sleep, mobile data drop).
@@ -22,7 +23,7 @@ export function useTradesSocket() {
     const connect = () => {
       if (stopped) return;
       try {
-        ws = new WebSocket(WS_URL);
+        ws = new WebSocket(wsUrl(WS_PATH));
         ws.onopen    = () => { lastMsg = Date.now(); };
         ws.onmessage = (evt) => {
           lastMsg = Date.now();

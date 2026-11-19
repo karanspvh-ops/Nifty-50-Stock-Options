@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { WarningOctagon, Warning, X } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 /** Live-trading alerts: an unsold position, a missing stop, a broker mismatch. Never hidden by default. */
 export default function AlertsBanner() {

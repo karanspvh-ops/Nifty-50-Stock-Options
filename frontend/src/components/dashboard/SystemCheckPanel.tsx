@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, X, CaretDown } from '@phosphor-icons/react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface CheckResult {
   check: string;

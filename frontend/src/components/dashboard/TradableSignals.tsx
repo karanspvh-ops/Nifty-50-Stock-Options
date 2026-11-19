@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface Tradable {
   symbol: string; token: string; sector: string;

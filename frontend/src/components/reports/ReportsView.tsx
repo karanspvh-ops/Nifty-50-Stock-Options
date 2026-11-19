@@ -4,7 +4,7 @@ import html2pdf from 'html2pdf.js';
 import { useMarketStore } from '../../store/marketStore';
 import Segmented from '../ui/Segmented';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Period = 'today' | '7d' | '30d' | 'custom' | 'all';

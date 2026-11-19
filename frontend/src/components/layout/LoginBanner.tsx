@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CircleNotch, LockKey, ArrowSquareOut } from '@phosphor-icons/react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface BrokerStatus {
   broker: string; has_token: boolean; user: string | null;

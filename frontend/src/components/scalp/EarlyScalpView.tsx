@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 
 import { useMarketStore } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Candidate {

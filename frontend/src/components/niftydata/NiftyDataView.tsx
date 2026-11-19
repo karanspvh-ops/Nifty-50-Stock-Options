@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, useRef } from 'react';
 import { CaretRight, ArrowsClockwise, CircleNotch } from '@phosphor-icons/react';
 import Segmented from '../ui/Segmented';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface Candle { time: string; open: number; high: number; low: number; close: number; }
 type RangeKey = 'today' | '7d' | '30d' | '90d' | 'all';

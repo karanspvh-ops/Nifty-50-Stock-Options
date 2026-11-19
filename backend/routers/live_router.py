@@ -79,6 +79,32 @@ def _readiness() -> list:
     return checks
 
 
+@router.get("/desk")
+def desk_status():
+    """Team site connection: site address, current tunnel, last registration."""
+    from backend.core.desk_tunnel import desk_tunnel
+    return desk_tunnel.status()
+
+
+@router.get("/actions")
+def recent_actions(limit: int = 100):
+    """Most recent control actions (newest first), from actions.log."""
+    import json, os
+    from backend.storage.data_dir import DATA_DIR
+    path = os.path.join(DATA_DIR, "actions.log")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        lines = f.readlines()[-limit:]
+    out = []
+    for line in reversed(lines):
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            pass
+    return out
+
+
 @router.get("/alerts")
 def live_alerts():
     """Active live-trading warnings (also pushed over the trades WebSocket)."""

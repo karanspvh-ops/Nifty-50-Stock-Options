@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useMarketStore } from '../../store/marketStore';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 export interface LiveCheck { key: string; label: string; ok: boolean; detail: string }
 export interface LiveStatus {

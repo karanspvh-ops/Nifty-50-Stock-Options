@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Warning, Circle } from '@phosphor-icons/react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 function isoDaysAgo(n: number) {
   const d = new Date(); d.setDate(d.getDate() - n);

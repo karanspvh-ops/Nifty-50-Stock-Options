@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Broadcast, PauseCircle, CheckCircle, Circle, Clock, WarningOctagon } from '@phosphor-icons/react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface PlanStock {
   symbol: string; token: string; opening_move: number; day_move: number;

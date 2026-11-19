@@ -107,6 +107,8 @@ async def lifespan(app: FastAPI):
     reconciler.start()
     from backend.execution import ban_list
     ban_list.start()
+    from backend.core.desk_tunnel import desk_tunnel
+    desk_tunnel.start()            # team site (Cloudflare Pages) -> this backend
 
     print("[BOOT] Starting risk engine...")
     risk_engine.start()
@@ -151,6 +153,8 @@ async def lifespan(app: FastAPI):
     tradable_tracker.stop()
     from backend.core.account_monitor import account_monitor
     account_monitor.stop()
+    from backend.core.desk_tunnel import desk_tunnel
+    desk_tunnel.stop()
     print("[SHUTDOWN] Stopping trading engine...")
     trading_engine.stop()
     print("[SHUTDOWN] Stopping risk engine...")
@@ -160,6 +164,8 @@ async def lifespan(app: FastAPI):
     print("[SHUTDOWN] Graceful shutdown complete.")
 
 
+from backend.core.desk_tunnel import desk_site
+
 app = FastAPI(
     title       = "Nifty 50 Options Trading Engine",
     description = "Multi-agent, real-time algorithmic trading platform",
@@ -167,11 +173,42 @@ app = FastAPI(
     lifespan    = lifespan,
 )
 
+# ── Action log: every change request (anything but GET), with who sent it ────
+# The team site reaches this backend over a public tunnel with no login, so
+# every control action (go live, exits, capital limit, settings...) is recorded
+# with the caller's IP to actions.log in the data directory.
+@app.middleware("http")
+async def log_actions(request, call_next):
+    response = await call_next(request)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        try:
+            import json as _json, os as _os
+            from backend.core.clock import now_ist
+            from backend.storage.data_dir import DATA_DIR
+            via = "team site" if request.headers.get("cf-connecting-ip") else "this PC"
+            entry = {"at": now_ist().isoformat(timespec="seconds"), "method": request.method,
+                     "path": request.url.path, "query": str(request.url.query or ""),
+                     "status": response.status_code, "via": via,
+                     "ip": request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None),
+                     "agent": (request.headers.get("user-agent") or "")[:120]}
+            with open(_os.path.join(DATA_DIR, "actions.log"), "a", encoding="utf-8") as f:
+                f.write(_json.dumps(entry) + "\n")
+            if via == "team site":
+                print(f"[ACTION] {entry['method']} {entry['path']} from {entry['ip']} -> {entry['status']}")
+        except Exception as e:
+            print(f"[ACTION] log failed: {e}")
+    return response
+
+
 # ── CORS (React frontend on port 3000) ───────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ["http://localhost:3000", "http://127.0.0.1:3000",
-                         "http://localhost:3002", "http://127.0.0.1:3002"],
+                         "http://localhost:3002", "http://127.0.0.1:3002"]
+                        + ([desk_site()] if desk_site() else []),
+    # Hosted team site incl. its preview deployments (<hash>.<project>.pages.dev)
+    allow_origin_regex = (r"https://([a-z0-9-]+\.)?" + desk_site().split("//", 1)[1].split(".")[0].replace("-", r"\-")
+                          + r"\.pages\.dev") if desk_site().endswith(".pages.dev") else None,
     allow_credentials = True,
     allow_methods     = ["*"],
     allow_headers     = ["*"],

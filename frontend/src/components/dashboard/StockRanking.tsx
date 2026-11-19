@@ -3,7 +3,7 @@ import { CaretUp, CaretDown, Minus } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 import Segmented from '../ui/Segmented';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface RankedStock {
   token: string; symbol: string; ltp: number | null;
