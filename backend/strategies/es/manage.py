@@ -22,6 +22,7 @@ import threading
 import time as _time
 
 from backend.core.market_state   import market
+from backend.risk.sl_confirm import sl_confirm, bid_for
 from backend.core.risk_engine    import risk_engine
 from backend.execution.option_selector import current_premium, option_premium
 from backend.core.stock_universe import get_option_token
@@ -88,8 +89,8 @@ class ESManageMixin:
         locked  = self._trail_locked.get(tid, -sl_pct)
         pnl_pct = (ltp - entry) / entry * 100
 
-        # ── 3. Tick-level SL check ────────────────────────────────────────────
-        if pnl_pct <= locked:
+        # ── 3. Tick-level SL check (confirmed, so one stray print can't stop us out) ──
+        if sl_confirm.on_tick(tid, ltp, entry * (1 + locked / 100)):
             self._pending_exit.add(tid)
             armed  = bool(self._trail_armed.get(tid))
             reason = (f"ES Trail SL {locked:+.1f}% [tick-level]"
@@ -153,6 +154,7 @@ class ESManageMixin:
             print(f"[ES] Tick SL exit error tid={tid}: {e}")
         finally:
             self._pending_exit.discard(tid)
+            sl_confirm.clear(tid)
             # Update realized PnL cache using the actual fill price returned by
             # force_exit_trade — the same value written to trade.exit_price/pnl.
             entry      = self._entry_cache.get(tid, 0.0)
@@ -395,8 +397,10 @@ class ESManageMixin:
             exit_reason = None
             if pnl_pct >= tgt_pct:
                 exit_reason = f"ES Target +{tgt_pct:.0f}%"
-            elif worst_pnl <= locked and tid not in self._pending_exit:
-                # Fallback: tick-level exit may have missed this (e.g. restart recovery)
+            elif tid not in self._pending_exit and sl_confirm.on_poll(
+                    tid, premium, t.entry_price * (1 + locked / 100), bid_for(t.option_symbol)):
+                # Fallback: tick-level exit may have missed this (e.g. restart recovery).
+                # Confirmed against the real bid if no tick has settled it.
                 if self._trail_armed.get(tid):
                     exit_reason = (f"ES Trail lock {locked:+.1f}%"
                                    + (f" [gap breach: prev={prev_pnl:+.1f}%]"

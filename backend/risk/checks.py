@@ -19,6 +19,7 @@ from backend.core.market_state    import market
 from backend.core.session_manager import check_portfolio_sl
 from backend.core.dynamic_sl      import compute_dynamic_sl, should_exit_breakeven
 from backend.core.settings_manager import get_settings
+from backend.risk.sl_confirm import sl_confirm, bid_for
 
 log = logging.getLogger("risk_engine")
 
@@ -74,7 +75,8 @@ class RiskChecksMixin:
 
         # 1. Hard trade SL
         hard_sl = round(entry * (1 - trade.trade_sl_pct / 100), 2)
-        if ltp <= hard_sl:
+        # Confirmed breach only (own key: ES/OB track their own stops separately)
+        if sl_confirm.on_poll(("chk", trade.id), ltp, hard_sl, bid_for(trade.option_symbol)):
             self._trigger_exit(db, trade, ltp, TradeStatus.SL_HIT,
                                f"Hard SL hit at {ltp:.2f} (SL: {hard_sl:.2f})")
             return
@@ -118,7 +120,8 @@ class RiskChecksMixin:
                                        "Price returned to entry after profit lock — break-even exit")
                     return
 
-                if ltp <= decision.new_sl_price and decision.lock_type != "initial":
+                if decision.lock_type != "initial" and sl_confirm.on_poll(
+                        ("chkdyn", trade.id), ltp, decision.new_sl_price, bid_for(trade.option_symbol)):
                     self._trigger_exit(db, trade, ltp, TradeStatus.SL_HIT,
                                        f"Dynamic SL hit at {ltp:.2f} | {decision.reasoning}")
                     return

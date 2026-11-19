@@ -23,6 +23,7 @@ from backend.execution.option_selector import current_premium
 
 from backend.database import Session as DBSession, Trade, TradeStatus, TradeEnv
 from backend.strategies.ob.params import OB_TAG
+from backend.risk.sl_confirm import sl_confirm, bid_for
 
 
 class OBManageMixin:
@@ -76,8 +77,8 @@ class OBManageMixin:
                 ).start()
             trail_stop = new_trail
 
-        # ── 3. Tick-level SL breach check ────────────────────────────────────
-        if ltp <= trail_stop:
+        # ── 3. Tick-level SL breach check (confirmed, not on a single stray print) ──
+        if sl_confirm.on_tick(tid, ltp, trail_stop):
             self._ob_pending_exit.add(tid)
             lock_pct = (trail_stop - entry) / entry * 100
             reason = (
@@ -126,6 +127,7 @@ class OBManageMixin:
         self._ob_trail_locked.pop(tid, None)
         self._ob_trail_peak.pop(tid,   None)
         self._ob_entry_cache.pop(tid,  None)
+        sl_confirm.clear(tid)
 
     # ── 1-second manage loop (safety fallback — primary ratchet/SL at tick level) ────
 
@@ -211,7 +213,8 @@ class OBManageMixin:
                 continue
 
             # ── Fallback SL/trail exit (tick callback is primary; loop is safety net) ──
-            if ltp <= trail_stop and tid not in self._ob_pending_exit:
+            if tid not in self._ob_pending_exit and sl_confirm.on_poll(
+                    tid, ltp, trail_stop, bid_for(t.option_symbol)):
                 self._ob_pending_exit.add(tid)
                 lock_pct = (trail_stop - entry) / entry * 100
                 reason = (
