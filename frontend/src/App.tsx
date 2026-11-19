@@ -64,8 +64,8 @@ function Dashboard() {
       <TradePlan />
       <SectorHeatmap />
       <SectorBarChart />
-      <TradableSignals />
       <StockRanking />
+      <TradableSignals />
     </div>
   );
 }

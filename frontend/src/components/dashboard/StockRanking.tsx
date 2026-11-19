@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CaretUp, CaretDown, Minus } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
+import Segmented from '../ui/Segmented';
 
 const API = 'http://localhost:8000';
 
@@ -91,25 +92,11 @@ export default function StockRanking() {
     <div className="bg-surface rounded-panel border border-border p-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-ink font-bold text-base">
-          Stock Ranking — Sector-wise
+          Stock ranking by sector
           <span className="ml-2 text-xs text-muted font-normal">{settings.active_index} · live</span>
         </h2>
-        {/* Filter */}
-        <div className="flex gap-1 bg-bg rounded-control p-0.5 border border-border">
-          {([
-            ['most_likely',  'Most Likely'],
-            ['least_likely', 'Least Likely'],
-          ] as const).map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setOrder(val)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors
-                ${order === val ? 'btn-gold text-ink' : 'text-muted hover:text-ink'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Order" value={order} onChange={setOrder}
+          options={[{ key: 'most_likely', label: 'Most likely' }, { key: 'least_likely', label: 'Least likely' }]} />
       </div>
 
       {!groups.length ? (
