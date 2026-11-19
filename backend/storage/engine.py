@@ -16,7 +16,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 # ── DB path (sits in the project root, next to backend/) ──────────────────────
 _BASE_DIR    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH      = os.path.join(_BASE_DIR, "trading.db")
+from backend.storage.data_dir import db_path
+DB_PATH      = db_path("trading.db")          # outside OneDrive (see data_dir.py)
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine  = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})

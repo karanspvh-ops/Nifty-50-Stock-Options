@@ -10,7 +10,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 _BASE_DIR    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH      = os.path.join(_BASE_DIR, "nifty_options.db")
+from backend.storage.data_dir import db_path
+DB_PATH      = db_path("nifty_options.db")    # outside OneDrive (see data_dir.py)
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # WAL mode: readers (the frontend polling /snapshots, now uncapped and able to
