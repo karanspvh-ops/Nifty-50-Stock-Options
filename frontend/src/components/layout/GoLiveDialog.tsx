@@ -79,7 +79,7 @@ export default function GoLiveDialog({
             <X size={18} />
           </button>
         </div>
-        <div className="gold-rule" />
+        <div className="accent-rule" />
 
         <div className="px-6 py-4 space-y-4">
           {!live && (
@@ -106,7 +106,7 @@ export default function GoLiveDialog({
           )}
 
           {!live && (
-            <div className="rounded-control bg-gold-50 border border-gold-300/70 px-4 py-3 text-sm text-ink2 space-y-1">
+            <div className="rounded-control bg-spvh-50 border border-spvh-300/70 px-4 py-3 text-sm text-ink2 space-y-1">
               <p>Orders: intraday (MIS) option buys, marketable limit orders, real fills recorded.</p>
               <p>Sizing: smaller of your Zerodha funds and the <span className="font-semibold text-ink">₹{funds.toLocaleString('en-IN')}</span> capital limit, split equally across 5 trades, no refills.</p>
               <p>Exits sell at Zerodha first; a failed sell keeps the trade open and retries.</p>
@@ -130,7 +130,7 @@ export default function GoLiveDialog({
                 onChange={e => setTyped(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && canGo) submit(true); }}
                 className="mt-1.5 w-full rounded-control bg-white border border-border px-3 py-2 text-base text-ink
-                  focus:border-gold-500 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
+                  focus:border-spvh-500 focus:outline-none focus:ring-2 focus:ring-spvh-400/40"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -156,7 +156,7 @@ export default function GoLiveDialog({
             <button
               onClick={() => submit(true)}
               disabled={!canGo}
-              className="pressable btn-gold px-5 py-2 rounded-control text-sm font-bold disabled:opacity-40 disabled:saturate-50"
+              className="pressable btn-primary px-5 py-2 rounded-control text-sm font-bold disabled:opacity-40 disabled:saturate-50"
             >
               {busy ? 'Going live' : `Go live with ${tag}`}
             </button>

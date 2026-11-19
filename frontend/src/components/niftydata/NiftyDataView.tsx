@@ -137,7 +137,7 @@ function MinuteDetail({ rows }: { rows: Snapshot[] | 'loading' }) {
             const atm = r.moneyness_rank === 0;
             return (
               <tr key={`${r.strike}-${r.option_type}`}
-                  className={`border-b border-border/50 tabular-nums ${atm ? 'bg-gold-100/70' : r.option_type === 'PE' ? 'bg-bg/40' : ''}`}>
+                  className={`border-b border-border/50 tabular-nums ${atm ? 'bg-spvh-100/70' : r.option_type === 'PE' ? 'bg-bg/40' : ''}`}>
                 <td className={`px-2 py-1 text-right text-ink ${atm ? 'font-bold' : ''}`}>{r.strike.toFixed(0)}</td>
                 <td className={`px-2 py-1 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>{r.option_type}</td>
                 <td className={`px-2 py-1 text-right ${atm ? 'text-accent font-bold' : 'text-muted'}`}>
@@ -265,7 +265,7 @@ export default function NiftyDataView() {
             onClick={startBackfill}
             disabled={!!bf?.running}
             title="Fill every missing minute, strike, OI and volume for the last 7 trading days from Zerodha's minute history"
-            className="pressable flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-gold-400 disabled:opacity-50"
+            className="pressable flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-spvh-400 disabled:opacity-50"
           >
             {bf?.running ? <CircleNotch size={15} className="animate-spin" /> : <ArrowsClockwise size={15} weight="bold" />}
             Complete from Zerodha
@@ -348,7 +348,7 @@ export default function NiftyDataView() {
                   onClick={() => toggle(m.t)}
                   aria-expanded={isOpen}
                   className={`w-full flex items-center gap-4 px-4 h-10 text-sm border-b border-border/60 text-left
-                    transition-colors ${isOpen ? 'bg-gold-50' : 'hover:bg-ink/[0.025]'}`}
+                    transition-colors ${isOpen ? 'bg-spvh-50' : 'hover:bg-ink/[0.025]'}`}
                 >
                   <CaretRight size={14} weight="bold"
                     className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90 text-accent' : 'text-muted'}`} />
@@ -371,7 +371,7 @@ export default function NiftyDataView() {
         {shown < minutes.length && (
           <div className="px-4 py-3 flex justify-center">
             <button onClick={() => setShown(s => s + PAGE)}
-              className="pressable px-4 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+              className="pressable px-4 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
               Show {Math.min(PAGE, minutes.length - shown)} more minutes
             </button>
           </div>

@@ -19,18 +19,19 @@ export default {
         up:      v("up"),
         down:    v("down"),
         warn:    v("warn"),
-        accent:  v("gold-700"),   // gold text / borders on white (5.3:1)
-        brand:   v("brand"),      // SPVH blue (logo, ES identity)
+        accent:  v("spvh-600"),   // SPVH blue text / borders on white (7.0:1)
+        brand:   v("brand"),      // SPVH logo blue
+        es:      v("es"),         // Early Scalp identity (violet)
         teal:    v("teal"),       // SPVH teal (OB identity)
-        gold: {
-          50:  v("gold-50"),
-          100: v("gold-100"),
-          300: v("gold-300"),
-          400: v("gold-400"),
-          500: v("gold-500"),
-          600: v("gold-600"),
-          700: v("gold-700"),
-          DEFAULT: v("gold-500"),
+        spvh: {
+          50:  v("spvh-50"),
+          100: v("spvh-100"),
+          300: v("spvh-300"),
+          400: v("spvh-400"),
+          500: v("spvh-500"),
+          600: v("spvh-600"),
+          700: v("spvh-700"),
+          DEFAULT: v("spvh-500"),
         },
       },
       // Calibri sets ~1px smaller than Segoe UI at the same size, so the
@@ -52,9 +53,9 @@ export default {
         control: "10px",
       },
       boxShadow: {
-        glass: "0 1px 0 rgb(255 255 255 / 0.9) inset, 0 0 0 1px rgb(22 24 29 / 0.06), 0 10px 30px -12px rgb(76 58 18 / 0.14)",
-        lift:  "0 1px 0 rgb(255 255 255 / 0.9) inset, 0 0 0 1px rgb(22 24 29 / 0.07), 0 18px 40px -16px rgb(76 58 18 / 0.22)",
-        gold:  "0 1px 0 rgb(255 255 255 / 0.55) inset, 0 6px 16px -6px rgb(168 124 34 / 0.55)",
+        glass: "0 1px 0 rgb(255 255 255 / 0.9) inset, 0 0 0 1px rgb(22 24 29 / 0.06), 0 10px 30px -12px rgb(30 50 90 / 0.12)",
+        lift:  "0 1px 0 rgb(255 255 255 / 0.9) inset, 0 0 0 1px rgb(22 24 29 / 0.07), 0 18px 40px -16px rgb(30 50 90 / 0.2)",
+        primary: "0 1px 0 rgb(255 255 255 / 0.25) inset, 0 6px 16px -6px rgb(52 88 154 / 0.5)",
       },
       transitionTimingFunction: {
         out: "cubic-bezier(0.23, 1, 0.32, 1)",

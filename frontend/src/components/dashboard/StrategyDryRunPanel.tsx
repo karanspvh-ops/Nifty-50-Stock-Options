@@ -147,7 +147,7 @@ export default function StrategyDryRunPanel() {
       <button
         onClick={expand}
         className="pressable w-full flex items-center gap-2 px-4 py-2.5 bg-surface border border-border
-          rounded-xl text-sm text-ink hover:border-gold-300"
+          rounded-xl text-sm text-ink hover:border-spvh-300"
       >
         <CheckCircle size={18} weight="fill" className="text-up" />
         <span>All {ALL_NODES.length} strategy nodes passed dry-run</span>
@@ -210,7 +210,7 @@ export default function StrategyDryRunPanel() {
             onClick={rerun}
             disabled={isRunning}
             className="pressable text-xs font-semibold px-3 py-1 rounded-full border border-border bg-white text-ink2
-              hover:border-gold-400 hover:text-accent disabled:opacity-40 disabled:cursor-not-allowed
+              hover:border-spvh-400 hover:text-accent disabled:opacity-40 disabled:cursor-not-allowed
               transition-colors"
           >
             {isRunning ? 'running…' : 'Re-run'}

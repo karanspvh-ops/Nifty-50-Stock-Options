@@ -105,7 +105,7 @@ function CapitalLimit({ limit, startFunds, live, onSaved }: {
   const lakh = (v: number) => Math.abs(v) >= 100_000
     ? `₹${(v / 100_000).toLocaleString('en-IN', { maximumFractionDigits: 2 })}L`
     : `${v < 0 ? '−' : ''}₹${Math.abs(Math.round(v)).toLocaleString('en-IN')}`;
-  const btn = 'pressable w-7 h-7 rounded-full border border-border bg-white text-ink2 hover:border-gold-400 font-bold leading-none';
+  const btn = 'pressable w-7 h-7 rounded-full border border-border bg-white text-ink2 hover:border-spvh-400 font-bold leading-none';
 
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 border-t border-border bg-bg/50">
@@ -118,7 +118,7 @@ function CapitalLimit({ limit, startFunds, live, onSaved }: {
           onChange={e => { dragging.current = true; setDraft(Number(e.target.value)); }}
           onPointerUp={e => save(Number((e.target as HTMLInputElement).value))}
           onKeyUp={e => save(Number((e.target as HTMLInputElement).value))}
-          className="w-48 accent-[rgb(var(--gold-600))]"
+          className="w-48 accent-[rgb(var(--spvh-500))]"
         />
         <button className={btn} onClick={() => nudge(STEP)} aria-label="Raise capital limit by ₹1 lakh">+</button>
         <span className="text-base font-bold text-ink tabular-nums w-20">{lakh(draft)}</span>

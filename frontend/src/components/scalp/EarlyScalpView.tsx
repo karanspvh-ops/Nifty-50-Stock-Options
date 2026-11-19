@@ -314,7 +314,7 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
                           disabled={forcing === `${c.symbol}-${c.direction}`}
                           className="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold
                             border border-accent/40 text-accent/70
-                            hover:border-accent hover:text-accent hover:bg-gold-400/10
+                            hover:border-accent hover:text-accent hover:bg-spvh-400/10
                             disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           {forcing === `${c.symbol}-${c.direction}` ? '…' : 'Force'}
@@ -456,7 +456,7 @@ export default function EarlyScalpView() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-ink font-bold text-2xl leading-tight">Early Scalp</h1>
-          <span className="text-xs font-normal text-accent bg-gold-400/10 px-2 py-0.5 rounded">
+          <span className="text-xs font-normal text-accent bg-spvh-400/10 px-2 py-0.5 rounded">
             9:25–9:30 · Gap &amp; Go
           </span>
           <StatusBadge phase={phase} />
@@ -556,7 +556,7 @@ export default function EarlyScalpView() {
             <button
               onClick={saveParams}
               disabled={saving}
-              className="text-xs px-4 py-1.5 rounded btn-gold text-ink disabled:opacity-50"
+              className="text-xs px-4 py-1.5 rounded btn-primary disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>

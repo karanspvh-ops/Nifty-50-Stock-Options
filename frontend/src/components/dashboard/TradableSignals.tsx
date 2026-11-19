@@ -90,7 +90,7 @@ export default function TradableSignals() {
                 const full = t.entry_score === t.max_score;
                 return (
                   <tr key={t.token}
-                      className={`border-b border-border/50 transition-colors duration-700 ${flash.has(t.token) ? 'bg-gold-100/80' : ''}`}>
+                      className={`border-b border-border/50 transition-colors duration-700 ${flash.has(t.token) ? 'bg-spvh-100/80' : ''}`}>
                     <td className="px-4 py-1.5 whitespace-nowrap">
                       <span className="font-semibold text-ink">{t.symbol}</span>
                       <span className={`ml-2 text-[11px] font-bold px-1.5 py-px rounded ${call ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>

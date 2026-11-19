@@ -57,7 +57,7 @@ export default function LoginBanner() {
 
   // Backend not reachable yet
   if (!st) return (
-    <div className="flex items-center gap-2 px-5 py-2.5 bg-gold-100/70 border-b border-gold-300/70 text-sm text-ink2">
+    <div className="flex items-center gap-2 px-5 py-2.5 bg-spvh-100/70 border-b border-spvh-300/70 text-sm text-ink2">
       <CircleNotch size={16} className="animate-spin text-accent" />
       Waiting for the trading server on port 8000
     </div>
@@ -70,7 +70,7 @@ export default function LoginBanner() {
           <LockKey size={18} weight="fill" /> Sign in to Zerodha for today
         </span>
         <button onClick={openLogin}
-          className="pressable btn-gold inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-control text-sm font-bold">
+          className="pressable btn-primary inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-control text-sm font-bold">
           Open Zerodha login <ArrowSquareOut size={15} weight="bold" />
         </button>
         <span className="text-muted text-sm">then paste the request_token</span>
@@ -79,7 +79,7 @@ export default function LoginBanner() {
           placeholder="request_token"
           aria-label="Zerodha request token"
           className="bg-white border border-border text-ink text-sm rounded-control px-3 py-1.5 w-64
-            focus:border-gold-500 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
+            focus:border-spvh-500 focus:outline-none focus:ring-2 focus:ring-spvh-400/40"
         />
         <button onClick={submit} disabled={busy}
           className="pressable px-3.5 py-1.5 bg-ink text-white rounded-control text-sm font-bold disabled:opacity-50">

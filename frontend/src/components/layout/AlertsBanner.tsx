@@ -30,7 +30,7 @@ export default function AlertsBanner() {
         const crit = a.level === 'critical';
         return (
           <div key={a.key}
-               className={`flex items-start gap-3 px-5 py-2.5 text-sm ${crit ? 'bg-down text-white' : 'bg-gold-100 text-ink'}`}>
+               className={`flex items-start gap-3 px-5 py-2.5 text-sm ${crit ? 'bg-down text-white' : 'bg-spvh-100 text-ink'}`}>
             {crit
               ? <WarningOctagon size={20} weight="fill" className="shrink-0 mt-px" />
               : <Warning size={20} weight="fill" className="shrink-0 mt-px text-warn" />}

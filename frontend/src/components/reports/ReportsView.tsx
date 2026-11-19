@@ -11,6 +11,7 @@ type Period = 'today' | '7d' | '30d' | 'custom' | 'all';
 
 interface Trade {
   id: number;
+  env?: string;           // 'paper' | 'live' (capital growth merges both)
   symbol: string;
   direction: string;
   strike?: number;
@@ -404,7 +405,7 @@ const dayLabel = (d: string, opts: Intl.DateTimeFormatOptions) => {
  * Wheel = zoom at the cursor, drag = pan, buttons for quick zoom. The Y axis rescales
  * to whatever is in view, so zooming in always shows the detail.
  */
-function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
+function CapitalCandleChart({ data, base, markerDate }: { data: DayData[]; base: number; markerDate?: string | null }) {
   const N = data.length;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(840);
@@ -529,13 +530,27 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
           })}
           {yi(base) >= PT && yi(base) <= PT + PH && (
             <g>
-              <line x1={PL} y1={yi(base)} x2={width - PR} y2={yi(base)} stroke="rgb(168 124 34)" strokeDasharray="5,4" />
+              <line x1={PL} y1={yi(base)} x2={width - PR} y2={yi(base)} stroke="rgb(65 105 176)" strokeDasharray="5,4" />
               <text x={width - PR - 2} y={yi(base) - 4} textAnchor="end" fontSize="9" fill="rgb(92 98 112)">₹5L base</text>
             </g>
           )}
+          {(() => {
+            // Where live trading began (combined paper + live curve)
+            if (!markerDate) return null;
+            const mi = data.findIndex(d => d.date >= markerDate);
+            if (mi < 0 || mi < start - 0.5 || mi > end - 0.5) return null;
+            const x = xc(mi) - cw / 2;
+            return (
+              <g>
+                <line x1={x} y1={PT} x2={x} y2={PT + PH} stroke="rgb(196 43 35)" strokeWidth={1.5} strokeDasharray="4,3" />
+                <rect x={x + 4} y={PT + 2} width={44} height={16} rx={8} fill="rgb(196 43 35)" />
+                <text x={x + 26} y={PT + 13} textAnchor="middle" fontSize="10" fontWeight="700" fill="#fff">LIVE</text>
+              </g>
+            );
+          })()}
           <g clipPath="url(#cc-clip)">
             {hover != null && (
-              <rect x={xc(hover) - cw / 2} y={PT} width={cw} height={PH} fill="rgb(201 160 74 / 0.12)" />
+              <rect x={xc(hover) - cw / 2} y={PT} width={cw} height={PH} fill="rgb(65 105 176 / 0.10)" />
             )}
             {shown.map((d, k) => {
               const i = i0 + k, x = xc(i);
@@ -582,95 +597,218 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
   );
 }
 
-function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
-  trades: Trade[]; label: string; accentColor: string; borderColor: string;
-}) {
+type GrowthAccount = 'combined' | 'paper' | 'live';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const signed = (n: number) => `${n >= 0 ? '+' : '−'}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
+
+/** Trades from /api/trades mapped to the report's Trade shape. */
+function mapApiTrade(t: any, env?: string): Trade {
+  return {
+    id: t.id, symbol: t.symbol, direction: t.direction, strike: t.strike,
+    option_type: t.option_type, expiry: t.expiry, qty: t.quantity, lot_size: t.lot_size,
+    entry: t.entry_price, exit: t.exit_price, peak: t.highest_price,
+    peak_pct: t.entry_price && t.highest_price && t.highest_price > t.entry_price
+      ? +((t.highest_price - t.entry_price) / t.entry_price * 100).toFixed(1) : undefined,
+    pnl: t.pnl, pnl_pct: t.pnl_pct, entered_at: t.entered_at, exited_at: t.exited_at,
+    entry_logic: t.entry_logic, trade_statement: t.trade_statement, env,
+  };
+}
+
+/**
+ * Capital growth for one strategy at a time. "Combined" runs paper and then
+ * live trades as one continuous capital curve (the day live trading began is
+ * marked on the chart); Paper and Live show each account on its own.
+ */
+function CapitalGrowthTab() {
+  const [strat, setStrat] = useState<'ES' | 'OB'>('ES');
+  const [acct, setAcct]   = useState<GrowthAccount>('combined');
+  const [paper, setPaper] = useState<Trade[] | null>(null);
+  const [live, setLive]   = useState<Trade[] | null>(null);
+
+  useEffect(() => {
+    const load = (env: 'paper' | 'live', set: (t: Trade[]) => void) =>
+      fetch(`${API}/api/trades?env=${env}&all=true`).then(r => r.json())
+        .then((raw: any[]) => set(raw.map(t => mapApiTrade(t, env)))).catch(() => set([]));
+    load('paper', setPaper); load('live', setLive);
+  }, []);
+
+  const trades = useMemo(() => {
+    const pick = (ts: Trade[] | null) => (ts ?? []).filter(t => getStrategy(t.entry_logic) === strat);
+    const list = acct === 'paper' ? pick(paper) : acct === 'live' ? pick(live) : [...pick(paper), ...pick(live)];
+    return list.sort((a, b) => (a.entered_at || '').localeCompare(b.entered_at || ''));
+  }, [paper, live, strat, acct]);
+
   const data = useMemo(() => computeStrategyGrowth(trades), [trades]);
+  const liveFrom = useMemo(() => {
+    if (acct !== 'combined') return null;
+    const first = (live ?? []).filter(t => getStrategy(t.entry_logic) === strat && t.exited_at)
+      .map(t => (t.entered_at || '').slice(0, 10)).sort()[0];
+    return first || null;
+  }, [live, strat, acct]);
 
-  if (!data.length) return (
-    <div className="bg-surface rounded-panel border border-border p-8 text-center">
-      <p className="text-muted text-sm">No {label} trades found.</p>
-    </div>
-  );
+  const color = strat === 'ES' ? 'text-es' : 'text-teal';
+  const name  = strat === 'ES' ? 'Early Scalp' : 'Opening Breakout';
+  const loading = paper === null || live === null;
 
-  const final    = data[data.length - 1].closing;
+  const final    = data.length ? data[data.length - 1].closing : 500_000;
   const totalPnL = final - 500_000;
   const winDays  = data.filter(d => d.netPnl > 0).length;
-  const overDays = data.filter(d => d.excess > 0).length;
-  const stats = [
-    { lbl: 'Current Balance', val: `₹${final.toLocaleString('en-IN')}`,  color: final >= 500_000 ? '#4ade80' : '#f87171' },
-    { lbl: 'Total PnL (net)', val: `${totalPnL >= 0 ? '+' : '−'}₹${Math.abs(totalPnL).toLocaleString('en-IN')}`, color: totalPnL >= 0 ? '#4ade80' : '#f87171' },
-    { lbl: 'Up / Total Days', val: `${winDays} / ${data.length}`,         color: '#94a3b8' },
-    ...(overDays > 0 ? [{ lbl: 'Over limit', val: `${overDays} days`,  color: 'rgb(196 43 35)' }] : []),
-  ];
 
   return (
-    <div className="bg-surface rounded-panel border overflow-hidden" style={{ borderColor }}>
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-sm" style={{ color: accentColor }}>{label}</span>
-          <span className="text-muted text-xs">₹5L base &nbsp;·&nbsp; all-time &nbsp;·&nbsp; after charges</span>
+    <div className="space-y-4">
+      <div className="bg-surface rounded-panel border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-5 gap-y-3">
+          <Segmented label="Strategy" value={strat} onChange={setStrat}
+            options={[{ key: 'ES', label: 'Early Scalp' }, { key: 'OB', label: 'Opening Breakout' }]} />
+          <Segmented label="Account" value={acct} onChange={setAcct}
+            options={[{ key: 'combined', label: 'Paper + live' }, { key: 'paper', label: 'Paper' }, { key: 'live', label: 'Live' }]} />
+          <span className="text-xs text-muted">₹5L base · after charges{liveFrom ? ` · live since ${dayLabel(liveFrom, { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}</span>
+          <div className="ml-auto flex gap-6">
+            {[
+              { l: 'Current balance', v: fmtINR(final), c: final >= 500_000 ? 'text-up' : 'text-down' },
+              { l: 'Total P&L (net)', v: signed(totalPnL), c: totalPnL >= 0 ? 'text-up' : 'text-down' },
+              { l: 'Up / total days', v: `${winDays} / ${data.length}`, c: 'text-ink' },
+            ].map(s => (
+              <div key={s.l} className="text-right">
+                <div className="text-xs font-semibold text-muted">{s.l}</div>
+                <div className={`text-base font-bold tabular-nums ${s.c}`}>{s.v}</div>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-6">
-          {stats.map(s => (
-            <div key={s.lbl} className="text-center">
-              <div className="text-[12px] uppercase text-muted mb-0.5">{s.lbl}</div>
-              <div className="text-sm font-bold" style={{ color: s.color }}>{s.val}</div>
+        <div className="px-4 pt-3 pb-2">
+          <div className={`text-sm font-bold mb-1 ${color}`}>{name}</div>
+          {loading ? (
+            <div className="h-[340px] flex items-center justify-center text-sm text-muted">Loading trades</div>
+          ) : !data.length ? (
+            <div className="h-[200px] flex items-center justify-center text-sm text-muted">
+              No {acct === 'combined' ? '' : acct + ' '}{name} trades yet.
             </div>
-          ))}
+          ) : (
+            <CapitalCandleChart key={`${strat}-${acct}`} data={data} base={500_000} markerDate={liveFrom} />
+          )}
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="px-4 pt-3 pb-1">
-        <CapitalCandleChart data={data} base={500_000} />
-      </div>
-
-      {/* Table */}
-      <div className="px-4 pb-4 overflow-x-auto">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="text-xs font-semibold text-muted border-b border-border">
-              {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL (gross)', 'Charges', 'Net PnL', 'Net PnL % (Util)', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
-                <th key={h} className={`px-2 pb-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {[...data].reverse().map(d => {
-              const lbl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }); } catch { return d.date; } })();
-              return (
-                <tr key={d.date} className="border-b border-border/30 hover:bg-white/[0.02] text-xs">
-                  <td className="px-2 py-1.5 text-ink font-medium">{lbl}</td>
-                  <td className="px-2 py-1.5 text-muted text-right">₹{d.opening.toLocaleString('en-IN')}</td>
-                  <td className={`px-2 py-1.5 text-right font-medium ${d.closing >= d.opening ? 'text-up' : 'text-down'}`}>₹{d.closing.toLocaleString('en-IN')}</td>
-                  <td className={`px-2 py-1.5 text-right font-semibold ${d.dayPnl >= 0 ? 'text-up' : 'text-down'}`}>
-                    {d.dayPnl >= 0 ? '+' : '−'}₹{Math.abs(d.dayPnl).toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-2 py-1.5 text-right text-muted">−₹{d.charges.toLocaleString('en-IN')}</td>
-                  <td className={`px-2 py-1.5 text-right font-semibold ${d.netPnl >= 0 ? 'text-up' : 'text-down'}`}>
-                    {d.netPnl >= 0 ? '+' : '−'}₹{Math.abs(d.netPnl).toLocaleString('en-IN')}
-                  </td>
-                  <td className={`px-2 py-1.5 text-right font-semibold ${d.netPnlPctUtil >= 0 ? 'text-up' : 'text-down'}`}>
-                    {d.netPnlPctUtil >= 0 ? '+' : '−'}{Math.abs(d.netPnlPctUtil)}%
-                  </td>
-                  <td className="px-2 py-1.5 text-right text-amber-700">₹{d.peak.toLocaleString('en-IN')}</td>
-                  <td className={`px-2 py-1.5 text-right ${d.pctUsed > 100 ? 'text-down font-bold' : d.pctUsed > 80 ? 'text-amber-700' : 'text-muted'}`}>
-                    {d.pctUsed}%
-                  </td>
-                  <td className={`px-2 py-1.5 text-right ${d.excess > 0 ? 'text-down font-semibold' : 'text-muted'}`}>
-                    {d.excess > 0 ? `+₹${d.excess.toLocaleString('en-IN')}` : '—'}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {data.length > 0 && <MonthlyPnl key={`${strat}-${acct}`} data={data} />}
     </div>
   );
 }
+
+/** Month totals for a year; a month opens into its daily detail. */
+function MonthlyPnl({ data }: { data: DayData[] }) {
+  const byMonth = useMemo(() => {
+    const m = new Map<string, DayData[]>();
+    data.forEach(d => { const k = d.date.slice(0, 7); if (!m.has(k)) m.set(k, []); m.get(k)!.push(d); });
+    return m;
+  }, [data]);
+  const monthKeys = useMemo(() => [...byMonth.keys()].sort(), [byMonth]);
+  const years = useMemo(() => [...new Set(monthKeys.map(k => +k.slice(0, 4)))].sort(), [monthKeys]);
+  const [year, setYear]   = useState(() => years[years.length - 1]);
+  const [month, setMonth] = useState<string | null>(null);
+
+  const yIdx = years.indexOf(year);
+  const nav = 'pressable w-8 h-8 rounded-full border border-border bg-white flex items-center justify-center text-ink2 hover:border-spvh-400 disabled:opacity-30 disabled:pointer-events-none';
+
+  if (month) {
+    const days = [...(byMonth.get(month) ?? [])].reverse();
+    const mIdx = monthKeys.indexOf(month);
+    const [yy, mm] = month.split('-').map(Number);
+    const net = days.reduce((s, d) => s + d.netPnl, 0);
+    return (
+      <div className="bg-surface rounded-panel border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+          <button onClick={() => { setYear(yy); setMonth(null); }}
+            className="pressable text-sm font-semibold text-accent hover:underline">All months</button>
+          <span className="text-muted">/</span>
+          <button className={nav} disabled={mIdx <= 0} onClick={() => setMonth(monthKeys[mIdx - 1])} aria-label="Previous month">‹</button>
+          <span className="text-base font-bold text-ink w-24 text-center">{MONTHS[mm - 1]} {yy}</span>
+          <button className={nav} disabled={mIdx >= monthKeys.length - 1} onClick={() => setMonth(monthKeys[mIdx + 1])} aria-label="Next month">›</button>
+          <span className={`ml-auto text-base font-bold tabular-nums ${net >= 0 ? 'text-up' : 'text-down'}`}>{signed(net)}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm tabular-nums">
+            <thead>
+              <tr className="text-xs font-semibold text-muted border-b border-border bg-bg/50">
+                {['Date', 'Trades', 'Opening capital', 'Closing capital', 'Gross P&L', 'Charges', 'Net P&L', 'Net % of capital used', 'Peak capital used'].map(h => (
+                  <th key={h} className={`px-3 py-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {days.map(d => (
+                <tr key={d.date} className="border-b border-border/50">
+                  <td className="px-3 py-1.5 text-ink font-semibold whitespace-nowrap">{dayLabel(d.date, { weekday: 'short', day: '2-digit', month: 'short' })}</td>
+                  <td className="px-3 py-1.5 text-right text-ink2">{d.nTrades}</td>
+                  <td className="px-3 py-1.5 text-right text-ink2">{fmtINR(d.opening)}</td>
+                  <td className={`px-3 py-1.5 text-right font-semibold ${d.closing >= d.opening ? 'text-up' : 'text-down'}`}>{fmtINR(d.closing)}</td>
+                  <td className={`px-3 py-1.5 text-right ${d.dayPnl >= 0 ? 'text-up' : 'text-down'}`}>{signed(d.dayPnl)}</td>
+                  <td className="px-3 py-1.5 text-right text-muted">−{fmtINR(d.charges)}</td>
+                  <td className={`px-3 py-1.5 text-right font-bold ${d.netPnl >= 0 ? 'text-up' : 'text-down'}`}>{signed(d.netPnl)}</td>
+                  <td className={`px-3 py-1.5 text-right ${d.netPnlPctUtil >= 0 ? 'text-up' : 'text-down'}`}>{d.netPnlPctUtil >= 0 ? '+' : '−'}{Math.abs(d.netPnlPctUtil)}%</td>
+                  <td className="px-3 py-1.5 text-right text-ink2">{fmtINR(d.peak)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  const rows = monthKeys.filter(k => +k.slice(0, 4) === year).reverse().map(k => {
+    const days = byMonth.get(k)!;
+    return {
+      key: k, m: +k.slice(5, 7), days: days.length,
+      trades: days.reduce((s, d) => s + d.nTrades, 0),
+      up: days.filter(d => d.netPnl > 0).length,
+      gross: days.reduce((s, d) => s + d.dayPnl, 0),
+      charges: days.reduce((s, d) => s + d.charges, 0),
+      net: days.reduce((s, d) => s + d.netPnl, 0),
+      close: days[days.length - 1].closing,
+    };
+  });
+  const yearNet = rows.reduce((s, r) => s + r.net, 0);
+
+  return (
+    <div className="bg-surface rounded-panel border border-border overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+        <span className="text-base font-bold text-ink mr-1">P&amp;L by month</span>
+        <button className={nav} disabled={yIdx <= 0} onClick={() => setYear(years[yIdx - 1])} aria-label="Previous year">‹</button>
+        <span className="text-base font-bold text-ink w-14 text-center tabular-nums">{year}</span>
+        <button className={nav} disabled={yIdx >= years.length - 1} onClick={() => setYear(years[yIdx + 1])} aria-label="Next year">›</button>
+        <span className="text-xs text-muted">Click a month for its daily detail</span>
+        <span className={`ml-auto text-base font-bold tabular-nums ${yearNet >= 0 ? 'text-up' : 'text-down'}`}>{signed(yearNet)} in {year}</span>
+      </div>
+      <table className="w-full text-left text-sm tabular-nums">
+        <thead>
+          <tr className="text-xs font-semibold text-muted border-b border-border bg-bg/50">
+            {['Month', 'Trading days', 'Up days', 'Trades', 'Gross P&L', 'Charges', 'Net P&L', 'Closing capital'].map(h => (
+              <th key={h} className={`px-4 py-2 ${h !== 'Month' ? 'text-right' : ''}`}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.key} onClick={() => setMonth(r.key)} tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter') setMonth(r.key); }}
+                className="border-b border-border/50 cursor-pointer hover:bg-spvh-50 focus-visible:bg-spvh-50">
+              <td className="px-4 py-2.5 font-bold text-ink">{MONTHS[r.m - 1]} {year}</td>
+              <td className="px-4 py-2.5 text-right text-ink2">{r.days}</td>
+              <td className="px-4 py-2.5 text-right text-ink2">{r.up}</td>
+              <td className="px-4 py-2.5 text-right text-ink2">{r.trades}</td>
+              <td className={`px-4 py-2.5 text-right ${r.gross >= 0 ? 'text-up' : 'text-down'}`}>{signed(r.gross)}</td>
+              <td className="px-4 py-2.5 text-right text-muted">−{fmtINR(r.charges)}</td>
+              <td className={`px-4 py-2.5 text-right font-bold ${r.net >= 0 ? 'text-up' : 'text-down'}`}>{signed(r.net)}</td>
+              <td className="px-4 py-2.5 text-right text-ink">{fmtINR(r.close)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 
 // ── PDF generator ──────────────────────────────────────────────────────────────
 function generatePDF(
@@ -933,7 +1071,7 @@ function EmailModal({
             <div className="flex gap-2 justify-end">
               <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-ink border border-border rounded-control">Cancel</button>
               <button onClick={send} disabled={sending || !email}
-                className="px-4 py-2 text-sm btn-gold text-ink rounded-control disabled:opacity-50">
+                className="px-4 py-2 text-sm btn-primary rounded-control disabled:opacity-50">
                 {sending ? 'Sending…' : 'Send Report'}
               </button>
             </div>
@@ -1099,7 +1237,6 @@ export default function ReportsView() {
     return 500_000 + prior.reduce((s, t) => s + (t.pnl || 0) - calcTradeCharges(t), 0);
   }, [allEsTrades, period, customFrom]);
 
-  const allObTrades = useMemo(() => allTrades.filter(t => getStrategy(t.entry_logic) === 'OB'), [allTrades]);
 
   const stats = useMemo(() => {
     const calc = (ts: Trade[]) => {
@@ -1181,15 +1318,15 @@ export default function ReportsView() {
         <h1 className="text-ink font-bold text-2xl leading-tight">Reports</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={handleDownloadPDF}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
             <DownloadSimple size={15} weight="bold" /> Download PDF
           </button>
           <button onClick={() => setShowEmail(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
             <EnvelopeSimple size={15} weight="bold" /> Email report
           </button>
           <button onClick={generate} disabled={loading}
-            className="pressable flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-border text-ink2 hover:text-ink hover:border-gold-400 rounded-full disabled:opacity-50">
+            className="pressable flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-border text-ink2 hover:text-ink hover:border-spvh-400 rounded-full disabled:opacity-50">
             {loading ? 'Generating…' : <><ArrowClockwise size={15} weight="bold" /> Refresh</>}
           </button>
         </div>
@@ -1200,7 +1337,7 @@ export default function ReportsView() {
         {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective'], ['capital','Capital Growth']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-control text-sm font-medium transition-colors
-              ${tab === t ? 'btn-gold text-ink' : 'bg-surface border border-border text-muted hover:text-ink'}`}>
+              ${tab === t ? 'btn-primary' : 'bg-surface border border-border text-muted hover:text-ink'}`}>
             {label}
           </button>
         ))}
@@ -1259,8 +1396,8 @@ export default function ReportsView() {
           {/* ES + OB strategy cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* ES */}
-            <div className="bg-surface rounded-panel border border-brand/30 bg-brand/5 p-4">
-              <div className="text-xs font-semibold text-brand mb-3">Early Scalp [ES]</div>
+            <div className="bg-surface rounded-panel border border-es/30 bg-es/5 p-4">
+              <div className="text-xs font-semibold text-es mb-3">Early Scalp [ES]</div>
               <div className="grid grid-cols-3 gap-3 mb-3">
                 <div className="text-center">
                   <div className="text-muted text-[12px] uppercase mb-0.5">Trades</div>
@@ -1317,7 +1454,7 @@ export default function ReportsView() {
                 <thead>
                   <tr className="text-muted text-xs font-semibold bg-border/20 border-b border-border">
                     <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2 text-brand">ES (net)</th>
+                    <th className="px-3 py-2 text-es">ES (net)</th>
                     <th className="px-3 py-2 text-teal">OB (net)</th>
                     <th className="px-3 py-2">Gross</th>
                     <th className="px-3 py-2">Charges</th>
@@ -1376,7 +1513,7 @@ export default function ReportsView() {
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-[11px] px-1.5 py-0.5 rounded font-bold
-                          ${strategy === 'ES' ? 'bg-brand/20 text-brand' : 'bg-teal/20 text-teal'}`}>
+                          ${strategy === 'ES' ? 'bg-es/20 text-es' : 'bg-teal/20 text-teal'}`}>
                           {strategy}
                         </span>
                         <span className="text-ink font-semibold">{t.symbol}</span>
@@ -1459,7 +1596,7 @@ export default function ReportsView() {
           <div className="bg-surface rounded-panel border border-border p-4 space-y-3">
             <h3 className="text-ink font-bold text-[15px]">Recommendations</h3>
             {(ml.recommendations || []).map((r: any, i: number) => (
-              <div key={i} className="border border-accent/30 rounded-control p-3 text-xs space-y-1 bg-gold-400/5">
+              <div key={i} className="border border-accent/30 rounded-control p-3 text-xs space-y-1 bg-spvh-400/5">
                 <div className="text-accent font-semibold">{r.pattern?.replace(/_/g,' ')}</div>
                 <p className="text-muted">{r.finding}</p>
                 <p className="text-ink">{r.action}</p>
@@ -1543,18 +1680,7 @@ export default function ReportsView() {
       {/* ── Capital Growth Tab ───────────────────────────────────────────────── */}
       {tab === 'capital' && (
         <div className="space-y-6">
-          <StrategyGrowthSection
-            trades={allEsTrades}
-            label="Early Scalp [ES]"
-            accentColor="rgb(65 105 176)"
-            borderColor="rgb(65 105 176 / 0.3)"
-          />
-          <StrategyGrowthSection
-            trades={allObTrades}
-            label="Opening Breakout [OB]"
-            accentColor="rgb(26 122 105)"
-            borderColor="rgb(26 122 105 / 0.3)"
-          />
+          <CapitalGrowthTab />
         </div>
       )}
     </div>

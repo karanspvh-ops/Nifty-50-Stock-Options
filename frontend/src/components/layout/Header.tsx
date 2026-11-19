@@ -13,13 +13,13 @@ function StrategySwitch({ tag, label, live, onClick }: {
       onClick={onClick}
       title={live ? `${label} is placing real orders. Click to move back to paper.` : `${label} is on paper. Click to go live.`}
       className={`pressable flex items-center gap-2.5 h-10 pl-3 pr-1 rounded-full border
-        ${live ? 'bg-white border-gold-400 shadow-gold' : 'bg-white/70 border-border hover:border-gold-300'}`}
+        ${live ? 'bg-white border-spvh-400 shadow-primary' : 'bg-white/70 border-border hover:border-spvh-300'}`}
     >
-      <span className={`text-sm font-bold ${tag === 'ES' ? 'text-brand' : 'text-teal'}`}>{tag}</span>
+      <span className={`text-sm font-bold ${tag === 'ES' ? 'text-es' : 'text-teal'}`}>{tag}</span>
       <span className="text-xs text-muted hidden xl:inline">{label}</span>
       <span
         className={`flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-bold tracking-wide
-          ${live ? 'btn-gold' : 'bg-bg text-ink2'}`}
+          ${live ? 'btn-primary' : 'bg-bg text-ink2'}`}
       >
         {live && <span className="live-dot w-2 h-2 rounded-full bg-down" />}
         {live ? 'LIVE' : 'PAPER'}

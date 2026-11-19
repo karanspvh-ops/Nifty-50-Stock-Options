@@ -60,7 +60,7 @@ export default function BacktestView() {
             className="bg-bg border border-border text-ink text-xs rounded px-2 py-1.5" />
         </div>
         <button onClick={run} disabled={running}
-          className="px-4 py-2 btn-gold text-ink rounded-control text-sm font-semibold disabled:opacity-50">
+          className="px-4 py-2 btn-primary rounded-control text-sm font-semibold disabled:opacity-50">
           {running ? 'Running…' : 'Run Backtest'}
         </button>
         {running && (

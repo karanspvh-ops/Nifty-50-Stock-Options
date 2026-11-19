@@ -35,7 +35,7 @@ function Timeline({ phase }: { phase: string }) {
         const done = at >= 0 && i < at, now = i === at;
         return (
           <li key={s.label} aria-current={now ? 'step' : undefined} className="min-w-0">
-            <div className={`h-1.5 rounded-full ${now ? 'bg-gold-500' : done ? 'bg-gold-300' : 'bg-border'}`} />
+            <div className={`h-1.5 rounded-full ${now ? 'bg-spvh-500' : done ? 'bg-spvh-300' : 'bg-border'}`} />
             <div className={`mt-1.5 text-xs truncate ${now ? 'font-bold text-ink' : done ? 'text-ink2' : 'text-muted'}`}>{s.label}</div>
             <div className="text-[11px] text-muted truncate">{s.time}</div>
           </li>
@@ -53,7 +53,7 @@ function Status({ s }: { s: PlanStock }) {
     </span>
   );
   if (s.confirmed) return (
-    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full btn-gold">
+    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full btn-primary">
       <CheckCircle size={13} weight="fill" /> Confirmed
     </span>
   );
@@ -171,7 +171,7 @@ export default function TradePlan() {
                 {stocks.map(s => {
                   const b = s.direction === 'call';
                   return (
-                    <tr key={s.token} className={`border-b border-border/50 ${s.entered ? 'bg-gold-50' : ''}`}>
+                    <tr key={s.token} className={`border-b border-border/50 ${s.entered ? 'bg-spvh-50' : ''}`}>
                       <td className="px-4 py-1.5 whitespace-nowrap">
                         <span className="font-semibold text-ink">{s.symbol}</span>
                         <span className={`ml-2 text-[11px] font-bold px-1.5 py-px rounded ${b ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>{b ? 'CE' : 'PE'}</span>

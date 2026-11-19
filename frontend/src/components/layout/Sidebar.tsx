@@ -34,7 +34,7 @@ export default function Sidebar() {
               onClick={() => setActiveView(id)}
               aria-current={active ? 'page' : undefined}
               className={`pressable group w-full flex flex-col items-center gap-1 rounded-control py-2.5
-                ${active ? 'btn-gold' : 'text-muted hover:text-ink hover:bg-ink/[0.04]'}`}
+                ${active ? 'btn-primary' : 'text-muted hover:text-ink hover:bg-ink/[0.04]'}`}
             >
               <I size={22} weight={active ? 'fill' : 'regular'} />
               <span className={`text-[12.5px] leading-none ${active ? 'font-semibold' : ''}`}>{label}</span>

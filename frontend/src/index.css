@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 /* ── Tokens ────────────────────────────────────────────────────────────────
-   White canvas, frosted-glass panels, gold for highlights and primary
-   actions. Text tokens are checked for WCAG AA on white:
-   ink 17.8:1 · ink-2 10.4:1 · muted 6.1:1 · gold-700 5.3:1 · up 5.2:1 · down 5.7:1
+   White canvas, frosted-glass panels, SPVH brand blue for highlights and
+   primary actions. Text tokens are checked for WCAG AA on white:
+   ink 17.8:1 · ink-2 10.4:1 · muted 6.1:1 · spvh-600 7.0:1 · up 5.2:1 · down 5.7:1
    (Liquid-glass here is a web approximation: backdrop-filter + layered
    borders + highlights. Apple's material itself exists only on Apple platforms.) */
 :root {
@@ -23,13 +23,16 @@
   --brand:   65 105 176;
   --teal:    26 122 105;
 
-  --gold-50:  252 248 236;
-  --gold-100: 247 237 208;
-  --gold-300: 230 204 138;
-  --gold-400: 217 180 90;
-  --gold-500: 201 160 74;
-  --gold-600: 168 124 34;
-  --gold-700: 138 101 22;
+  --es:      106 79 176;   /* Early Scalp identity (muted violet) */
+
+  /* SPVH brand blue: the accent. White text on 500/600/700 passes AA (5.4 / 7.0 / 9.0) */
+  --spvh-50:  242 245 251;
+  --spvh-100: 225 232 245;
+  --spvh-300: 169 188 227;
+  --spvh-400: 111 143 208;
+  --spvh-500: 65 105 176;
+  --spvh-600: 52 88 154;
+  --spvh-700: 42 72 128;
 
   color-scheme: light;
 }
@@ -53,8 +56,8 @@ body {
 }
 
 /* Ambient light behind the glass. Without something to refract, frosted
-   panels on pure white read as flat grey boxes; two faint washes (gold and
-   the SPVH blue) give the blur depth while the page still reads white. */
+   panels on pure white read as flat grey boxes; faint SPVH blue and teal
+   washes give the blur depth while the page still reads white. */
 #root::before {
   content: "";
   position: fixed;
@@ -62,9 +65,9 @@ body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(1200px 700px at -10% -20%, rgb(var(--gold-300) / 0.28), transparent 60%),
-    radial-gradient(900px 600px at 110% 110%, rgb(var(--brand) / 0.10), transparent 60%),
-    radial-gradient(700px 500px at 70% -10%, rgb(var(--gold-100) / 0.35), transparent 70%);
+    radial-gradient(1200px 700px at -10% -20%, rgb(var(--spvh-300) / 0.30), transparent 60%),
+    radial-gradient(900px 600px at 110% 110%, rgb(var(--teal) / 0.08), transparent 60%),
+    radial-gradient(700px 500px at 70% -10%, rgb(var(--spvh-100) / 0.45), transparent 70%);
 }
 #root > * { position: relative; z-index: 1; }
 
@@ -82,7 +85,7 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
     box-shadow:
       0 1px 0 rgb(255 255 255 / 0.95) inset,
       0 0 0 1px rgb(22 24 29 / 0.06),
-      0 12px 32px -14px rgb(76 58 18 / 0.16);
+      0 12px 32px -14px rgb(30 50 90 / 0.14);
   }
   .glass-strong {
     background: rgb(255 255 255 / 0.9);
@@ -93,16 +96,16 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
       0 0 0 1px rgb(22 24 29 / 0.07),
       0 24px 60px -20px rgb(22 24 29 / 0.28);
   }
-  /* Primary action: polished gold with dark ink text (7.3:1) */
-  .btn-gold {
-    background: linear-gradient(180deg, rgb(var(--gold-400)), rgb(var(--gold-500)) 55%, rgb(var(--gold-600)));
-    color: rgb(var(--ink));
+  /* Primary action / selected state: SPVH blue with white text (5.4:1+) */
+  .btn-primary {
+    background: linear-gradient(180deg, rgb(var(--spvh-500)), rgb(var(--spvh-600)));
+    color: #fff;
     box-shadow:
-      0 1px 0 rgb(255 255 255 / 0.55) inset,
-      0 -1px 0 rgb(var(--gold-700) / 0.35) inset,
-      0 6px 16px -6px rgb(var(--gold-600) / 0.6);
+      0 1px 0 rgb(255 255 255 / 0.25) inset,
+      0 -1px 0 rgb(var(--spvh-700) / 0.4) inset,
+      0 6px 16px -6px rgb(var(--spvh-600) / 0.55);
   }
-  .btn-gold:hover { filter: brightness(1.04); }
+  .btn-primary:hover { filter: brightness(1.06); }
 
   .pressable {
     transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
@@ -111,9 +114,9 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
   }
   .pressable:active:not(:disabled) { transform: scale(0.97); }
 
-  .gold-rule {
+  .accent-rule {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgb(var(--gold-500) / 0.7), transparent);
+    background: linear-gradient(90deg, transparent, rgb(var(--spvh-500) / 0.6), transparent);
   }
 }
 
@@ -128,17 +131,17 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
 .rounded-2xl.bg-surface {
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.95) inset,
-    0 12px 32px -16px rgb(76 58 18 / 0.16);
+    0 12px 32px -16px rgb(30 50 90 / 0.14);
 }
 
-/* Focus that is visible on white and on gold */
+/* Focus that is visible on white and on blue */
 :focus-visible {
-  outline: 2px solid rgb(var(--gold-600));
+  outline: 2px solid rgb(var(--spvh-500));
   outline-offset: 2px;
   border-radius: 6px;
 }
 
-::selection { background: rgb(var(--gold-300) / 0.6); color: rgb(var(--ink)); }
+::selection { background: rgb(var(--spvh-300) / 0.6); color: rgb(var(--ink)); }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -148,7 +151,7 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--gold-600) / 0.55); }
+::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--spvh-500) / 0.55); }
 
 input, select, textarea { color: rgb(var(--ink)); }
 input::placeholder, textarea::placeholder { color: rgb(var(--muted)); }

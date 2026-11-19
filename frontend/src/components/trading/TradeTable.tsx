@@ -128,7 +128,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
 
       {/* ── PnL stat cards ── */}
       <div className="flex flex-wrap gap-3">
-        <PnLStat label="Early Scalp [ES]"       value={esPnL} count={esTrades.length} color="border-brand/30 bg-brand/5" />
+        <PnLStat label="Early Scalp [ES]"       value={esPnL} count={esTrades.length} color="border-es/30 bg-es/5" />
         <PnLStat label="Opening Breakout [OB]"   value={obPnL} count={obTrades.length} color="border-teal/30 bg-teal/5" />
         {teTrades.length > 0 && (
           <PnLStat label="Trading Engine [TE]"   value={tePnL} count={teTrades.length} color="border-border bg-border/10" />
@@ -152,9 +152,9 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
             onClick={() => setFilter(f)}
             className={`text-[12.5px] px-3 py-1 rounded font-semibold transition-colors ${
               filter === f
-                ? f === 'ES' ? 'bg-brand/30 text-brand border border-brand/50'
+                ? f === 'ES' ? 'bg-es/30 text-es border border-es/50'
                   : f === 'OB' ? 'bg-teal/30 text-teal border border-teal/50'
-                  : 'bg-gold-400/20 text-accent border border-accent/40'
+                  : 'bg-spvh-400/20 text-accent border border-accent/40'
                 : 'bg-border/30 text-muted border border-border hover:bg-border/50'
             }`}
           >
@@ -202,7 +202,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                       <td className="px-3 py-2 text-muted text-xs">{t.id}</td>
                       <td className="px-3 py-2">
                         <span className={`text-[12px] px-1.5 py-0.5 rounded font-bold tracking-wide
-                          ${strat === 'ES' ? 'bg-brand/20 text-brand'
+                          ${strat === 'ES' ? 'bg-es/20 text-es'
                             : strat === 'OB' ? 'bg-teal/20 text-teal'
                             : 'bg-border text-muted'}`}>
                           {strat}
@@ -238,7 +238,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                       </td>
                       <td className="px-3 py-2">
                         <span className={`text-[12px] px-1.5 py-0.5 rounded capitalize
-                          ${t.status === 'open'      ? 'bg-gold-400/20 text-accent' :
+                          ${t.status === 'open'      ? 'bg-spvh-400/20 text-accent' :
                             t.status === 'sl_hit'    ? 'bg-down/20 text-down'    :
                             t.status === 'target'    ? 'bg-up/20 text-up'        :
                             t.status === 'breakeven' ? 'bg-yellow-500/20 text-amber-700' :

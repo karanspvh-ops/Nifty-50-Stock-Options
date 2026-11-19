@@ -13,7 +13,7 @@ function EnvTag({ env }: { env: string }) {
   const live = env === 'live';
   return (
     <span className={`ml-1.5 inline-flex items-center gap-1 align-middle text-[11px] font-bold px-1.5 py-px rounded-full
-      ${live ? 'btn-gold' : 'bg-bg text-muted border border-border'}`}>
+      ${live ? 'btn-primary' : 'bg-bg text-muted border border-border'}`}>
       {live && <span className="live-dot w-1.5 h-1.5 rounded-full bg-down" />}
       {live ? 'LIVE' : 'PAPER'}
     </span>

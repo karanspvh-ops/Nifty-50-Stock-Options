@@ -48,7 +48,7 @@ function PageTitle({ title, note, live }: { title: string; note: string; live?: 
     <div className="flex items-end gap-3 mb-4">
       <h1 className="text-2xl font-bold text-ink leading-none">{title}</h1>
       <span className={`inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[12.5px] font-bold tracking-wide
-        ${live ? 'btn-gold' : 'bg-bg text-ink2 border border-border'}`}>
+        ${live ? 'btn-primary' : 'bg-bg text-ink2 border border-border'}`}>
         {live && <span className="live-dot w-1.5 h-1.5 rounded-full bg-down" />}
         {live ? 'LIVE' : 'PAPER'}
       </span>

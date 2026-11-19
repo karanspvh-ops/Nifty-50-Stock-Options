@@ -1,4 +1,4 @@
-/** iOS-style segmented control: a quiet track with the selected segment raised in gold. */
+/** iOS-style segmented control: a quiet track with the selected segment raised in SPVH blue. */
 export default function Segmented<T extends string>({
   value, options, onChange, label,
 }: {
@@ -18,7 +18,7 @@ export default function Segmented<T extends string>({
             aria-checked={on}
             onClick={() => onChange(o.key)}
             className={`pressable h-7 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap
-              ${on ? 'btn-gold' : 'text-ink2 hover:text-ink hover:bg-white/80'}`}
+              ${on ? 'btn-primary' : 'text-ink2 hover:text-ink hover:bg-white/80'}`}
           >
             {o.label}
           </button>
