@@ -11,8 +11,7 @@ import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
 import StockRanking     from './components/dashboard/StockRanking';
 import TradableSignals  from './components/dashboard/TradableSignals';
 import TradePlan        from './components/dashboard/TradePlan';
-import SystemCheckPanel      from './components/dashboard/SystemCheckPanel';
-import StrategyDryRunPanel   from './components/dashboard/StrategyDryRunPanel';
+import AccountPanel     from './components/dashboard/AccountPanel';
 import TradeTable       from './components/trading/TradeTable';
 import ReportsView      from './components/reports/ReportsView';
 import NiftyDataView    from './components/niftydata/NiftyDataView';
@@ -60,8 +59,7 @@ function PageTitle({ title, note, live }: { title: string; note: string; live?: 
 function Dashboard() {
   return (
     <div className="px-6 py-5 space-y-4 overflow-y-auto h-full">
-      <SystemCheckPanel />
-      <StrategyDryRunPanel />
+      <AccountPanel />
       <OpenTradesPanel />
       <TradePlan />
       <SectorHeatmap />

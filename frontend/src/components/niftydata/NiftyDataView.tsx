@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { Fragment, useEffect, useState, useRef } from 'react';
+import { CaretRight, ArrowsClockwise, CircleNotch } from '@phosphor-icons/react';
+import Segmented from '../ui/Segmented';
 
 const API = 'http://localhost:8000';
 
@@ -13,7 +15,7 @@ const RANGES: { key: RangeKey; label: string }[] = [
 ];
 
 interface Snapshot {
-  snapshot_time: string; date: string; strike: number; option_type: string; moneyness_rank: number;
+  strike: number; option_type: string; moneyness_rank: number; expiry: string;
   nifty_spot: number | null; open: number | null; high: number | null; low: number | null;
   close: number | null; volume: number | null; oi: number | null;
   oi_day_high: number | null; oi_day_low: number | null;
@@ -100,43 +102,104 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
-// Table virtualization: with the row cap removed, "today" alone can be ~8,500
-// rows and wider ranges far more -- mounting every row as a real <tr> (each
-// with a hover transition) is what was freezing the tab. Only the rows within
-// the scrolled viewport (+ overscan) are ever in the DOM at once.
-const ROW_H = 25;          // px -- must match the rendered row height below
-const VIEWPORT_H = 520;    // px -- must match the scroll container's max-h
-const OVERSCAN = 15;       // rows rendered above/below the visible window
+// The minute list shows one compact row per snapshot minute (time + spot);
+// a minute's ±10-strike rows are fetched only when it is expanded, so a long
+// range never mounts tens of thousands of table rows.
+interface MinuteRow { t: string; spot: number | null; rows: number; book: number; }
+interface Backfill { running: boolean; started_at: string | null;
+  results: { date: string; status: string; inserted?: number; filled?: number; note?: string }[]; }
+
+const PAGE = 120;
+const n0 = (v: number | null | undefined) => (v == null ? '—' : v.toLocaleString('en-IN'));
+const p2 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(2));
+
+function MinuteDetail({ rows }: { rows: Snapshot[] | 'loading' }) {
+  if (rows === 'loading') return (
+    <div className="flex items-center gap-2 px-5 py-4 text-sm text-muted">
+      <CircleNotch size={16} className="animate-spin" /> Loading strikes
+    </div>
+  );
+  if (!rows.length) return <div className="px-5 py-4 text-sm text-muted">No contract rows for this minute.</div>;
+  const th = 'px-2 py-1.5 text-right font-semibold';
+  return (
+    <div className="overflow-x-auto bg-white/60 border-b border-border">
+      <table className="w-full text-xs" style={{ minWidth: 1320 }}>
+        <thead>
+          <tr className="text-muted border-b border-border bg-bg/70">
+            <th className={th}>Strike</th><th className="px-2 py-1.5 text-left font-semibold">Type</th><th className={th}>Rank</th>
+            <th className={th}>Open</th><th className={th}>High</th><th className={th}>Low</th><th className={th}>Close</th>
+            <th className={th}>Vol (1m)</th><th className={th}>Day vol</th><th className={th}>OI</th><th className={th}>OI high / low</th>
+            <th className={th}>Buy qty</th><th className={th}>Sell qty</th><th className={th}>Bid</th><th className={th}>Ask</th><th className={th}>Spread %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => {
+            const atm = r.moneyness_rank === 0;
+            return (
+              <tr key={`${r.strike}-${r.option_type}`}
+                  className={`border-b border-border/50 tabular-nums ${atm ? 'bg-gold-100/70' : r.option_type === 'PE' ? 'bg-bg/40' : ''}`}>
+                <td className={`px-2 py-1 text-right text-ink ${atm ? 'font-bold' : ''}`}>{r.strike.toFixed(0)}</td>
+                <td className={`px-2 py-1 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>{r.option_type}</td>
+                <td className={`px-2 py-1 text-right ${atm ? 'text-accent font-bold' : 'text-muted'}`}>
+                  {atm ? 'ATM' : r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
+                </td>
+                <td className="px-2 py-1 text-right text-ink2">{p2(r.open)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{p2(r.high)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{p2(r.low)}</td>
+                <td className="px-2 py-1 text-right text-ink font-semibold">{p2(r.close)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{n0(r.volume)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{n0(r.day_volume)}</td>
+                <td className="px-2 py-1 text-right text-ink">{n0(r.oi)}</td>
+                <td className="px-2 py-1 text-right text-muted whitespace-nowrap">{n0(r.oi_day_high)} / {n0(r.oi_day_low)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{n0(r.buy_quantity)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{n0(r.sell_quantity)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{p2(r.bid_price)}</td>
+                <td className="px-2 py-1 text-right text-ink2">{p2(r.ask_price)}</td>
+                <td className="px-2 py-1 text-right text-muted">{p2(r.spread_pct)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function fmtDay(d: string) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 export default function NiftyDataView() {
   const [range, setRange] = useState<RangeKey>('today');
   const [status, setStatus] = useState<Status | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [rows, setRows] = useState<Snapshot[]>([]);
+  const [minutes, setMinutes] = useState<MinuteRow[]>([]);
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<Record<string, Snapshot[] | 'loading'>>({});
+  const [bf, setBf] = useState<Backfill | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
-  const [scrollTop, setScrollTop] = useState(0);
   const poll = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const clock = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const load = async (r: RangeKey) => {
     try {
-      const [s, c, rows] = await Promise.all([
+      const [s, c, m, b] = await Promise.all([
         fetch(`${API}/api/nifty-data/status`).then(x => x.json()),
         fetch(`${API}/api/nifty-data/candles?range=${r}`).then(x => x.json()),
-        fetch(`${API}/api/nifty-data/snapshots?range=${r}&limit=200000`).then(x => x.json()),
+        fetch(`${API}/api/nifty-data/minutes?range=${r}`).then(x => x.json()),
+        fetch(`${API}/api/nifty-data/backfill/status`).then(x => (x.ok ? x.json() : null)).catch(() => null),
       ]);
-      setStatus(s); setCandles(c); setRows(rows);
+      setStatus(s); setCandles(c); setMinutes(Array.isArray(m) ? m : []); setBf(b);
     } catch { /* backend not reachable this tick — keep showing last known data */ }
   };
 
   useEffect(() => {
     load(range);
+    setShown(PAGE);
+    setOpen({});
     clearInterval(poll.current);
     // Only poll live for "today" -- historical ranges don't change once loaded.
     if (range === 'today') poll.current = setInterval(() => load(range), 5000);
-    setScrollTop(0);
-    scrollRef.current?.scrollTo(0, 0);
     return () => clearInterval(poll.current);
   }, [range]);
 
@@ -145,84 +208,104 @@ export default function NiftyDataView() {
     return () => clearInterval(clock.current);
   }, []);
 
+  // While a completion run is going, follow its progress and reload once it ends
+  useEffect(() => {
+    if (!bf?.running) return;
+    const id = setInterval(async () => {
+      const b = await fetch(`${API}/api/nifty-data/backfill/status`).then(x => x.json()).catch(() => null);
+      setBf(b);
+      if (b && !b.running) load(range);
+    }, 2000);
+    return () => clearInterval(id);
+  }, [bf?.running, range]);
+
+  const toggle = async (t: string) => {
+    if (open[t]) { setOpen(o => { const n = { ...o }; delete n[t]; return n; }); return; }
+    setOpen(o => ({ ...o, [t]: 'loading' }));
+    try {
+      const rows = await fetch(`${API}/api/nifty-data/minute?t=${encodeURIComponent(t)}`).then(x => x.json());
+      setOpen(o => (t in o ? { ...o, [t]: Array.isArray(rows) ? rows : [] } : o));
+    } catch {
+      setOpen(o => (t in o ? { ...o, [t]: [] } : o));
+    }
+  };
+
+  const startBackfill = async () => {
+    const r = await fetch(`${API}/api/nifty-data/backfill`, { method: 'POST' }).catch(() => null);
+    if (r?.ok) setBf({ running: true, started_at: new Date().toISOString(), results: [] });
+  };
+
   const staleness = secondsAgo(status?.last_snapshot_at ?? null);
   const isLive = staleness !== null && staleness < 90;
   void nowTick; // re-render trigger for the staleness clock
 
-  // Flatten latest-first rows into a single list, grouped by minute (newest
-  // minute block first) -- computed once per data change, not on every render/
-  // scroll tick, and sorted once rather than re-sorting each group on every render.
-  const { flatRows, minuteCount } = useMemo(() => {
-    const out: { row: Snapshot; isGroupStart: boolean }[] = [];
-    let minutes = 0;
-    let i = 0;
-    while (i < rows.length) {
-      const time = rows[i].snapshot_time;
-      const group: Snapshot[] = [];
-      while (i < rows.length && rows[i].snapshot_time === time) { group.push(rows[i]); i++; }
-      group.sort((a, b) => a.strike - b.strike || a.option_type.localeCompare(b.option_type));
-      group.forEach((row, gi) => out.push({ row, isGroupStart: gi === 0 }));
-      minutes++;
-    }
-    return { flatRows: out, minuteCount: minutes };
-  }, [rows]);
-
-  const total = flatRows.length;
-  const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
-  const endIdx = Math.min(total, startIdx + Math.ceil(VIEWPORT_H / ROW_H) + OVERSCAN * 2);
-  const visibleRows = flatRows.slice(startIdx, endIdx);
-  const topPad = startIdx * ROW_H;
-  const botPad = (total - endIdx) * ROW_H;
+  const multiDay = range !== 'today';
+  const visible = minutes.slice(0, shown);
+  const lastRun = bf?.results ?? [];
 
   return (
-    <div className="p-6 space-y-4 overflow-y-auto h-full">
-      <div className="flex items-center justify-between">
-        <h1 className="text-ink font-bold text-2xl leading-tight">Nifty Data Collector</h1>
-        <div className="flex items-center gap-2 text-xs">
-          <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
-          <span className="text-muted">
-            {isLive ? 'Live' : 'Not receiving data'}
-            {staleness !== null && ` — last row ${staleness}s ago`}
+    <div className="px-6 py-5 space-y-4 overflow-y-auto h-full">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-end gap-3">
+          <h1 className="text-ink font-bold text-2xl leading-tight">Nifty Data Collector</h1>
+          <span className="flex items-center gap-1.5 text-xs pb-1">
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
+            <span className="text-muted">
+              {isLive ? 'Live' : 'Not receiving data'}{staleness !== null && `, last row ${staleness}s ago`}
+            </span>
           </span>
         </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted text-right">
+            {bf?.running
+              ? `Completing from Zerodha (${lastRun.length} day${lastRun.length === 1 ? '' : 's'} done)`
+              : 'Runs automatically at 3:35 pm'}
+          </span>
+          <button
+            onClick={startBackfill}
+            disabled={!!bf?.running}
+            title="Fill every missing minute, strike, OI and volume for the last 7 trading days from Zerodha's minute history"
+            className="pressable flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-gold-400 disabled:opacity-50"
+          >
+            {bf?.running ? <CircleNotch size={15} className="animate-spin" /> : <ArrowsClockwise size={15} weight="bold" />}
+            Complete from Zerodha
+          </button>
+        </div>
       </div>
 
-      {/* Range switch */}
-      <div className="flex items-center gap-1 bg-surface border border-border rounded-control p-1 w-fit">
-        {RANGES.map(r => (
-          <button
-            key={r.key}
-            onClick={() => setRange(r.key)}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
-              ${range === r.key ? 'btn-gold text-ink' : 'text-muted hover:text-ink'}`}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      {!bf?.running && lastRun.length > 0 && (
+        <div className="bg-surface rounded-panel border border-border px-4 py-3 text-xs space-y-1">
+          <div className="font-semibold text-ink text-sm">Last completion run</div>
+          {lastRun.map(r => (
+            <div key={r.date} className="flex gap-3">
+              <span className="w-24 text-ink2 tabular-nums">{r.date}</span>
+              <span className={r.status === 'ok' ? 'text-up' : r.status === 'error' ? 'text-down' : 'text-muted'}>
+                {r.status === 'ok'
+                  ? `${(r.inserted ?? 0).toLocaleString('en-IN')} rows added, ${r.filled ?? 0} filled`
+                  : r.note}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Segmented label="Range" value={range} onChange={setRange} options={RANGES} />
 
       {/* Status strip */}
-      <div className="grid grid-cols-5 gap-3">
-        <div className="bg-surface rounded-control border border-border p-3">
-          <div className="text-[12px] uppercase text-muted mb-1">Rows Today</div>
-          <div className="text-lg font-bold text-ink">{status?.rows_today ?? '—'}</div>
-        </div>
-        <div className="bg-surface rounded-control border border-border p-3">
-          <div className="text-[12px] uppercase text-muted mb-1">Last Snapshot</div>
-          <div className="text-lg font-bold text-ink">
-            {status?.last_snapshot_at ? fmtTime(status.last_snapshot_at) : '—'}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { l: 'Rows today', v: status?.rows_today?.toLocaleString('en-IN') ?? '—' },
+          { l: 'Last snapshot', v: status?.last_snapshot_at ? fmtTime(status.last_snapshot_at) : '—' },
+          { l: 'Contracts tracked', v: status?.contracts ?? '—' },
+          { l: 'Expiry', v: status?.expiry ?? '—' },
+        ].map(c => (
+          <div key={c.l} className="bg-surface rounded-panel border border-border p-3">
+            <div className="text-xs font-semibold text-muted mb-1">{c.l}</div>
+            <div className="text-lg font-bold text-ink">{c.v}</div>
           </div>
-        </div>
-        <div className="bg-surface rounded-control border border-border p-3">
-          <div className="text-[12px] uppercase text-muted mb-1">Contracts Tracked</div>
-          <div className="text-lg font-bold text-ink">{status?.contracts ?? '—'}</div>
-        </div>
-        <div className="bg-surface rounded-control border border-border p-3">
-          <div className="text-[12px] uppercase text-muted mb-1">Expiry</div>
-          <div className="text-lg font-bold text-ink">{status?.expiry ?? '—'}</div>
-        </div>
-        <div className="bg-surface rounded-control border border-border p-3">
-          <div className="text-[12px] uppercase text-muted mb-1">Index Feed</div>
+        ))}
+        <div className="bg-surface rounded-panel border border-border p-3">
+          <div className="text-xs font-semibold text-muted mb-1">Index feed</div>
           <div className={`text-lg font-bold ${status?.index_subscribed ? 'text-up' : 'text-down'}`}>
             {status?.index_subscribed ? 'Subscribed' : 'Not yet'}
           </div>
@@ -232,94 +315,67 @@ export default function NiftyDataView() {
       {/* Candle chart */}
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-ink">
-            NIFTY 50 Spot — 1m candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
+          <span className="font-bold text-base text-ink">
+            NIFTY 50 spot, 1-minute candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
           </span>
           <span className="text-xs text-muted">{candles.length} candles</span>
         </div>
         <div className="px-4 pt-3 pb-1">
-          <CandleChart candles={candles} showDate={range !== 'today'} />
+          <CandleChart candles={candles} showDate={multiDay} />
         </div>
       </div>
 
-      {/* Raw data table — newest first */}
+      {/* Minute snapshots: collapsed to time + spot, expand for the strike ladder */}
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-ink">
-            Raw Snapshots — newest first {range !== 'today' && <span className="text-muted font-normal">({RANGES.find(r => r.key === range)?.label})</span>}
-          </span>
-          <span className="text-xs text-muted">Showing {rows.length} rows across {minuteCount} minute(s)</span>
+          <span className="font-bold text-base text-ink">Minute snapshots, newest first</span>
+          <span className="text-xs text-muted">{minutes.length.toLocaleString('en-IN')} minutes · click a minute for its strikes</span>
         </div>
-        <div ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
-             className="max-h-[520px] overflow-y-auto overflow-x-auto">
-          <table className="w-full text-left" style={{ tableLayout: 'fixed', minWidth: 1560 }}>
-            <thead className="sticky top-0 bg-white/95 backdrop-blur z-10">
-              <tr className="text-xs font-semibold text-muted border-b border-border">
-                <th className="px-2 py-2">Time</th>
-                <th className="px-2 py-2 text-right">Spot</th>
-                <th className="px-2 py-2 text-right">Strike</th>
-                <th className="px-2 py-2">Type</th>
-                <th className="px-2 py-2 text-right">Rank</th>
-                <th className="px-2 py-2 text-right">Open</th>
-                <th className="px-2 py-2 text-right">High</th>
-                <th className="px-2 py-2 text-right">Low</th>
-                <th className="px-2 py-2 text-right">Close</th>
-                <th className="px-2 py-2 text-right">OI</th>
-                <th className="px-2 py-2 text-right">OI Hi/Lo</th>
-                <th className="px-2 py-2 text-right">Buy Qty</th>
-                <th className="px-2 py-2 text-right">Sell Qty</th>
-                <th className="px-2 py-2 text-right">Day Vol</th>
-                <th className="px-2 py-2 text-right">Bid</th>
-                <th className="px-2 py-2 text-right">Ask</th>
-                <th className="px-2 py-2 text-right">Spread%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {total === 0 && (
-                <tr><td colSpan={16} className="px-2 py-8 text-center text-muted text-sm">
-                  No data yet today.
-                </td></tr>
-              )}
-              {topPad > 0 && <tr aria-hidden style={{ height: topPad }}><td colSpan={16} /></tr>}
-              {visibleRows.map(({ row: r, isGroupStart }) => (
-                <tr key={`${r.snapshot_time}-${r.strike}-${r.option_type}`} style={{ height: ROW_H }}
-                    className={`border-b border-border/30 hover:bg-white/[0.02] text-xs
-                      ${isGroupStart ? 'border-t-2 border-t-bg' : ''}`}>
-                  <td className="px-2 text-ink font-medium">
-                    {isGroupStart ? fmtTime(r.snapshot_time, range !== 'today') : ''}
-                  </td>
-                  <td className="px-2 text-right text-muted">
-                    {isGroupStart && r.nifty_spot != null ? r.nifty_spot.toFixed(2) : ''}
-                  </td>
-                  <td className="px-2 text-right text-ink">{r.strike.toFixed(0)}</td>
-                  <td className={`px-2 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>
-                    {r.option_type}
-                  </td>
-                  <td className={`px-2 text-right ${r.moneyness_rank === 0 ? 'text-accent font-bold' : 'text-muted'}`}>
-                    {r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
-                  </td>
-                  <td className="px-2 text-right text-muted">{r.open?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-up">{r.high?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-down">{r.low?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-ink">{r.close?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
-                  <td className="px-2 text-right text-muted whitespace-nowrap">
-                    {r.oi_day_high != null ? r.oi_day_high.toLocaleString('en-IN') : '—'}
-                    {' / '}
-                    {r.oi_day_low != null ? r.oi_day_low.toLocaleString('en-IN') : '—'}
-                  </td>
-                  <td className="px-2 text-right text-up">{r.buy_quantity?.toLocaleString('en-IN') ?? '—'}</td>
-                  <td className="px-2 text-right text-down">{r.sell_quantity?.toLocaleString('en-IN') ?? '—'}</td>
-                  <td className="px-2 text-right text-muted">{r.day_volume?.toLocaleString('en-IN') ?? '—'}</td>
-                  <td className="px-2 text-right text-muted">{r.bid_price?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-muted">{r.ask_price?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-muted">{r.spread_pct?.toFixed(2) ?? '—'}</td>
-                </tr>
-              ))}
-              {botPad > 0 && <tr aria-hidden style={{ height: botPad }}><td colSpan={16} /></tr>}
-            </tbody>
-          </table>
+        {minutes.length === 0 && (
+          <div className="px-4 py-10 text-center text-muted text-sm">No snapshots in this range yet.</div>
+        )}
+        <div>
+          {visible.map((m, i) => {
+            const day = m.t.slice(0, 10);
+            const newDay = multiDay && (i === 0 || visible[i - 1].t.slice(0, 10) !== day);
+            const isOpen = !!open[m.t];
+            return (
+              <Fragment key={m.t}>
+                {newDay && (
+                  <div className="px-4 pt-3 pb-1.5 text-xs font-bold text-ink2 bg-bg/60 border-b border-border">{fmtDay(day)}</div>
+                )}
+                <button
+                  onClick={() => toggle(m.t)}
+                  aria-expanded={isOpen}
+                  className={`w-full flex items-center gap-4 px-4 h-10 text-sm border-b border-border/60 text-left
+                    transition-colors ${isOpen ? 'bg-gold-50' : 'hover:bg-ink/[0.025]'}`}
+                >
+                  <CaretRight size={14} weight="bold"
+                    className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90 text-accent' : 'text-muted'}`} />
+                  <span className="w-14 font-semibold text-ink tabular-nums">{m.t.slice(11, 16)}</span>
+                  <span className="w-32 text-ink2 tabular-nums">
+                    <span className="text-muted text-xs mr-1.5">Spot</span>{m.spot != null ? m.spot.toFixed(2) : '—'}
+                  </span>
+                  <span className="text-xs text-muted">{m.rows} contracts</span>
+                  <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full
+                    ${m.book > 0 ? 'bg-up/10 text-up' : 'bg-bg text-muted border border-border'}`}
+                    title={m.book > 0 ? 'Recorded live: includes bid/ask and order book' : 'Filled from Zerodha history: price, volume and OI only'}>
+                    {m.book > 0 ? 'Live + order book' : 'History only'}
+                  </span>
+                </button>
+                {isOpen && <MinuteDetail rows={open[m.t]} />}
+              </Fragment>
+            );
+          })}
         </div>
+        {shown < minutes.length && (
+          <div className="px-4 py-3 flex justify-center">
+            <button onClick={() => setShown(s => s + PAGE)}
+              className="pressable px-4 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+              Show {Math.min(PAGE, minutes.length - shown)} more minutes
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

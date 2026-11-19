@@ -43,6 +43,13 @@ export interface TradeTick {
   peak_pct: number;
   trail_armed: boolean;
 }
+export interface Account {
+  ok: boolean; live_balance?: number; cash?: number; opening_balance?: number;
+  intraday_payin?: number; net?: number; used_margin?: number;
+  m2m_realised?: number; m2m_unrealised?: number;
+  fetched_at?: string; error?: string; failed_at?: string;
+  received_at?: number;   // browser clock when it arrived
+}
 export interface Settings {
   is_live: boolean; es_live: boolean; ob_live: boolean; available_funds: number;
   target_profit_pct: number; trade_sl_pct: number;
@@ -58,6 +65,8 @@ interface MarketStore {
   openTrades:   OpenTrade[];
   closedTrades: ClosedTrade[];
   tradesVersion: number;   // bumps on every open/close so DB-backed tables refetch at once
+  account: Account | null; // Zerodha balance, pushed live by the backend account monitor
+  setAccount: (a: Account) => void;
   settings:     Settings;
   activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'nifty_data' | 'early_scalp';
   setFeedHealth:    (h: FeedHealth) => void;
@@ -99,6 +108,8 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   openTrades:  [],
   closedTrades: [],
   tradesVersion: 0,
+  account: null,
+  setAccount: (a) => set({ account: { ...a, received_at: Date.now() } }),
   settings: {
     is_live: false, es_live: false, ob_live: false, available_funds: 0, target_profit_pct: 0,
     trade_sl_pct: 5, portfolio_sl_pct: 10,

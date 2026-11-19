@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { WifiHigh, WifiSlash, WarningOctagon } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 import GoLiveDialog from './GoLiveDialog';
+import ChecksPill from './ChecksPill';
 import { useLiveStatus } from './useLiveStatus';
 
 function StrategySwitch({ tag, label, live, onClick }: {
@@ -35,7 +36,7 @@ export default function Header() {
   const lastTick = feedHealth.last_tick ? new Date(feedHealth.last_tick).toLocaleTimeString('en-IN', { hour12: false }) : null;
 
   return (
-    <header className="glass h-16 shrink-0 flex items-center gap-4 px-5 border-b border-white/60 z-10">
+    <header className="glass relative z-30 h-16 shrink-0 flex items-center gap-4 px-5 border-b border-white/60">
       <img src={`${import.meta.env.BASE_URL}spvh-wordmark.png`} alt="SPVH Asset and Investment Management" className="h-8 w-auto select-none" draggable={false} />
       <div className="w-px h-8 bg-border" />
       <div className="min-w-0">
@@ -52,6 +53,8 @@ export default function Header() {
         {feedHealth.connected ? 'Feed live' : 'Feed down'}
         {lastTick && <span className="font-normal text-muted">· {lastTick}</span>}
       </div>
+
+      <ChecksPill />
 
       {haltStatus.halted && (
         <div className="flex items-center gap-1.5 h-8 px-3 rounded-full bg-down text-white text-xs font-bold min-w-0">

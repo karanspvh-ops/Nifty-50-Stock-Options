@@ -101,6 +101,9 @@ async def lifespan(app: FastAPI):
     from backend.core.backfill import start_backfill
     start_backfill()
 
+    from backend.core.account_monitor import account_monitor
+    account_monitor.start()
+
     print("[BOOT] Starting risk engine...")
     risk_engine.start()
     print("[BOOT] Risk engine running.")
@@ -142,6 +145,8 @@ async def lifespan(app: FastAPI):
     early_scalp.stop()
     opening_breakout.stop()
     tradable_tracker.stop()
+    from backend.core.account_monitor import account_monitor
+    account_monitor.stop()
     print("[SHUTDOWN] Stopping trading engine...")
     trading_engine.stop()
     print("[SHUTDOWN] Stopping risk engine...")

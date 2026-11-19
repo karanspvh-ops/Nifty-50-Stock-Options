@@ -70,6 +70,13 @@ def _readiness() -> list:
     return checks
 
 
+@router.get("/account")
+def live_account():
+    """Latest Zerodha balance (pushed live over the trades WebSocket too)."""
+    from backend.core.account_monitor import account_monitor
+    return account_monitor.latest() or account_monitor.refresh() or {"ok": False, "error": "Not signed in to Zerodha"}
+
+
 @router.get("/status")
 def live_status():
     s = get_settings()

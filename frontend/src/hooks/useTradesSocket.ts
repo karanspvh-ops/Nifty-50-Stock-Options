@@ -50,6 +50,7 @@ export function useTradesSocket() {
           });
           else if (msg.type === 'trade_tick')   st.updateTradeTick(msg);
           else if (msg.type === 'trade_closed') st.applyTradeClosed(msg);
+          else if (msg.type === 'account')      st.setAccount(msg);
         };
         ws.onclose = () => { if (!stopped) reconnect = setTimeout(connect, RECONNECT_MS); };
         ws.onerror = () => { ws?.close(); };

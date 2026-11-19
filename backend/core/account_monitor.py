@@ -1,0 +1,91 @@
+"""account_monitor.py — Live Zerodha account balance for the dashboard.
+
+Zerodha has no streaming balance feed; funds are only readable through the
+REST margins API, which shares the account's ~10 requests/second budget with
+order placement. Polling it every millisecond would get the account
+rate-limited and could block live orders, so the balance is refreshed:
+
+  - every REFRESH_SEC, and
+  - immediately whenever Zerodha reports an order event on the ticker
+    WebSocket (placed, filled, cancelled, rejected) -- the moments the
+    balance actually moves -- via poke().
+
+Every refresh is pushed straight to all open dashboards over the trades
+WebSocket as {"type": "account", ...}, so the screen updates the moment
+Zerodha answers.
+"""
+
+import threading
+from typing import Optional
+
+from backend.core.broker import broker
+from backend.core.clock import now_ist
+from backend.core.market_state import market
+
+REFRESH_SEC = 2.0
+MIN_GAP_SEC = 0.35      # never more than ~3 calls/second, even under a burst of order events
+
+
+class AccountMonitor:
+    def __init__(self):
+        self._wake = threading.Event()
+        self._running = False
+        self._latest: Optional[dict] = None
+        self._lock = threading.Lock()
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        threading.Thread(target=self._loop, daemon=True, name="AccountMonitor").start()
+
+    def stop(self):
+        self._running = False
+        self._wake.set()
+
+    def poke(self):
+        """Refresh now (called on every Zerodha order update)."""
+        self._wake.set()
+
+    def latest(self) -> Optional[dict]:
+        with self._lock:
+            return dict(self._latest) if self._latest else None
+
+    def _loop(self):
+        import time
+        while self._running:
+            self._wake.wait(REFRESH_SEC)
+            self._wake.clear()
+            if not self._running:
+                break
+            self.refresh()
+            time.sleep(MIN_GAP_SEC)
+
+    def refresh(self) -> Optional[dict]:
+        if not broker.has_token():
+            return None
+        try:
+            eq = broker.kite().margins("equity") or {}
+            av, ut = eq.get("available", {}) or {}, eq.get("utilised", {}) or {}
+            data = {
+                "ok":              True,
+                "live_balance":    float(av.get("live_balance") or 0),
+                "cash":            float(av.get("cash") or 0),
+                "opening_balance": float(av.get("opening_balance") or 0),
+                "intraday_payin":  float(av.get("intraday_payin") or 0),
+                "net":             float(eq.get("net") or 0),
+                "used_margin":     float(ut.get("debits") or 0),
+                "m2m_realised":    float(ut.get("m2m_realised") or 0),
+                "m2m_unrealised":  float(ut.get("m2m_unrealised") or 0),
+                "fetched_at":      now_ist().isoformat(),
+            }
+        except Exception as e:
+            prev = self.latest() or {}
+            data = {**prev, "ok": False, "error": str(e), "failed_at": now_ist().isoformat()}
+        with self._lock:
+            self._latest = data
+        market.push_trade_update({"type": "account", **data})
+        return data
+
+
+account_monitor = AccountMonitor()

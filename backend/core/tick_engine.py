@@ -89,6 +89,12 @@ class TickEngine:
             except Exception as e:
                 print(f"[TICK ENGINE] tick parse error: {e}")
 
+    def _on_order_update(self, ws, data):
+        # Zerodha pushes every order status change here; the balance moves on
+        # these, so refresh the account straight away.
+        from backend.core.account_monitor import account_monitor
+        account_monitor.poke()
+
     def _on_close(self, ws, code, reason):
         print(f"[TICK ENGINE] WebSocket closed: {code} {reason}")
         market.set_feed_connected(False, f"closed: {reason}")
@@ -172,6 +178,7 @@ class TickEngine:
         self._kws.on_error        = self._on_error
         self._kws.on_reconnect    = self._on_reconnect
         self._kws.on_noreconnect  = self._on_noreconnect
+        self._kws.on_order_update = self._on_order_update
 
         market.set_feed_connected(True)
         self._kws.connect(threaded=True)       # background thread, non-blocking
