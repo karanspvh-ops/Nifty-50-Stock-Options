@@ -26,6 +26,7 @@ import time as _time
 from datetime import date, datetime, time as dtime, timedelta
 
 from backend.core.broker import broker
+from backend.core import rate_gate
 from backend.core.clock import now_ist
 from backend.storage.nifty_options_engine import NiftySession
 from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
@@ -208,7 +209,8 @@ def run_async(days: list) -> bool:
         try:
             for d in days:
                 try:
-                    r = backfill_day(d)
+                    with rate_gate.background():      # yields to live trading calls
+                        r = backfill_day(d)
                 except Exception as e:
                     r = {"date": d.isoformat(), "status": "error", "note": str(e)}
                 print(f"[NIFTY-BACKFILL] {r}")

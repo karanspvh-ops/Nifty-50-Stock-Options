@@ -25,6 +25,7 @@ class MarketState:
 
         # token → callable(token, ltp) — called on every tick for that token
         self._tick_callbacks: Dict[str, object] = {}
+        self._depth: Dict[str, tuple] = {}       # token -> (bid, ask, monotonic time) from FULL ticks
 
         # token → {"pct_change": float, "direction": "up"/"down"/"flat"}
         self._stock_moves: Dict[str, dict] = {}
@@ -178,6 +179,21 @@ class MarketState:
             if self._rt_candles.get(token):
                 return  # tick data already flowing — don't overwrite
             self._rt_candles[token] = list(candles)[-100:]
+
+    def update_depth(self, token: str, bid: Optional[float], ask: Optional[float]) -> None:
+        """Best bid/ask from a FULL-mode tick (option contracts)."""
+        import time as _t
+        with self._lock:
+            self._depth[token] = (bid, ask, _t.monotonic())
+
+    def get_bid_ask(self, token: str, max_age: float = 3.0):
+        """(bid, ask) from the live feed if a FULL tick arrived within max_age s, else None."""
+        import time as _t
+        with self._lock:
+            d = self._depth.get(str(token)) if token is not None else None
+        if not d or _t.monotonic() - d[2] > max_age:
+            return None
+        return d[0], d[1]
 
     def get_tick(self, token: str) -> Optional[dict]:
         with self._lock:

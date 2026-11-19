@@ -50,7 +50,7 @@ def live_funds() -> Optional[dict]:
         except Exception:
             fresh = False
     if not fresh:
-        a = account_monitor.refresh()
+        a = account_monitor.refresh(critical=True)
     return a if a and a.get("ok") else None
 
 

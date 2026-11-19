@@ -25,7 +25,6 @@ TICK = 0.05                 # NSE stock-option tick size
 BUY_BUFFER_PCT  = 2.0       # pay at most ask + 2%
 SELL_BUFFERS_PCT = (3.0, 6.0, 12.0)   # successive SELL attempts: bid - 3%, 6%, 12%
 FILL_TIMEOUT_SEC = 4.0
-POLL_SEC = 0.25
 
 
 class LiveOrderError(Exception):
@@ -73,9 +72,17 @@ def _round_tick(price: float, up: bool) -> float:
 
 
 def _touch(opt_symbol: str):
-    """(bid, ask, ltp) from a fresh Kite quote."""
+    """(bid, ask, ltp): the live feed's order book when fresh (no API call),
+    else one batched quote."""
+    from backend.core.market_state import market
+    from backend.core.stock_universe import get_option_token
+    tok = get_option_token(opt_symbol)
+    ba = market.get_bid_ask(tok, max_age=1.5) if tok else None
+    if ba and (ba[0] or ba[1]):
+        return ba[0], ba[1], market.get_ltp(tok)
+    from backend.core.quotes import quotes
     key = f"NFO:{opt_symbol}"
-    q = broker.kite().quote([key]).get(key, {})
+    q = quotes.get([key], max_age=0.5).get(key, {})
     depth = q.get("depth", {})
     buys, sells = depth.get("buy", []), depth.get("sell", [])
     bid = float(buys[0]["price"]) if buys and buys[0]["price"] > 0 else None
@@ -84,23 +91,65 @@ def _touch(opt_symbol: str):
     return bid, ask, ltp
 
 
-def _wait_for_fill(order_id: str) -> dict:
-    """Poll order_history until a terminal state or timeout. Returns the last state."""
+# ── Order updates pushed by Zerodha on the ticker WebSocket ─────────────────
+_upd_cond = threading.Condition()
+_order_updates: dict = {}          # order_id -> latest update payload
+
+
+def on_order_update(data: dict):
+    """Called by tick_engine for every order status change Zerodha pushes."""
+    oid = str(data.get("order_id") or "")
+    if not oid:
+        return
+    with _upd_cond:
+        _order_updates[oid] = data
+        _upd_cond.notify_all()
+    for fn in list(_update_listeners):
+        try:
+            fn(data)
+        except Exception as e:
+            print(f"[LIVE] order-update listener error: {e}")
+
+
+_update_listeners: list = []
+
+
+def add_update_listener(fn):
+    _update_listeners.append(fn)
+
+
+TERMINAL = ("COMPLETE", "REJECTED", "CANCELLED")
+
+
+def _wait_for_fill(order_id: str, timeout: float = None) -> dict:
+    """Wait for a terminal state. Zerodha's pushed order updates answer in
+    milliseconds; order_history is polled once a second only as a backstop
+    (it costs API budget the exits may need)."""
     kite = broker.kite()
-    deadline = time.monotonic() + FILL_TIMEOUT_SEC
+    deadline = time.monotonic() + (FILL_TIMEOUT_SEC if timeout is None else timeout)
+    next_poll = time.monotonic() + 1.0
     last = {}
     while True:
-        try:
-            hist = kite.order_history(order_id)
-            if hist:
-                last = hist[-1]
-                if last.get("status") in ("COMPLETE", "REJECTED", "CANCELLED"):
-                    return last
-        except Exception as e:
-            print(f"[LIVE] order_history {order_id} failed: {e}")
-        if time.monotonic() >= deadline:
-            return last
-        time.sleep(POLL_SEC)
+        with _upd_cond:
+            u = _order_updates.get(str(order_id))
+            if u:
+                last = u
+                if u.get("status") in TERMINAL:
+                    return u
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return last
+            _upd_cond.wait(min(remaining, max(0.0, next_poll - time.monotonic()), 0.25))
+        if time.monotonic() >= next_poll:
+            next_poll = time.monotonic() + 1.0
+            try:
+                hist = kite.order_history(order_id)
+                if hist:
+                    last = hist[-1]
+                    if last.get("status") in TERMINAL:
+                        return last
+            except Exception as e:
+                print(f"[LIVE] order_history {order_id} failed: {e}")
 
 
 def _cancel_and_settle(order_id: str) -> dict:

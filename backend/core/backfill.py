@@ -129,4 +129,8 @@ def _run():
 def start_backfill():
     if _status["running"]:
         return
-    threading.Thread(target=_run, daemon=True, name="Backfill").start()
+    def _bg_run():
+        from backend.core import rate_gate
+        with rate_gate.background():      # indicator warm-up yields to trading calls
+            _run()
+    threading.Thread(target=_bg_run, daemon=True, name="Backfill").start()

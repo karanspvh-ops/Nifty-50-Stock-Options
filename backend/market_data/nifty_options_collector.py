@@ -28,6 +28,8 @@ from datetime import date, timedelta
 from backend.core.clock        import now_ist
 from backend.core.market_state import market
 from backend.core.broker       import broker
+from backend.core              import rate_gate
+from backend.core.quotes       import quotes
 
 from backend.storage.nifty_options_engine import NiftySession, init_nifty_options_db
 from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
@@ -150,7 +152,8 @@ class NiftyOptionsCollector:
         spot = market.get_ltp(self._index_token)
         if spot is None:
             try:
-                q = broker.kite().quote(["NSE:NIFTY 50"])
+                with rate_gate.background():
+                    q = quotes.get(["NSE:NIFTY 50"], max_age=5.0)
                 spot = float(q["NSE:NIFTY 50"]["last_price"])
             except Exception as e:
                 print(f"[NIFTY-DATA] spot bootstrap fetch failed: {e}")
@@ -288,10 +291,11 @@ class NiftyOptionsCollector:
         self._last_index_ltp = spot
         self._stale_logged = False
 
-        kite = broker.kite()
         keys = [f"NFO:{c['tradingsymbol']}" for c in self._contracts.values()] + ["NSE:NIFTY 50"]
         try:
-            q = kite.quote(keys)
+            # Housekeeping: yields to trading calls, shares the 1/s quote budget
+            with rate_gate.background():
+                q = quotes.get(keys, max_age=0.0)
         except Exception as e:
             print(f"[NIFTY-DATA] quote fetch error: {e}")
             return

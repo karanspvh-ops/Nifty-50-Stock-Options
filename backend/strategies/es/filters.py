@@ -167,8 +167,8 @@ class ESFiltersMixin:
             if not sym_ce or not sym_pe:
                 return {"oi_ce": 0, "oi_pe": 0, "signal": "neutral"}
 
-            kite = broker.kite()
-            q = kite.quote([f"NFO:{sym_ce}", f"NFO:{sym_pe}"])
+            from backend.core.quotes import quotes
+            q = quotes.get([f"NFO:{sym_ce}", f"NFO:{sym_pe}"], max_age=5.0)
             ce_oi = q.get(f"NFO:{sym_ce}", {}).get("oi", 0) or 0
             pe_oi = q.get(f"NFO:{sym_pe}", {}).get("oi", 0) or 0
 

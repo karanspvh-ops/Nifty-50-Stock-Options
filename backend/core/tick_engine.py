@@ -65,7 +65,7 @@ class TickEngine:
         if self._option_meta:
             opt_toks = [int(t) for t in self._option_meta.keys()]
             ws.subscribe(opt_toks)
-            ws.set_mode(ws.MODE_QUOTE, opt_toks)
+            ws.set_mode(ws.MODE_FULL, opt_toks)   # FULL: includes the 5-level order book
             print(f"[TICK ENGINE] Re-subscribed {len(opt_toks)} option/index contracts after (re)connect.")
 
         market.set_feed_reconnected()
@@ -85,6 +85,12 @@ class TickEngine:
                 meta   = get_meta(token)
                 symbol = meta.get("symbol") or self._option_meta.get(token, {}).get("symbol") or token
                 market.update_tick(token, ltp, vol, prev_close, ts)
+                depth = tk.get("depth")
+                if depth:
+                    buys, sells = depth.get("buy") or [], depth.get("sell") or []
+                    bid = float(buys[0]["price"]) if buys and buys[0].get("price") else None
+                    ask = float(sells[0]["price"]) if sells and sells[0].get("price") else None
+                    market.update_depth(token, bid, ask)
                 process_tick(token, symbol, ltp, vol, ts)
             except Exception as e:
                 print(f"[TICK ENGINE] tick parse error: {e}")
@@ -93,6 +99,8 @@ class TickEngine:
         # Zerodha pushes every order status change here; the balance moves on
         # these, so refresh the account straight away.
         from backend.core.account_monitor import account_monitor
+        from backend.execution.live_orders import on_order_update
+        on_order_update(data)
         account_monitor.poke()
 
     def _on_close(self, ws, code, reason):
@@ -129,7 +137,9 @@ class TickEngine:
         if new:
             try:
                 self._kws.subscribe(new)
-                self._kws.set_mode(self._kws.MODE_QUOTE, new)
+                # FULL mode carries bid/ask, so entries, exits and stop-loss
+                # checks read the order book from the feed, not the 1/s quote API
+                self._kws.set_mode(self._kws.MODE_FULL, new)
                 print(f"[TICK ENGINE] Subscribed {len(new)} option contracts.")
             except Exception as e:
                 print(f"[TICK ENGINE] option subscribe error: {e}")

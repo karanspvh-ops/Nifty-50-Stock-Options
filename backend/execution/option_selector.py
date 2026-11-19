@@ -6,15 +6,21 @@ from typing import Optional, Tuple
 from backend.core.market_state   import market
 from backend.core.stock_universe import load_instrument_cache
 from backend.core.broker         import broker
+from backend.core.quotes         import quotes
 
 
 def option_bid_ask(opt_token: str, opt_symbol: str) -> tuple:
-    """Return (bid, ask, spread_pct) from Kite quote depth. Falls back to (None, None, None)."""
+    """Return (bid, ask, spread_pct): live feed order book first (FULL-mode
+    ticks, no API call), else one batched quote. (None, None, None) if neither."""
     if not opt_symbol:
         return None, None, None
+    ba = market.get_bid_ask(opt_token) if opt_token else None
+    if ba and ba[0] and ba[1]:
+        bid, ask = ba
+        return bid, ask, round((ask - bid) / ((ask + bid) / 2) * 100, 2)
     try:
         key = f"NFO:{opt_symbol}"
-        q   = broker.kite().quote([key])
+        q   = quotes.get([key])
         depth = q.get(key, {}).get("depth", {})
         buy_levels  = depth.get("buy",  [])
         sell_levels = depth.get("sell", [])
@@ -38,7 +44,7 @@ def option_premium(opt_token: str, opt_symbol: str) -> Optional[float]:
         return p
     try:
         key = f"NFO:{opt_symbol}"
-        q   = broker.kite().quote([key])
+        q   = quotes.get([key])
         return float(q[key]["last_price"])
     except Exception:
         return None

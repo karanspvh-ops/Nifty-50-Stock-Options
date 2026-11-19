@@ -233,7 +233,12 @@ async def trades_ws(websocket: WebSocket):
         # that falls back to a blocking Kite REST call. Run in a worker thread so
         # it can never freeze the event loop that serves every HTTP request and
         # every other WebSocket (it used to run inline, per client, every 1 s).
-        trades = await loop.run_in_executor(None, risk_engine.get_open_risk_snapshot)
+        def snap():
+            # Display only: any quote fallback inside yields to trading calls
+            from backend.core import rate_gate
+            with rate_gate.background():
+                return risk_engine.get_open_risk_snapshot()
+        trades = await loop.run_in_executor(None, snap)
         await websocket.send_json({"type": "snapshot", "trades": trades})
 
     SNAPSHOT_EVERY = 1.0

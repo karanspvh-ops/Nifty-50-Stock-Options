@@ -54,8 +54,9 @@ def has_liquidity(opt_token: str, opt_symbol: str, lot_size: int,
 
     # ── 2. Open interest (in lots) + bid-ask spread ───────────────────────────
     try:
+        from backend.core.quotes import quotes
         key  = f"NFO:{opt_symbol}"
-        q    = kite.quote([key])
+        q    = quotes.get([key])
         data = q.get(key, {})
 
         oi      = data.get("oi", 0) or 0

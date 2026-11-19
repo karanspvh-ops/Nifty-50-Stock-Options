@@ -40,6 +40,8 @@ class Broker:
         self.api_secret  = cfg["api_secret"]
         self.redirect    = cfg.get("redirect_url", "")
         self._kite       = KiteConnect(api_key=self.api_key)
+        from backend.core import rate_gate
+        rate_gate.install(self._kite)    # every REST call goes through the priority/rate gate
         self._access_token: Optional[str] = None
         self._profile_name: Optional[str] = None
         self._load_token()

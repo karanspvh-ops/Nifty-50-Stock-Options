@@ -215,7 +215,10 @@ class ESManageMixin:
                 ltps    = {}
                 if keys:
                     try:
-                        q = broker.kite().quote(keys)
+                        from backend.core import rate_gate
+                        from backend.core.quotes import quotes
+                        with rate_gate.background():      # bookkeeping only
+                            q = quotes.get(keys, max_age=3.0)
                         for tid, sym in symbols.items():
                             if sym and f"NFO:{sym}" in q:
                                 ltps[tid] = float(q[f"NFO:{sym}"]["last_price"])

@@ -99,8 +99,10 @@ def refresh_instrument_list(force: bool = False) -> dict:
 
     try:
         kite = broker.kite()
-        nse  = kite.instruments("NSE")
-        nfo  = kite.instruments("NFO")
+        from backend.core import rate_gate
+        with rate_gate.background():
+            nse  = kite.instruments("NSE")
+            nfo  = kite.instruments("NFO")
 
         # NSE equity token resolution
         resolved: Dict[str, str] = {}

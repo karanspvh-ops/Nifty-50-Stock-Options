@@ -21,6 +21,7 @@ from typing import Optional
 from backend.core.broker import broker
 from backend.core.clock import now_ist
 from backend.core.market_state import market
+from backend.core import rate_gate
 
 REFRESH_SEC = 2.0
 MIN_GAP_SEC = 0.35      # never more than ~3 calls/second, even under a burst of order events
@@ -61,11 +62,17 @@ class AccountMonitor:
             self.refresh()
             time.sleep(MIN_GAP_SEC)
 
-    def refresh(self) -> Optional[dict]:
+    def refresh(self, critical: bool = False) -> Optional[dict]:
+        """Fetch the balance now. Background priority unless an order is
+        waiting on it (critical=True, used by live position sizing)."""
         if not broker.has_token():
             return None
         try:
-            eq = broker.kite().margins("equity") or {}
+            if critical:
+                eq = broker.kite().margins("equity") or {}
+            else:
+                with rate_gate.background():
+                    eq = broker.kite().margins("equity") or {}
             av, ut = eq.get("available", {}) or {}, eq.get("utilised", {}) or {}
             data = {
                 "ok":              True,
