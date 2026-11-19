@@ -83,7 +83,7 @@ def place(trade_id: int, symbol: str, qty: int, stop: float) -> Optional[str]:
         oid = kite.place_order(
             variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO, tradingsymbol=symbol,
             transaction_type=kite.TRANSACTION_TYPE_SELL, quantity=qty, product=kite.PRODUCT_MIS,
-            order_type=kite.ORDER_TYPE_SL, trigger_price=trigger, price=limit,
+            order_type=kite.ORDER_TYPE_SL, trigger_price=trigger, price=limit, tag=live_orders.ORDER_TAG,
         )
     except Exception as e:
         alerts.raise_alert(f"stop:{trade_id}",
@@ -200,6 +200,14 @@ def exit_now(trade_id: int) -> Fill:
     s = get(trade_id)
     if not s:
         raise LiveOrderError(f"trade #{trade_id} has no resting stop order")
+    live_orders._mark(s["symbol"], 1)          # reconciler leaves the symbol alone meanwhile
+    try:
+        return _exit_now(trade_id, s)
+    finally:
+        live_orders._mark(s["symbol"], -1)
+
+
+def _exit_now(trade_id: int, s: dict) -> Fill:
     kite = broker.kite()
     oid, symbol, qty = s["order_id"], s["symbol"], s["qty"]
     for buf in EXIT_BUFFERS_PCT:

@@ -25,6 +25,7 @@ TICK = 0.05                 # NSE stock-option tick size
 BUY_BUFFER_PCT  = 2.0       # pay at most ask + 2%
 SELL_BUFFERS_PCT = (3.0, 6.0, 12.0)   # successive SELL attempts: bid - 3%, 6%, 12%
 FILL_TIMEOUT_SEC = 4.0
+ORDER_TAG = "SPVHALGO"      # every system order carries this; the reconciler only touches tagged symbols
 
 
 class LiveOrderError(Exception):
@@ -169,12 +170,34 @@ def _place(opt_symbol: str, side: str, qty: int, price: float) -> str:
         tradingsymbol=opt_symbol,
         transaction_type=kite.TRANSACTION_TYPE_BUY if side == "BUY" else kite.TRANSACTION_TYPE_SELL,
         quantity=qty, product=kite.PRODUCT_MIS,
-        order_type=kite.ORDER_TYPE_LIMIT, price=price,
+        order_type=kite.ORDER_TYPE_LIMIT, price=price, tag=ORDER_TAG,
     )
+
+
+_inflight_lock = threading.Lock()
+_inflight: dict = {}         # option symbol -> number of BUY/SELL calls in progress
+
+
+def inflight_symbols() -> set:
+    with _inflight_lock:
+        return {s for s, n in _inflight.items() if n > 0}
+
+
+def _mark(symbol: str, delta: int):
+    with _inflight_lock:
+        _inflight[symbol] = _inflight.get(symbol, 0) + delta
 
 
 def buy(opt_symbol: str, qty: int) -> Fill:
     """BUY qty units. Returns the fill (possibly partial). Raises if nothing filled."""
+    _mark(opt_symbol, 1)
+    try:
+        return _buy(opt_symbol, qty)
+    finally:
+        _mark(opt_symbol, -1)
+
+
+def _buy(opt_symbol: str, qty: int) -> Fill:
     bid, ask, ltp = _touch(opt_symbol)
     ref = ask or ltp
     if not ref:
@@ -198,6 +221,14 @@ def buy(opt_symbol: str, qty: int) -> Fill:
 
 
 def sell(opt_symbol: str, qty: int) -> Fill:
+    _mark(opt_symbol, 1)
+    try:
+        return _sell(opt_symbol, qty)
+    finally:
+        _mark(opt_symbol, -1)
+
+
+def _sell(opt_symbol: str, qty: int) -> Fill:
     """SELL qty units, retrying with wider buffers until fully filled.
     Raises LiveOrderError if any quantity is still held after all attempts."""
     remaining = qty

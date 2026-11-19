@@ -50,6 +50,11 @@ export interface Account {
   fetched_at?: string; error?: string; failed_at?: string;
   received_at?: number;   // browser clock when it arrived
 }
+export interface LiveAlert {
+  key: string; level: 'critical' | 'warning'; message: string;
+  trade_id: number | null; symbol: string | null;
+  first_at: string; last_at: string; count: number;
+}
 export interface Settings {
   is_live: boolean; es_live: boolean; ob_live: boolean; available_funds: number;
   target_profit_pct: number; trade_sl_pct: number;
@@ -66,6 +71,8 @@ interface MarketStore {
   closedTrades: ClosedTrade[];
   tradesVersion: number;   // bumps on every open/close so DB-backed tables refetch at once
   account: Account | null; // Zerodha balance, pushed live by the backend account monitor
+  alerts: LiveAlert[];      // live-trading warnings (unsold positions, missing stops, broker mismatches)
+  setAlerts: (a: LiveAlert[]) => void;
   setAccount: (a: Account) => void;
   settings:     Settings;
   activeView:   'dashboard' | 'testing_lab' | 'battle_ground' | 'reports' | 'nifty_data' | 'early_scalp';
@@ -109,6 +116,8 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   closedTrades: [],
   tradesVersion: 0,
   account: null,
+  alerts: [],
+  setAlerts: (a) => set({ alerts: a }),
   setAccount: (a) => set({ account: { ...a, received_at: Date.now() } }),
   settings: {
     is_live: false, es_live: false, ob_live: false, available_funds: 0, target_profit_pct: 0,

@@ -73,6 +73,23 @@ def _readiness() -> list:
     return checks
 
 
+@router.get("/alerts")
+def live_alerts():
+    """Active live-trading warnings (also pushed over the trades WebSocket)."""
+    from backend.core import alerts
+    from backend.execution.reconciler import reconciler
+    return {"alerts": alerts.active(), "reconciled_at": reconciler.last_run,
+            "reconcile": reconciler.last_summary}
+
+
+@router.post("/alerts/{key}/dismiss")
+def dismiss_alert(key: str):
+    """Hide a warning. Critical alerts come straight back while the problem lasts."""
+    from backend.core import alerts
+    alerts.clear_alert(key)
+    return {"status": "ok"}
+
+
 @router.get("/account")
 def live_account():
     """Latest Zerodha balance (pushed live over the trades WebSocket too)."""
