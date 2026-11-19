@@ -21,7 +21,7 @@ from backend.core.broker           import broker
 
 from backend.database import Session, Trade, TradeEnv, TradeDirection, TradeStatus
 
-from backend.execution.quantity        import calc_quantity
+from backend.execution.quantity        import calc_quantity, trading_capital
 from backend.execution.option_selector import select_option, option_premium, option_bid_ask
 from backend.execution.liquidity       import has_liquidity
 from backend.execution                 import live_orders
@@ -38,7 +38,6 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
         return None
 
     settings        = get_settings()
-    available_funds = settings.get("available_funds") or 500_000
     trade_sl_pct    = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
     target_pct      = target_pct_override if target_pct_override is not None else settings.get("target_profit_pct", 0.0)
 
@@ -68,7 +67,27 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
         print(f"[ORDER] REJECTED — {opt_symbol} too illiquid to trade safely")
         return None
 
-    qty            = calc_quantity(available_funds, premium, lot_size, max_positions)
+    capital, why_cap = trading_capital(live=(env == TradeEnv.LIVE))
+    if capital is None:
+        print(f"[ORDER] REJECTED — {symbol}: can't size the trade ({why_cap})")
+        return None
+    qty = calc_quantity(capital, premium, lot_size, max_positions)
+    if qty <= 0:
+        print(f"[ORDER] REJECTED — {opt_symbol}: one lot ₹{premium * lot_size:,.0f} exceeds the "
+              f"per-trade budget ₹{capital / max(max_positions, 1):,.0f} ({why_cap})")
+        return None
+    if env == TradeEnv.LIVE:
+        # Never send an order the account can't pay for right now
+        from backend.execution.quantity import live_funds
+        acct = live_funds()
+        cash_now = float(acct.get("live_balance") or 0) if acct else 0.0
+        afford = int(cash_now // (premium * lot_size * 1.03)) if premium > 0 else 0
+        if afford < qty:
+            print(f"[ORDER] {opt_symbol}: cutting {qty} lots to {afford} (cash now ₹{cash_now:,.0f})")
+            qty = afford
+        if qty <= 0:
+            print(f"[ORDER] REJECTED — {opt_symbol}: not enough cash in Zerodha right now (₹{cash_now:,.0f})")
+            return None
     trade_sl_price = round(premium * (1 - trade_sl_pct / 100), 2)
     target_price   = round(premium * (1 + target_pct / 100), 2) if target_pct > 0 else None
 

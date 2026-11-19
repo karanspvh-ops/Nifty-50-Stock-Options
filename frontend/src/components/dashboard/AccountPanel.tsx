@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Wallet, WarningCircle } from '@phosphor-icons/react';
+import { useEffect, useRef, useState } from 'react';
+import { Wallet } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
@@ -13,6 +13,7 @@ const signed = (v: number | undefined) =>
 export default function AccountPanel() {
   const account  = useMarketStore(s => s.account);
   const setAcct  = useMarketStore(s => s.setAccount);
+  const setSettings = useMarketStore(s => s.setSettings);
   const settings = useMarketStore(s => s.settings);
   const [, tick] = useState(0);
 
@@ -25,9 +26,6 @@ export default function AccountPanel() {
   const age = account?.received_at ? (Date.now() - account.received_at) / 1000 : null;
   const fresh = age != null && age < 5 && account?.ok;
   const bal = account?.live_balance;
-  const capital = settings.available_funds || 0;
-  const anyLive = settings.es_live || settings.ob_live;
-  const short = bal != null && capital > 0 ? capital - bal : null;
 
   const stats = [
     { l: 'Opening balance', v: rs(account?.opening_balance) },
@@ -54,16 +52,6 @@ export default function AccountPanel() {
           <div className={`mt-1 text-[40px] leading-[46px] font-bold tabular-nums ${(bal ?? 0) < 0 ? 'text-down' : 'text-ink'}`}>
             {rs(bal)}
           </div>
-          {capital > 0 && bal != null && (
-            short != null && short > 0 ? (
-              <div className={`mt-1 flex items-center gap-1.5 text-sm ${anyLive ? 'text-down font-semibold' : 'text-warn'}`}>
-                <WarningCircle size={16} weight="fill" />
-                ₹{short.toLocaleString('en-IN', { maximumFractionDigits: 0 })} short of the ₹{capital.toLocaleString('en-IN')} strategy capital
-              </div>
-            ) : (
-              <div className="mt-1 text-sm text-up font-semibold">Covers the ₹{capital.toLocaleString('en-IN')} strategy capital</div>
-            )
-          )}
           {account?.ok === false && account.error && <div className="mt-1 text-xs text-down">{account.error}</div>}
         </div>
 
@@ -76,6 +64,75 @@ export default function AccountPanel() {
           ))}
         </div>
       </div>
+      <CapitalLimit
+        limit={settings.available_funds || 500000}
+        startFunds={account?.ok ? (account.opening_balance ?? 0) + (account.intraday_payin ?? 0) : null}
+        live={settings.es_live || settings.ob_live}
+        onSaved={v => setSettings({ available_funds: v })}
+      />
     </section>
+  );
+}
+
+const STEP = 100_000;
+
+/** Capital limit control: trading capital = min(start-of-day funds, limit), split across 5 trades. */
+function CapitalLimit({ limit, startFunds, live, onSaved }: {
+  limit: number; startFunds: number | null; live: boolean; onSaved: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState(limit);
+  const [saving, setSaving] = useState(false);
+  const dragging = useRef(false);
+  useEffect(() => { if (!dragging.current) setDraft(limit); }, [limit]);
+
+  const max = Math.max(5_000_000, Math.ceil(((startFunds ?? 0) * 1.2) / STEP) * STEP, draft);
+  const save = async (v: number) => {
+    dragging.current = false;
+    if (v === limit) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/settings/`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ available_funds: v }),
+      });
+      if (r.ok) onSaved(v);
+    } finally { setSaving(false); }
+  };
+  const nudge = (d: number) => { const v = Math.min(max, Math.max(STEP, draft + d)); setDraft(v); save(v); };
+
+  const liveCapital = startFunds == null ? null : Math.max(0, Math.min(startFunds, draft));
+  const lakh = (v: number) => `₹${(v / 100_000).toLocaleString('en-IN', { maximumFractionDigits: 2 })}L`;
+  const btn = 'pressable w-7 h-7 rounded-full border border-border bg-white text-ink2 hover:border-gold-400 font-bold leading-none';
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 border-t border-border bg-bg/50">
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold text-ink2">Capital limit</span>
+        <button className={btn} onClick={() => nudge(-STEP)} aria-label="Lower capital limit by ₹1 lakh">−</button>
+        <input
+          type="range" min={STEP} max={max} step={STEP} value={draft}
+          aria-label="Capital limit"
+          onChange={e => { dragging.current = true; setDraft(Number(e.target.value)); }}
+          onPointerUp={e => save(Number((e.target as HTMLInputElement).value))}
+          onKeyUp={e => save(Number((e.target as HTMLInputElement).value))}
+          className="w-48 accent-[rgb(var(--gold-600))]"
+        />
+        <button className={btn} onClick={() => nudge(STEP)} aria-label="Raise capital limit by ₹1 lakh">+</button>
+        <span className="text-base font-bold text-ink tabular-nums w-20">{lakh(draft)}</span>
+        {saving && <span className="text-xs text-muted">Saving</span>}
+      </div>
+      <div className="text-sm text-ink2 tabular-nums">
+        {liveCapital == null ? (
+          <>Per trade on paper: <span className="font-bold text-ink">{lakh(draft / 5)}</span></>
+        ) : (
+          <>
+            Live trades use <span className="font-bold text-ink">{lakh(liveCapital)}</span>
+            <span className="text-muted"> (smaller of start-of-day funds {lakh(startFunds ?? 0)} and the limit)</span>
+            {' '}→ <span className={`font-bold ${liveCapital >= 5 * 1000 ? 'text-accent' : 'text-down'}`}>{lakh(liveCapital / 5)} per trade</span>
+            {live && liveCapital <= 0 && <span className="ml-2 font-semibold text-down">No funds: live entries will be skipped</span>}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

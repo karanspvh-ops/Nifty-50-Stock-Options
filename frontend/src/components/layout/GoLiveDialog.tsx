@@ -108,7 +108,7 @@ export default function GoLiveDialog({
           {!live && (
             <div className="rounded-control bg-gold-50 border border-gold-300/70 px-4 py-3 text-sm text-ink2 space-y-1">
               <p>Orders: intraday (MIS) option buys, marketable limit orders, real fills recorded.</p>
-              <p>Capital per day: <span className="font-semibold text-ink">₹{funds.toLocaleString('en-IN')}</span>{tag === 'ES' && ', at most 5 trades, no refills'}.</p>
+              <p>Sizing: smaller of your Zerodha funds and the <span className="font-semibold text-ink">₹{funds.toLocaleString('en-IN')}</span> capital limit, split equally across 5 trades, no refills.</p>
               <p>Exits sell at Zerodha first; a failed sell keeps the trade open and retries.</p>
             </div>
           )}

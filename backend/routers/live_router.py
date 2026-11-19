@@ -54,18 +54,21 @@ def _readiness() -> list:
     checks.append({"key": "halt", "label": "Trading not halted", "ok": not halted,
                    "detail": market.get_halt_reason() if halted else "No halt in force"})
 
-    funds = float(get_settings().get("available_funds") or 0)
-    margin_ok, margin_detail = False, "Could not read Zerodha margin"
+    from backend.execution.quantity import capital_limit
+    limit = capital_limit()
+    margin_ok, margin_detail = False, "Could not read Zerodha balance"
     if auth:
         try:
             eq = broker.kite().margins("equity")
-            cash = float(eq.get("available", {}).get("live_balance") or eq.get("net") or 0)
-            margin_ok = cash >= funds > 0
-            margin_detail = (f"Zerodha balance ₹{cash:,.0f} vs strategy capital ₹{funds:,.0f}"
-                             if funds > 0 else "Set strategy capital in settings")
+            av = eq.get("available", {}) or {}
+            start = float(av.get("opening_balance") or 0) + float(av.get("intraday_payin") or 0)
+            cap = min(start, limit)
+            margin_ok = cap > 0
+            margin_detail = (f"Trading capital ₹{cap:,.0f} (start-of-day funds ₹{start:,.0f}, "
+                             f"limit ₹{limit:,.0f}) → ₹{cap / 5:,.0f} per trade")
         except Exception as e:
-            margin_detail = f"Margin check failed: {e}"
-    checks.append({"key": "margin", "label": "Account balance covers capital",
+            margin_detail = f"Balance check failed: {e}"
+    checks.append({"key": "margin", "label": "Funds in Zerodha",
                    "ok": margin_ok, "detail": margin_detail})
     return checks
 
