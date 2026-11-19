@@ -57,9 +57,46 @@ def current_premium(trade) -> Optional[float]:
     return option_premium(tok, trade.option_symbol)
 
 
+# ── Expiry rollover ─────────────────────────────────────────────────────────
+# Stock options are physically settled, and Zerodha restricts fresh positions
+# in them as expiry approaches. Within the last ROLLOVER_SESSIONS trading
+# sessions before expiry (expiry day included) entries use the NEXT month's
+# ATM contract. If Zerodha rejects a live BUY for expiry/physical-delivery
+# reasons anyway, force_rollover_today() switches every entry for the rest of
+# the day, whatever the calendar rule says.
+ROLLOVER_SESSIONS = 3
+_forced_rollover_on: Optional[date] = None
+
+
+def sessions_to_expiry(today: date, expiry: date) -> int:
+    """Trading sessions from today to expiry, both counted (weekdays; holidays not known here)."""
+    from datetime import timedelta
+    n, d = 0, today
+    while d <= expiry:
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def force_rollover_today(reason: str):
+    global _forced_rollover_on
+    if _forced_rollover_on != date.today():
+        _forced_rollover_on = date.today()
+        print(f"[EXPIRY] Rolling all entries to next month for today: {reason}")
+        from backend.core import alerts
+        alerts.raise_alert("expiry-roll", f"Zerodha refused a near-expiry order ({reason}). All entries today "
+                           f"use next month's ATM contract.", level="warning")
+
+
+def _use_next_month(today: date, nearest: date) -> bool:
+    return _forced_rollover_on == today or sessions_to_expiry(today, nearest) <= ROLLOVER_SESSIONS
+
+
 def select_option(symbol: str, ltp: float, direction: str
                   ) -> Tuple[Optional[str], Optional[str], float, str]:
-    """Return (token, tradingsymbol, strike, expiry_iso) for the nearest ATM option."""
+    """Return (token, tradingsymbol, strike, expiry_iso) for the ATM option:
+    nearest expiry, or next month's inside the rollover window."""
     cache       = load_instrument_cache()
     option_type = "CE" if direction == "call" else "PE"
     today       = date.today()
@@ -77,7 +114,10 @@ def select_option(symbol: str, ltp: float, direction: str
     future = [(t, m) for t, m in contracts if exp_date(m) >= today]
     if not future:
         return None, None, 0.0, ""
-    nearest = min(exp_date(m) for _, m in future)
+    expiries = sorted({exp_date(m) for _, m in future})
+    nearest  = expiries[0]
+    if _use_next_month(today, nearest) and len(expiries) > 1:
+        nearest = expiries[1]
     same    = [(t, m) for t, m in future if exp_date(m) == nearest]
 
     tok, m = min(same, key=lambda x: abs(float(x[1]["strike"]) - ltp))

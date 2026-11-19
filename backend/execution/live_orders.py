@@ -211,6 +211,10 @@ def _buy(opt_symbol: str, qty: int) -> Fill:
         state = _cancel_and_settle(order_id)
 
     filled = int(state.get("filled_quantity") or 0)
+    msg = (state.get("status_message") or "").lower()
+    if state.get("status") == "REJECTED" and any(w in msg for w in ("physical", "delivery", "expiry", "expiring")):
+        from backend.execution.option_selector import force_rollover_today
+        force_rollover_today(state.get("status_message") or "near-expiry rejection")
     if filled <= 0:
         raise LiveOrderError(
             f"BUY {opt_symbol} not filled: {state.get('status')} {state.get('status_message') or ''}".strip())
