@@ -3,12 +3,14 @@
 Serves nifty_options.db (a separate DB from trading.db) for the frontend's
 "Nifty Data Collector" page: collection status, raw snapshot rows, and
 NIFTY spot candles for the chart — each with a today/7d/30d/90d/all range
-switch. Never writes; the collector
-(backend/market_data/nifty_options_collector.py) is the only writer.
+switch. Reads only, except /backfill which starts the end-of-day completion
+job (backend/market_data/nifty_backfill.py); the live collector
+(backend/market_data/nifty_options_collector.py) is the other writer.
 """
 
-from datetime import date, timedelta
-from fastapi import APIRouter, Query
+from datetime import date, datetime, timedelta
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import func
 
 from backend.storage.nifty_options_engine import NiftySession
 from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
@@ -152,3 +154,65 @@ def candles(range: str = Query("today", pattern="^(today|7d|30d|90d|all)$")):
                                 "low": c["low"], "close": c["close"]})
             out.sort(key=lambda o: o["time"])
     return out
+
+
+def _range_filter(q, range_key: str):
+    if range_key == "today":
+        return q.filter(NiftyOptionSnapshot.date == str(date.today()))
+    if range_key != "all":
+        return q.filter(NiftyOptionSnapshot.date >= _range_start(range_key))
+    return q
+
+
+@router.get("/minutes")
+def minutes(range: str = Query("today", pattern="^(today|7d|30d|90d|all)$")):
+    """One entry per snapshot minute, newest first: time, spot and how many
+    contract rows it holds. `book` counts rows with a live bid/ask (rows filled
+    by the end-of-day backfill have none). Rows load per minute via /minute."""
+    minute = func.strftime("%Y-%m-%dT%H:%M", NiftyOptionSnapshot.snapshot_time)
+    db = NiftySession()
+    try:
+        q = db.query(
+            minute.label("m"),
+            func.max(NiftyOptionSnapshot.nifty_spot),
+            func.count(NiftyOptionSnapshot.id),
+            func.count(NiftyOptionSnapshot.bid_price),
+        )
+        rows = _range_filter(q, range).group_by(minute).order_by(minute.desc()).all()
+        return [{"t": m, "spot": spot, "rows": n, "book": book} for m, spot, n, book in rows]
+    finally:
+        db.close()
+
+
+@router.get("/minute")
+def minute_rows(t: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$")):
+    """Every contract row recorded in one minute (YYYY-MM-DDTHH:MM), by strike."""
+    start = datetime.fromisoformat(t)
+    db = NiftySession()
+    try:
+        rows = (db.query(NiftyOptionSnapshot)
+                .filter(NiftyOptionSnapshot.snapshot_time >= start,
+                        NiftyOptionSnapshot.snapshot_time < start + timedelta(minutes=1))
+                .order_by(NiftyOptionSnapshot.strike, NiftyOptionSnapshot.option_type).all())
+        return [{c: getattr(r, c) for c in (
+            "strike", "option_type", "moneyness_rank", "expiry", "nifty_spot", "open", "high", "low",
+            "close", "volume", "oi", "oi_day_high", "oi_day_low", "buy_quantity", "sell_quantity",
+            "day_volume", "bid_price", "ask_price", "spread_pct")} for r in rows]
+    finally:
+        db.close()
+
+
+@router.post("/backfill")
+def start_backfill(day: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    """Complete a day (or, with no day, the last 7 days) from Zerodha minute history."""
+    from backend.market_data import nifty_backfill
+    days = [date.fromisoformat(day)] if day else nifty_backfill.recent_trading_days(7)
+    if not nifty_backfill.run_async(days):
+        raise HTTPException(409, "A backfill is already running")
+    return {"status": "started", "days": [d.isoformat() for d in days]}
+
+
+@router.get("/backfill/status")
+def backfill_status():
+    from backend.market_data import nifty_backfill
+    return nifty_backfill.get_status()

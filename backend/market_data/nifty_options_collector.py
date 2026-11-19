@@ -1,7 +1,7 @@
 """nifty_options_collector.py — per-minute NIFTY option chain data collector.
 
-Purely additive background module: subscribes 22 NIFTY option contracts
-(5 ITM strikes + ATM + 5 OTM strikes, both CE and PE, nearest expiry) on
+Purely additive background module: subscribes 42 NIFTY option contracts
+(10 ITM strikes + ATM + 10 OTM strikes, both CE and PE, nearest expiry) on
 the SAME shared Zerodha WebSocket connection the strategies already use
 (via tick_engine.subscribe_options — no new connection), then once a
 minute writes their 1-min OHLCV + OI + bid/ask depth to a separate DB
@@ -32,7 +32,8 @@ from backend.core.broker       import broker
 from backend.storage.nifty_options_engine import NiftySession, init_nifty_options_db
 from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
 
-_LADDER_SIZE      = 5      # strikes each side of ATM
+_LADDER_SIZE      = 10     # strikes each side of ATM
+_BACKFILL_AT      = (15, 35)   # IST: complete today's data from Zerodha minute history
 _RECENTER_MINUTES = 60     # re-resolve the strike ladder this often, not just once/day
 
 
@@ -50,6 +51,7 @@ class NiftyOptionsCollector:
         self._index_token    = None    # NIFTY 50 index token, for real tick-built spot candles
         self._last_index_ltp = None   # last seen index LTP — staleness detector (see _collect_once)
         self._stale_logged   = False   # only log the "gone stale" transition once, not every cycle
+        self._backfilled_on  = None    # IST date the end-of-day backfill last ran
 
     def get_index_token(self):
         """NIFTY 50 index instrument token, once resolved — used by the API layer
@@ -88,7 +90,7 @@ class NiftyOptionsCollector:
     # ── Chain resolution (re-centers every _RECENTER_MINUTES) ──────────────────
 
     def _resolve_chain(self):
-        """Build an 11-strike ladder around the CURRENT ATM and subscribe on the
+        """Build a 21-strike ladder around the CURRENT ATM and subscribe on the
         shared WS feed. Called on first run, on a new trading day, and every
         _RECENTER_MINUTES thereafter — so a 200-300 point NIFTY move during the
         day re-centers the ladder instead of leaving it stuck on the morning's
@@ -161,7 +163,7 @@ class NiftyOptionsCollector:
         lo = max(0, atm_idx - _LADDER_SIZE)
         hi = min(len(strikes), atm_idx + _LADDER_SIZE + 1)
         ladder = strikes[lo:hi]
-        rank_of = {s: (i - (atm_idx - lo)) for i, s in enumerate(ladder)}   # -5..0..+5
+        rank_of = {s: (i - (atm_idx - lo)) for i, s in enumerate(ladder)}   # -10..0..+10
 
         contracts = {}
         subs = []
@@ -229,10 +231,25 @@ class NiftyOptionsCollector:
             except Exception as e:
                 print(f"[NIFTY-DATA] loop error: {e}")
 
+            self._maybe_backfill()
+
             # Sleep to the next minute boundary
             now = now_ist()
             sleep_s = 60 - now.second - now.microsecond / 1_000_000
             _time.sleep(max(1.0, sleep_s))
+
+    def _maybe_backfill(self):
+        """Once a day after 15:35 IST (also on a late start), complete the last
+        week's data from Zerodha minute history -- see nifty_backfill.py."""
+        now = now_ist()
+        if self._backfilled_on == now.date() or (now.hour, now.minute) < _BACKFILL_AT:
+            return
+        if not broker.has_token():
+            return
+        from backend.market_data import nifty_backfill
+        if nifty_backfill.run_async(nifty_backfill.recent_trading_days(7)):
+            self._backfilled_on = now.date()
+            print("[NIFTY-DATA] End-of-day backfill started (last 7 days)")
 
     def _collect_once(self):
         if not self._contracts:
