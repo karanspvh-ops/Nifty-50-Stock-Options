@@ -92,6 +92,8 @@ class Trade(Base):
     target_price    = Column(Float, nullable=True)
     highest_price   = Column(Float, nullable=True)     # for trailing SL
     lowest_price    = Column(Float, nullable=True)     # running trough while open (tick-level)
+    broker_sl_order_id = Column(String, nullable=True)  # live: resting stop-loss SELL at Zerodha
+    broker_sl_trigger  = Column(Float,  nullable=True)  # its current trigger price
 
     # PnL
     pnl     = Column(Float, default=0.0)

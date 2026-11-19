@@ -24,6 +24,7 @@ from backend.execution.option_selector import current_premium
 from backend.database import Session as DBSession, Trade, TradeStatus, TradeEnv
 from backend.strategies.ob.params import OB_TAG
 from backend.risk.sl_confirm import sl_confirm, bid_for
+from backend.execution import stop_orders
 
 
 class OBManageMixin:
@@ -116,6 +117,7 @@ class OBManageMixin:
                 db.commit()
         except Exception as e:
             print(f"[OB] Dynamic SL DB update error tid={tid}: {e}")
+        stop_orders.move(tid, new_dsl)     # live: raise the resting stop at Zerodha
 
     def _ob_cleanup_trade(self, tid: int):
         """Unregister tick callback and clear in-memory state for a closed OB trade."""

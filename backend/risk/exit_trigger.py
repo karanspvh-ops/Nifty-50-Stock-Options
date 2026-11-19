@@ -7,6 +7,7 @@ Edit this file to change:
 """
 
 import logging
+from typing import Optional
 from sqlalchemy.orm import Session as DBSession
 
 from backend.database import (
@@ -30,11 +31,15 @@ class RiskExitMixin:
         price:  float,
         status: TradeStatus,
         reason: str,
+        broker_fill: Optional[float] = None,
     ):
         # Live trades: sell at Zerodha FIRST and only close the DB row once the
         # SELL has filled, at the real fill price. If the SELL fails the trade
         # stays OPEN (LiveOrderError propagates) and the next check retries it.
-        if trade.env == TradeEnv.LIVE:
+        # broker_fill: Zerodha already sold it (the resting stop filled).
+        if broker_fill is not None:
+            price = broker_fill
+        elif trade.env == TradeEnv.LIVE:
             price = self._live_sell(db, trade)
 
         pnl     = (price - trade.entry_price) * trade.quantity * trade.lot_size
@@ -113,8 +118,14 @@ class RiskExitMixin:
         if not claim_exit(trade.id):
             raise LiveOrderError(f"trade #{trade.id} exit already in progress")
         units = trade.quantity * trade.lot_size
+        from backend.execution import stop_orders
+        from backend.core import alerts
         try:
-            fill = sell(trade.option_symbol, units)
+            if stop_orders.get(trade.id):
+                # Convert the resting stop into an immediate sell -- never a second SELL order
+                fill = stop_orders.exit_now(trade.id)
+            else:
+                fill = sell(trade.option_symbol, units)
         except LiveOrderError as e:
             release_exit(trade.id, sold=False)
             if e.sold_qty:
@@ -124,12 +135,42 @@ class RiskExitMixin:
                 db.commit()
             print(f"[LIVE] CRITICAL exit failed for trade #{trade.id} "
                   f"{trade.option_symbol}: {e} -- position still open, will retry")
+            alerts.raise_alert(f"exit:{trade.id}", f"{trade.option_symbol}: could not sell ({e}). "
+                               f"The position is still LIVE and exposed; the system keeps retrying.",
+                               trade_id=trade.id, symbol=trade.option_symbol)
             raise
         except Exception:
             release_exit(trade.id, sold=False)
             raise
         release_exit(trade.id, sold=True)
+        alerts.clear_alert(f"exit:{trade.id}")
+        alerts.clear_alert(f"stop:{trade.id}")
         return fill.avg_price
+
+    def close_from_broker_fill(self, trade_id: int, price: float, reason: str) -> dict:
+        """Zerodha sold the position itself (resting stop filled): book it."""
+        from backend.execution.live_orders import claim_exit, release_exit
+        from backend.core import alerts
+        if not claim_exit(trade_id):
+            return {"error": "exit already being handled"}
+        db: DBSession = Session()
+        try:
+            trade = db.query(Trade).filter(Trade.id == trade_id).first()
+            if not trade or trade.status != TradeStatus.OPEN:
+                release_exit(trade_id, sold=True)
+                return {"error": "trade not open"}
+            self._trigger_exit(db, trade, price, TradeStatus.SL_HIT, reason, broker_fill=price)
+            release_exit(trade_id, sold=True)
+            alerts.clear_alert(f"exit:{trade_id}")
+            alerts.clear_alert(f"stop:{trade_id}")
+            return {"status": "exited", "exit_price": price}
+        except Exception as e:
+            release_exit(trade_id, sold=True)     # it IS sold at Zerodha; never re-sell
+            alerts.raise_alert(f"book:{trade_id}", f"Trade #{trade_id} was sold at Zerodha @ {price} "
+                               f"but could not be recorded ({e}).", trade_id=trade_id)
+            return {"error": str(e)}
+        finally:
+            db.close()
 
     def _kill_all_open_trades(self, env: TradeEnv, reason: str):
         db: DBSession = Session()

@@ -126,6 +126,9 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
             spread_pct_at_entry=spread_pct_entry,
         )
         db.add(trade); db.commit(); db.refresh(trade)
+        if env == TradeEnv.LIVE:
+            from backend.execution import stop_orders
+            stop_orders.place(trade.id, opt_symbol, qty * lot_size, trade_sl_price)
         market.push_trade_update({
             "type":          "trade_opened",
             "trade_id":      trade.id,

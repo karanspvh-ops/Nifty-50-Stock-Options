@@ -23,6 +23,7 @@ import time as _time
 
 from backend.core.market_state   import market
 from backend.risk.sl_confirm import sl_confirm, bid_for
+from backend.execution import stop_orders
 from backend.core.risk_engine    import risk_engine
 from backend.execution.option_selector import current_premium, option_premium
 from backend.core.stock_universe import get_option_token
@@ -257,6 +258,7 @@ class ESManageMixin:
                 db.commit()
         except Exception as e:
             print(f"[ES] Dynamic SL DB update error tid={tid}: {e}")
+        stop_orders.move(tid, new_dyn_sl)     # live: raise the resting stop at Zerodha
 
     # ── 1-second manage loop (safety fallback — primary ratchet/SL at tick level) ────
 
@@ -393,6 +395,7 @@ class ESManageMixin:
                         db.query(Trade).filter(Trade.id == tid).update(
                             {"dynamic_sl_price": new_dyn_sl}, synchronize_session=False)
                         db.commit()
+                    threading.Thread(target=stop_orders.move, args=(tid, new_dyn_sl), daemon=True).start()
 
             locked = self._trail_locked.get(tid, -sl_pct)
 

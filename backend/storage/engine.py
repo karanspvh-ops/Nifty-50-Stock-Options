@@ -48,6 +48,8 @@ def _add_missing_columns():
     wanted = [
         ("settings", "es_live", "BOOLEAN NOT NULL DEFAULT 0"),
         ("settings", "ob_live", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("trades",   "broker_sl_order_id", "VARCHAR"),
+        ("trades",   "broker_sl_trigger",  "FLOAT"),
     ]
     insp = inspect(engine)
     with engine.begin() as conn:
