@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { DownloadSimple, EnvelopeSimple, ArrowClockwise, X, Check } from '@phosphor-icons/react';
 import html2pdf from 'html2pdf.js';
 import { useMarketStore } from '../../store/marketStore';
+import Segmented from '../ui/Segmented';
 
 const API = 'http://localhost:8000';
 
@@ -493,7 +495,7 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
   };
   const onUp = () => { drag.current = null; setDragging(false); };
 
-  const btn = 'px-2 py-0.5 rounded border border-border text-[11px] text-muted hover:text-white hover:bg-white/5';
+  const btn = 'px-2 py-0.5 rounded border border-border text-[12.5px] text-muted hover:text-ink hover:bg-white/5';
   const rangeTxt = shown.length
     ? `${dayLabel(shown[0].date, { day: '2-digit', month: 'short' })} – ${dayLabel(shown[shown.length - 1].date, { day: '2-digit', month: 'short', year: '2-digit' })} · ${shown.length} of ${N} days`
     : '';
@@ -501,7 +503,7 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1 text-[11px] text-muted">
+      <div className="flex items-center justify-between mb-1 text-[12.5px] text-muted">
         <span>{rangeTxt}</span>
         <span className="flex items-center gap-1.5">
           <span className="hidden sm:inline mr-1 opacity-60">scroll = zoom · drag = move</span>
@@ -520,24 +522,24 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
             const v = mn + (mx - mn) * k / 4, y = yi(v);
             return (
               <g key={k}>
-                <line x1={PL} y1={y} x2={width - PR} y2={y} stroke="rgba(255,255,255,0.06)" />
-                <text x={PL - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#6b7280">{fmtL(v)}</text>
+                <line x1={PL} y1={y} x2={width - PR} y2={y} stroke="rgb(22 24 29 / 0.07)" />
+                <text x={PL - 8} y={y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="rgb(92 98 112)">{fmtL(v)}</text>
               </g>
             );
           })}
           {yi(base) >= PT && yi(base) <= PT + PH && (
             <g>
-              <line x1={PL} y1={yi(base)} x2={width - PR} y2={yi(base)} stroke="#4b5563" strokeDasharray="5,4" />
-              <text x={width - PR - 2} y={yi(base) - 4} textAnchor="end" fontSize="9" fill="#6b7280">₹5L base</text>
+              <line x1={PL} y1={yi(base)} x2={width - PR} y2={yi(base)} stroke="rgb(168 124 34)" strokeDasharray="5,4" />
+              <text x={width - PR - 2} y={yi(base) - 4} textAnchor="end" fontSize="9" fill="rgb(92 98 112)">₹5L base</text>
             </g>
           )}
           <g clipPath="url(#cc-clip)">
             {hover != null && (
-              <rect x={xc(hover) - cw / 2} y={PT} width={cw} height={PH} fill="rgba(255,255,255,0.05)" />
+              <rect x={xc(hover) - cw / 2} y={PT} width={cw} height={PH} fill="rgb(201 160 74 / 0.12)" />
             )}
             {shown.map((d, k) => {
               const i = i0 + k, x = xc(i);
-              const up = d.closing >= d.opening, col = up ? '#4ade80' : '#f87171';
+              const up = d.closing >= d.opening, col = up ? 'rgb(11 125 69)' : 'rgb(196 43 35)';
               const yTop = yi(Math.max(d.opening, d.closing)), yBot = yi(Math.min(d.opening, d.closing));
               return (
                 <g key={d.date}>
@@ -551,24 +553,24 @@ function CapitalCandleChart({ data, base }: { data: DayData[]; base: number }) {
             const i = i0 + k;
             if (k % labelEvery !== 0) return null;
             return (
-              <text key={d.date} x={xc(i)} y={H - 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+              <text key={d.date} x={xc(i)} y={H - 10} textAnchor="middle" fontSize="10" fill="rgb(92 98 112)">
                 {dayLabel(d.date, { day: '2-digit', month: 'short' })}
               </text>
             );
           })}
         </svg>
         {hd && hover != null && (
-          <div className="absolute z-10 pointer-events-none rounded-md border border-border bg-bg/95 px-2.5 py-2 text-[11px] leading-5 shadow-lg"
+          <div className="absolute z-10 pointer-events-none rounded-md border border-border bg-bg/95 px-2.5 py-2 text-[12.5px] leading-5 shadow-lg"
             style={{ top: 8, left: Math.min(Math.max(xc(hover) + 14, 8), width - 200) }}>
-            <div className="font-semibold text-white mb-0.5">
+            <div className="font-semibold text-ink mb-0.5">
               {dayLabel(hd.date, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
               <span className="text-muted font-normal"> · {hd.nTrades} trades</span>
             </div>
             <div className="grid grid-cols-[auto_auto] gap-x-3 text-muted">
-              <span>Open</span><span className="text-right text-white">{fmtINR(hd.opening)}</span>
-              <span>High</span><span className="text-right text-white">{fmtINR(hd.high)}</span>
-              <span>Low</span><span className="text-right text-white">{fmtINR(hd.low)}</span>
-              <span>Close</span><span className="text-right text-white">{fmtINR(hd.closing)}</span>
+              <span>Open</span><span className="text-right text-ink">{fmtINR(hd.opening)}</span>
+              <span>High</span><span className="text-right text-ink">{fmtINR(hd.high)}</span>
+              <span>Low</span><span className="text-right text-ink">{fmtINR(hd.low)}</span>
+              <span>Close</span><span className="text-right text-ink">{fmtINR(hd.closing)}</span>
               <span>Charges</span><span className="text-right">−{fmtINR(hd.charges)}</span>
               <span>Net PnL</span>
               <span className={`text-right font-semibold ${hd.netPnl >= 0 ? 'text-up' : 'text-down'}`}>{fmtSignedINR(hd.netPnl)}</span>
@@ -586,7 +588,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
   const data = useMemo(() => computeStrategyGrowth(trades), [trades]);
 
   if (!data.length) return (
-    <div className="bg-surface rounded-xl border border-border p-8 text-center">
+    <div className="bg-surface rounded-panel border border-border p-8 text-center">
       <p className="text-muted text-sm">No {label} trades found.</p>
     </div>
   );
@@ -599,11 +601,11 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
     { lbl: 'Current Balance', val: `₹${final.toLocaleString('en-IN')}`,  color: final >= 500_000 ? '#4ade80' : '#f87171' },
     { lbl: 'Total PnL (net)', val: `${totalPnL >= 0 ? '+' : '−'}₹${Math.abs(totalPnL).toLocaleString('en-IN')}`, color: totalPnL >= 0 ? '#4ade80' : '#f87171' },
     { lbl: 'Up / Total Days', val: `${winDays} / ${data.length}`,         color: '#94a3b8' },
-    ...(overDays > 0 ? [{ lbl: '⚠ Over Limit', val: `${overDays} days`,  color: '#f87171' }] : []),
+    ...(overDays > 0 ? [{ lbl: 'Over limit', val: `${overDays} days`,  color: 'rgb(196 43 35)' }] : []),
   ];
 
   return (
-    <div className="bg-surface rounded-xl border overflow-hidden" style={{ borderColor }}>
+    <div className="bg-surface rounded-panel border overflow-hidden" style={{ borderColor }}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -613,7 +615,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
         <div className="flex gap-6">
           {stats.map(s => (
             <div key={s.lbl} className="text-center">
-              <div className="text-[10px] uppercase text-muted mb-0.5">{s.lbl}</div>
+              <div className="text-[12px] uppercase text-muted mb-0.5">{s.lbl}</div>
               <div className="text-sm font-bold" style={{ color: s.color }}>{s.val}</div>
             </div>
           ))}
@@ -629,7 +631,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
       <div className="px-4 pb-4 overflow-x-auto">
         <table className="w-full text-left">
           <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
+            <tr className="text-xs font-semibold text-muted border-b border-border">
               {['Date', 'Opening Capital', 'Closing Capital', 'Day PnL (gross)', 'Charges', 'Net PnL', 'Net PnL % (Util)', 'Peak Utilized', '% Used', 'Excess Capital'].map(h => (
                 <th key={h} className={`px-2 pb-2 ${h !== 'Date' ? 'text-right' : ''}`}>{h}</th>
               ))}
@@ -640,7 +642,7 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
               const lbl = (() => { try { return new Date(d.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' }); } catch { return d.date; } })();
               return (
                 <tr key={d.date} className="border-b border-border/30 hover:bg-white/[0.02] text-xs">
-                  <td className="px-2 py-1.5 text-white font-medium">{lbl}</td>
+                  <td className="px-2 py-1.5 text-ink font-medium">{lbl}</td>
                   <td className="px-2 py-1.5 text-muted text-right">₹{d.opening.toLocaleString('en-IN')}</td>
                   <td className={`px-2 py-1.5 text-right font-medium ${d.closing >= d.opening ? 'text-up' : 'text-down'}`}>₹{d.closing.toLocaleString('en-IN')}</td>
                   <td className={`px-2 py-1.5 text-right font-semibold ${d.dayPnl >= 0 ? 'text-up' : 'text-down'}`}>
@@ -653,8 +655,8 @@ function StrategyGrowthSection({ trades, label, accentColor, borderColor }: {
                   <td className={`px-2 py-1.5 text-right font-semibold ${d.netPnlPctUtil >= 0 ? 'text-up' : 'text-down'}`}>
                     {d.netPnlPctUtil >= 0 ? '+' : '−'}{Math.abs(d.netPnlPctUtil)}%
                   </td>
-                  <td className="px-2 py-1.5 text-right text-amber-400">₹{d.peak.toLocaleString('en-IN')}</td>
-                  <td className={`px-2 py-1.5 text-right ${d.pctUsed > 100 ? 'text-down font-bold' : d.pctUsed > 80 ? 'text-amber-400' : 'text-muted'}`}>
+                  <td className="px-2 py-1.5 text-right text-amber-700">₹{d.peak.toLocaleString('en-IN')}</td>
+                  <td className={`px-2 py-1.5 text-right ${d.pctUsed > 100 ? 'text-down font-bold' : d.pctUsed > 80 ? 'text-amber-700' : 'text-muted'}`}>
                     {d.pctUsed}%
                   </td>
                   <td className={`px-2 py-1.5 text-right ${d.excess > 0 ? 'text-down font-semibold' : 'text-muted'}`}>
@@ -679,6 +681,7 @@ function generatePDF(
   obTrades: Trade[],
   allTrades: Trade[],
   esStartBalance: number = 500_000,
+  env: 'paper' | 'live' = 'paper',
 ) {
   const today = todayStr();
 
@@ -840,7 +843,7 @@ function generatePDF(
   </head><body>
   <h1 style="font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px">SPVH AMC — Trading Report</h1>
   <p style="color:#555;font-size:11px;margin-bottom:20px">
-    Period: ${dateLabel} &bull; Generated: ${new Date().toLocaleString('en-IN')} &bull; Mode: PAPER
+    Period: ${dateLabel} &bull; Generated: ${new Date().toLocaleString('en-IN')} &bull; Mode: ${env.toUpperCase()}
   </p>
 
   <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:6px;padding:16px;margin-bottom:24px">
@@ -905,32 +908,32 @@ function EmailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-surface border border-border rounded-xl p-6 w-full max-w-sm space-y-4 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/25 backdrop-blur-sm">
+      <div className="glass-strong rise-in rounded-panel p-6 w-full max-w-sm space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Email Report</h3>
-          <button onClick={onClose} className="text-muted hover:text-white text-lg leading-none">✕</button>
+          <h3 className="text-ink font-bold text-lg">Email report</h3>
+          <button onClick={onClose} aria-label="Close" className="pressable p-1 rounded-md text-muted hover:text-ink hover:bg-ink/5"><X size={18} /></button>
         </div>
         {result === 'success' ? (
           <div className="text-up text-sm">Report sent successfully!</div>
         ) : (
           <>
             <div>
-              <label className="text-muted text-xs uppercase tracking-wider block mb-1">Recipient Email</label>
+              <label className="text-muted text-xs font-semibold block mb-1">Recipient Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-accent"
+                className="w-full bg-bg border border-border rounded-control px-3 py-2 text-ink text-sm focus:outline-none focus:border-accent"
               />
             </div>
             {result && result.startsWith('error') && (
               <div className="text-down text-xs">{result}</div>
             )}
             <div className="flex gap-2 justify-end">
-              <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-white border border-border rounded-lg">Cancel</button>
+              <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-ink border border-border rounded-control">Cancel</button>
               <button onClick={send} disabled={sending || !email}
-                className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                className="px-4 py-2 text-sm btn-gold text-ink rounded-control disabled:opacity-50">
                 {sending ? 'Sending…' : 'Send Report'}
               </button>
             </div>
@@ -944,7 +947,8 @@ function EmailModal({
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function ReportsView() {
   const { settings, openTrades } = useMarketStore();
-  const env = settings.is_live ? 'live' : 'paper';
+  // Paper or live account; opens on live once any strategy trades for real
+  const [env, setEnv] = useState<'paper' | 'live'>(settings.es_live || settings.ob_live ? 'live' : 'paper');
 
   // Period selection
   const [period, setPeriod]       = useState<Period>('today');
@@ -1147,7 +1151,7 @@ export default function ReportsView() {
   };
 
   const handleDownloadPDF = () => {
-    generatePDF(period, customFrom, customTo, esTrades, obTrades, enrichedTrades, esStartBalance);
+    generatePDF(period, customFrom, customTo, esTrades, obTrades, enrichedTrades, esStartBalance, env);
   };
 
   // ── Period label ─────────────────────────────────────────────────────────────
@@ -1174,19 +1178,19 @@ export default function ReportsView() {
 
       {/* Header row */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-white font-bold text-lg">Reports</h1>
+        <h1 className="text-ink font-bold text-2xl leading-tight">Reports</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={handleDownloadPDF}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg text-muted hover:text-white hover:border-accent/50 transition-colors">
-            ↓ Download PDF
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+            <DownloadSimple size={15} weight="bold" /> Download PDF
           </button>
           <button onClick={() => setShowEmail(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-lg text-muted hover:text-white hover:border-accent/50 transition-colors">
-            ✉ Email Report
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-gold-400">
+            <EnvelopeSimple size={15} weight="bold" /> Email report
           </button>
           <button onClick={generate} disabled={loading}
-            className="px-3 py-1.5 text-xs bg-surface border border-border text-muted hover:text-white rounded-lg disabled:opacity-50 transition-colors">
-            {loading ? 'Generating…' : '↺ Refresh'}
+            className="pressable flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-border text-ink2 hover:text-ink hover:border-gold-400 rounded-full disabled:opacity-50">
+            {loading ? 'Generating…' : <><ArrowClockwise size={15} weight="bold" /> Refresh</>}
           </button>
         </div>
       </div>
@@ -1195,8 +1199,8 @@ export default function ReportsView() {
       <div className="flex gap-2">
         {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective'], ['capital','Capital Growth']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors
-              ${tab === t ? 'bg-accent text-white' : 'bg-surface border border-border text-muted hover:text-white'}`}>
+            className={`px-4 py-1.5 rounded-control text-sm font-medium transition-colors
+              ${tab === t ? 'btn-gold text-ink' : 'bg-surface border border-border text-muted hover:text-ink'}`}>
             {label}
           </button>
         ))}
@@ -1206,19 +1210,12 @@ export default function ReportsView() {
       {tab === 'pnl' && (
         <div className="space-y-4">
           {/* Period selector */}
-          <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wider text-muted mr-1">Period</span>
-              {PERIODS.map(p => (
-                <button key={p.key} onClick={() => setPeriod(p.key)}
-                  className={`text-[11px] px-3 py-1 rounded font-semibold transition-colors border ${
-                    period === p.key
-                      ? 'bg-accent/20 text-accent border-accent/40'
-                      : 'bg-border/20 text-muted border-border hover:bg-border/40'
-                  }`}>
-                  {p.label}
-                </button>
-              ))}
+          <div className="bg-surface rounded-panel border border-border p-4 space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Segmented label="Account" value={env} onChange={setEnv}
+                options={[{ key: 'paper', label: 'Paper' }, { key: 'live', label: 'Live' }]} />
+              <div className="w-px h-6 bg-border" />
+              <Segmented label="Period" value={period} onChange={setPeriod} options={PERIODS} />
             </div>
             {period === 'custom' && (
               <div className="flex items-center gap-3 flex-wrap">
@@ -1226,21 +1223,21 @@ export default function ReportsView() {
                   <span className="text-muted text-xs">From</span>
                   <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
                     max={customTo || todayStr()}
-                    className="bg-bg border border-border rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-accent" />
+                    className="bg-bg border border-border rounded px-2 py-1 text-ink text-xs focus:outline-none focus:border-accent" />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted text-xs">To</span>
                   <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                     min={customFrom} max={todayStr()}
-                    className="bg-bg border border-border rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-accent" />
+                    className="bg-bg border border-border rounded px-2 py-1 text-ink text-xs focus:outline-none focus:border-accent" />
                 </div>
               </div>
             )}
           </div>
 
           {/* Combined summary */}
-          <div className="bg-surface rounded-xl border border-border p-4">
-            <div className="text-[10px] uppercase tracking-wider text-muted mb-3">{periodLabel} — Combined</div>
+          <div className="bg-surface rounded-panel border border-border p-4">
+            <div className="text-xs font-semibold text-muted mb-3">{periodLabel} — Combined</div>
             <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
               {[
                 { label: 'Total Trades',   val: String(stats.all.n) },
@@ -1252,8 +1249,8 @@ export default function ReportsView() {
                 { label: 'Avg Capital',     val: stats.all.avgCap ? fmtRs(stats.all.avgCap) : '—' },
               ].map(s => (
                 <div key={s.label} className="text-center">
-                  <div className="text-muted text-[10px] uppercase tracking-wider mb-1">{s.label}</div>
-                  <div className={`text-white font-bold text-lg ${s.color || ''}`}>{s.val}</div>
+                  <div className="text-muted text-xs font-semibold mb-1">{s.label}</div>
+                  <div className={`text-ink font-bold text-lg ${s.color || ''}`}>{s.val}</div>
                 </div>
               ))}
             </div>
@@ -1262,66 +1259,66 @@ export default function ReportsView() {
           {/* ES + OB strategy cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* ES */}
-            <div className="bg-surface rounded-xl border border-purple-500/30 bg-purple-500/5 p-4">
-              <div className="text-[10px] uppercase tracking-wider text-purple-400 mb-3">Early Scalp [ES]</div>
+            <div className="bg-surface rounded-panel border border-brand/30 bg-brand/5 p-4">
+              <div className="text-xs font-semibold text-brand mb-3">Early Scalp [ES]</div>
               <div className="grid grid-cols-3 gap-3 mb-3">
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Trades</div>
-                  <div className="text-white font-bold text-lg">{stats.es.n}</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Trades</div>
+                  <div className="text-ink font-bold text-lg">{stats.es.n}</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Win Rate</div>
-                  <div className="text-white font-bold text-lg">{stats.es.n ? Math.round(stats.es.wins / stats.es.n * 100) : 0}%</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Win Rate</div>
+                  <div className="text-ink font-bold text-lg">{stats.es.n ? Math.round(stats.es.wins / stats.es.n * 100) : 0}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL (after charges)</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Net PnL (after charges)</div>
                   <div className={`font-bold text-lg ${stats.es.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.es.net)}</div>
-                  <div className="text-muted text-[10px] mt-0.5">gross {fmtPnL(stats.es.gross)} · charges −{fmtRs(stats.es.charges)}</div>
+                  <div className="text-muted text-[12px] mt-0.5">gross {fmtPnL(stats.es.gross)} · charges −{fmtRs(stats.es.charges)}</div>
                 </div>
               </div>
               <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
-                <span>Profit Factor: <span className="text-white">{isFinite(stats.es.pf) ? stats.es.pf : '∞'}</span></span>
-                <span>Avg Capital: <span className="text-white">{stats.es.avgCap ? fmtRs(stats.es.avgCap) : '—'}</span></span>
+                <span>Profit Factor: <span className="text-ink">{isFinite(stats.es.pf) ? stats.es.pf : '∞'}</span></span>
+                <span>Avg Capital: <span className="text-ink">{stats.es.avgCap ? fmtRs(stats.es.avgCap) : '—'}</span></span>
               </div>
             </div>
 
             {/* OB */}
-            <div className="bg-surface rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
-              <div className="text-[10px] uppercase tracking-wider text-blue-400 mb-3">Opening Breakout [OB]</div>
+            <div className="bg-surface rounded-panel border border-teal/30 bg-teal/5 p-4">
+              <div className="text-xs font-semibold text-teal mb-3">Opening Breakout [OB]</div>
               <div className="grid grid-cols-3 gap-3 mb-3">
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Trades</div>
-                  <div className="text-white font-bold text-lg">{stats.ob.n}</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Trades</div>
+                  <div className="text-ink font-bold text-lg">{stats.ob.n}</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Win Rate</div>
-                  <div className="text-white font-bold text-lg">{stats.ob.n ? Math.round(stats.ob.wins / stats.ob.n * 100) : 0}%</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Win Rate</div>
+                  <div className="text-ink font-bold text-lg">{stats.ob.n ? Math.round(stats.ob.wins / stats.ob.n * 100) : 0}%</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-muted text-[10px] uppercase mb-0.5">Net PnL (after charges)</div>
+                  <div className="text-muted text-[12px] uppercase mb-0.5">Net PnL (after charges)</div>
                   <div className={`font-bold text-lg ${stats.ob.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.ob.net)}</div>
-                  <div className="text-muted text-[10px] mt-0.5">gross {fmtPnL(stats.ob.gross)} · charges −{fmtRs(stats.ob.charges)}</div>
+                  <div className="text-muted text-[12px] mt-0.5">gross {fmtPnL(stats.ob.gross)} · charges −{fmtRs(stats.ob.charges)}</div>
                 </div>
               </div>
               <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
-                <span>Profit Factor: <span className="text-white">{isFinite(stats.ob.pf) ? stats.ob.pf : '∞'}</span></span>
-                <span>Avg Capital: <span className="text-white">{stats.ob.avgCap ? fmtRs(stats.ob.avgCap) : '—'}</span></span>
+                <span>Profit Factor: <span className="text-ink">{isFinite(stats.ob.pf) ? stats.ob.pf : '∞'}</span></span>
+                <span>Avg Capital: <span className="text-ink">{stats.ob.avgCap ? fmtRs(stats.ob.avgCap) : '—'}</span></span>
               </div>
             </div>
           </div>
 
           {/* Per-day table — only when range spans multiple days */}
           {period !== 'today' && byDay.length > 0 && (
-            <div className="bg-surface rounded-xl border border-border overflow-hidden">
+            <div className="bg-surface rounded-panel border border-border overflow-hidden">
               <div className="px-4 py-3 border-b border-border">
-                <span className="text-white font-semibold text-sm">Daily Breakdown</span>
+                <span className="text-ink font-semibold text-sm">Daily Breakdown</span>
               </div>
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-muted text-[10px] uppercase tracking-wider bg-border/20 border-b border-border">
+                  <tr className="text-muted text-xs font-semibold bg-border/20 border-b border-border">
                     <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2 text-purple-400">ES (net)</th>
-                    <th className="px-3 py-2 text-blue-400">OB (net)</th>
+                    <th className="px-3 py-2 text-brand">ES (net)</th>
+                    <th className="px-3 py-2 text-teal">OB (net)</th>
                     <th className="px-3 py-2">Gross</th>
                     <th className="px-3 py-2">Charges</th>
                     <th className="px-3 py-2">Net</th>
@@ -1332,12 +1329,12 @@ export default function ReportsView() {
                 <tbody>
                   {byDay.map(([date, d]) => (
                     <tr key={date} className="border-b border-border/40 hover:bg-border/10 text-xs">
-                      <td className="px-3 py-2 text-white font-medium">{fmtDate(date)}</td>
+                      <td className="px-3 py-2 text-ink font-medium">{fmtDate(date)}</td>
                       <td className={`px-3 py-2 font-mono font-semibold ${d.es >= 0 ? 'text-up' : 'text-down'}`}>
-                        {d.esN > 0 ? <>{fmtPnL(d.es)}<span className="text-muted ml-1 font-normal text-[10px]">{d.esN}t</span></> : <span className="text-muted">—</span>}
+                        {d.esN > 0 ? <>{fmtPnL(d.es)}<span className="text-muted ml-1 font-normal text-[12px]">{d.esN}t</span></> : <span className="text-muted">—</span>}
                       </td>
                       <td className={`px-3 py-2 font-mono font-semibold ${d.ob >= 0 ? 'text-up' : 'text-down'}`}>
-                        {d.obN > 0 ? <>{fmtPnL(d.ob)}<span className="text-muted ml-1 font-normal text-[10px]">{d.obN}t</span></> : <span className="text-muted">—</span>}
+                        {d.obN > 0 ? <>{fmtPnL(d.ob)}<span className="text-muted ml-1 font-normal text-[12px]">{d.obN}t</span></> : <span className="text-muted">—</span>}
                       </td>
                       <td className={`px-3 py-2 font-mono ${d.gross >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(d.gross)}</td>
                       <td className="px-3 py-2 font-mono text-muted">−{fmtRs(d.charges)}</td>
@@ -1347,7 +1344,7 @@ export default function ReportsView() {
                     </tr>
                   ))}
                   <tr className="bg-border/20 text-xs font-bold border-t border-border">
-                    <td className="px-3 py-2 text-muted text-[10px] uppercase tracking-wider">Total</td>
+                    <td className="px-3 py-2 text-muted text-xs font-semibold">Total</td>
                     <td className={`px-3 py-2 font-mono ${stats.es.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.es.net)}</td>
                     <td className={`px-3 py-2 font-mono ${stats.ob.net >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.ob.net)}</td>
                     <td className={`px-3 py-2 font-mono ${stats.all.gross >= 0 ? 'text-up' : 'text-down'}`}>{fmtPnL(stats.all.gross)}</td>
@@ -1363,8 +1360,8 @@ export default function ReportsView() {
 
           {/* Trade log */}
           {enrichedTrades.length > 0 && (
-            <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
-              <h3 className="text-white font-semibold text-sm">
+            <div className="bg-surface rounded-panel border border-border p-4 space-y-3">
+              <h3 className="text-ink font-bold text-[15px]">
                 Trade Log
                 <span className="text-muted font-normal ml-2 text-xs">
                   {enrichedTrades.length} trades · avg capital {stats.all.avgCap ? fmtRs(stats.all.avgCap) : '—'} per trade
@@ -1375,50 +1372,50 @@ export default function ReportsView() {
                 const peakCls = (t.peak_pct ?? 0) >= 0 ? 'text-up' : 'text-down';
                 const strategy = getStrategy(t.entry_logic);
                 return (
-                  <div key={t.id} className="border border-border rounded-lg p-3 text-xs space-y-2">
+                  <div key={t.id} className="border border-border rounded-control p-3 text-xs space-y-2">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold
-                          ${strategy === 'ES' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded font-bold
+                          ${strategy === 'ES' ? 'bg-brand/20 text-brand' : 'bg-teal/20 text-teal'}`}>
                           {strategy}
                         </span>
-                        <span className="text-white font-semibold">{t.symbol}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
+                        <span className="text-ink font-semibold">{t.symbol}</span>
+                        <span className={`text-[12px] px-1.5 py-0.5 rounded font-semibold
                           ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
                           {t.direction?.toUpperCase()}
                         </span>
                         {t.strike != null && (
-                          <span className="text-[11px] font-mono text-white bg-bg/60 px-1.5 py-0.5 rounded">
+                          <span className="text-[12.5px] font-mono text-ink bg-bg/60 px-1.5 py-0.5 rounded">
                             {t.strike} {t.option_type || ''}
                             {t.expiry && <span className="text-muted ml-1">{String(t.expiry).slice(5)}</span>}
                           </span>
                         )}
                         {t.qty != null && (
-                          <span className="text-[10px] text-muted font-mono">
+                          <span className="text-[12px] text-muted font-mono">
                             {t.lot_size ? `${t.qty}×${t.lot_size}=${t.qty * t.lot_size}` : `qty ${t.qty}`}
                           </span>
                         )}
                       </div>
                       <span className={`font-semibold ${netOf(t) >= 0 ? 'text-up' : 'text-down'}`}>
                         Net {netOf(t) >= 0 ? '+' : '−'}₹{Math.abs(netOf(t)).toFixed(2)}
-                        <span className="text-muted ml-1 text-[10px] font-normal">
+                        <span className="text-muted ml-1 text-[12px] font-normal">
                           (gross {(t.pnl || 0) >= 0 ? '+' : '−'}₹{Math.abs(t.pnl || 0).toFixed(2)} − charges ₹{calcTradeCharges(t).toFixed(2)} · {(t.pnl_pct || 0).toFixed(1)}%)
                         </span>
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-6 gap-x-3 gap-y-1 text-[11px]">
-                      <div><span className="text-muted">Entry @ </span><span className="text-white">₹{t.entry?.toFixed(2)}</span></div>
-                      <div><span className="text-muted">Exit @ </span><span className="text-white">{t.exit != null ? `₹${t.exit.toFixed(2)}` : '—'}</span></div>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-x-3 gap-y-1 text-[12.5px]">
+                      <div><span className="text-muted">Entry @ </span><span className="text-ink">₹{t.entry?.toFixed(2)}</span></div>
+                      <div><span className="text-muted">Exit @ </span><span className="text-ink">{t.exit != null ? `₹${t.exit.toFixed(2)}` : '—'}</span></div>
                       <div><span className="text-muted">Peak </span>
                         <span className={peakCls}>{t.peak != null ? `₹${t.peak.toFixed(2)}` : '—'}</span>
                         {t.peak_pct != null && <span className={`ml-1 ${peakCls}`}>({t.peak_pct >= 0 ? '+' : ''}{t.peak_pct.toFixed(1)}%)</span>}
                       </div>
                       <div>
                         <span className="text-muted">Capital </span>
-                        <span className="text-white font-semibold">{cap ? fmtRs(cap) : '—'}</span>
+                        <span className="text-ink font-semibold">{cap ? fmtRs(cap) : '—'}</span>
                       </div>
-                      <div><span className="text-muted">In </span><span className="text-white font-mono">{fmtTime(t.entered_at)}</span></div>
-                      <div><span className="text-muted">Out </span><span className="text-white font-mono">{fmtTime(t.exited_at)}</span></div>
+                      <div><span className="text-muted">In </span><span className="text-ink font-mono">{fmtTime(t.entered_at)}</span></div>
+                      <div><span className="text-muted">Out </span><span className="text-ink font-mono">{fmtTime(t.exited_at)}</span></div>
                     </div>
                     {t.trade_statement && (
                       <p className="text-muted leading-relaxed">{t.trade_statement}</p>
@@ -1430,7 +1427,7 @@ export default function ReportsView() {
           )}
 
           {enrichedTrades.length === 0 && (
-            <div className="bg-surface rounded-xl border border-border p-8 text-center">
+            <div className="bg-surface rounded-panel border border-border p-8 text-center">
               <p className="text-muted text-sm">No trades found for {periodLabel}.</p>
             </div>
           )}
@@ -1440,16 +1437,16 @@ export default function ReportsView() {
       {/* ── ML Tab ──────────────────────────────────────────────────────────── */}
       {tab === 'ml' && ml && !ml.status && (
         <div className="space-y-4">
-          <div className="bg-surface rounded-xl border border-border p-4">
-            <h3 className="text-white font-semibold text-sm mb-2">Analysis Summary</h3>
+          <div className="bg-surface rounded-panel border border-border p-4">
+            <h3 className="text-ink font-bold text-[15px] mb-2">Analysis Summary</h3>
             <p className="text-muted text-xs leading-relaxed">{ml.summary}</p>
           </div>
-          <div className="bg-surface rounded-xl border border-border p-4">
-            <h3 className="text-white font-semibold text-sm mb-3">Loss Patterns</h3>
+          <div className="bg-surface rounded-panel border border-border p-4">
+            <h3 className="text-ink font-bold text-[15px] mb-3">Loss Patterns</h3>
             <div className="space-y-2">
               {Object.entries(ml.patterns || {}).map(([k, v]: [string, any]) => (
                 <div key={k} className="flex items-center gap-3">
-                  <div className="w-32 text-[10px] text-muted truncate uppercase">{k.replace(/_/g,' ')}</div>
+                  <div className="w-32 text-[12px] text-muted truncate uppercase">{k.replace(/_/g,' ')}</div>
                   <div className="flex-1 bg-border rounded-full h-2">
                     <div className="bg-down h-2 rounded-full" style={{ width: `${v.pct_of_total}%` }} />
                   </div>
@@ -1459,16 +1456,16 @@ export default function ReportsView() {
               ))}
             </div>
           </div>
-          <div className="bg-surface rounded-xl border border-border p-4 space-y-3">
-            <h3 className="text-white font-semibold text-sm">Recommendations</h3>
+          <div className="bg-surface rounded-panel border border-border p-4 space-y-3">
+            <h3 className="text-ink font-bold text-[15px]">Recommendations</h3>
             {(ml.recommendations || []).map((r: any, i: number) => (
-              <div key={i} className="border border-accent/30 rounded-lg p-3 text-xs space-y-1 bg-accent/5">
+              <div key={i} className="border border-accent/30 rounded-control p-3 text-xs space-y-1 bg-gold-400/5">
                 <div className="text-accent font-semibold">{r.pattern?.replace(/_/g,' ')}</div>
                 <p className="text-muted">{r.finding}</p>
-                <p className="text-white">{r.action}</p>
+                <p className="text-ink">{r.action}</p>
                 {r.current !== undefined && (
                   <div className="flex gap-4 mt-1">
-                    <span className="text-muted">Current: <span className="text-white">{String(r.current)}</span></span>
+                    <span className="text-muted">Current: <span className="text-ink">{String(r.current)}</span></span>
                     <span className="text-muted">Suggested: <span className="text-up">{String(r.suggested)}</span></span>
                   </div>
                 )}
@@ -1478,7 +1475,7 @@ export default function ReportsView() {
         </div>
       )}
       {tab === 'ml' && (!ml || ml.status) && (
-        <div className="bg-surface rounded-xl border border-border p-8 text-center">
+        <div className="bg-surface rounded-panel border border-border p-8 text-center">
           <p className="text-muted text-sm">No ML analysis available. Click Refresh to generate.</p>
         </div>
       )}
@@ -1486,7 +1483,7 @@ export default function ReportsView() {
       {/* ── Tradable Windows Tab ─────────────────────────────────────────────── */}
       {tab === 'tradable' && trd && !trd.status && (
         <div className="space-y-4">
-          <div className="bg-surface rounded-xl border border-border p-4 grid grid-cols-4 gap-4">
+          <div className="bg-surface rounded-panel border border-border p-4 grid grid-cols-4 gap-4">
             {[
               { label: 'Total Windows',  val: trd.summary?.total_windows },
               { label: 'Traded',         val: trd.summary?.windows_traded,  color: 'text-up' },
@@ -1495,16 +1492,16 @@ export default function ReportsView() {
             ].map(s => (
               <div key={s.label} className="text-center">
                 <div className="text-muted text-xs uppercase mb-1">{s.label}</div>
-                <div className={`text-white font-bold text-lg ${s.color || ''}`}>{s.val}</div>
+                <div className={`text-ink font-bold text-lg ${s.color || ''}`}>{s.val}</div>
               </div>
             ))}
           </div>
-          <div className="bg-surface rounded-xl border border-border p-4">
-            <h3 className="text-white font-semibold text-sm mb-3">Tradable Windows Log</h3>
+          <div className="bg-surface rounded-panel border border-border p-4">
+            <h3 className="text-ink font-bold text-[15px] mb-3">Tradable Windows Log</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
+                  <tr className="text-muted text-xs font-semibold border-b border-border">
                     <th className="px-2 pb-2">Symbol</th><th className="px-2 pb-2">Dir</th>
                     <th className="px-2 pb-2">Sector</th><th className="px-2 pb-2">Identified</th>
                     <th className="px-2 pb-2">Until</th><th className="px-2 pb-2">Duration</th>
@@ -1514,21 +1511,21 @@ export default function ReportsView() {
                 <tbody>
                   {(trd.signals || []).map((s: any) => (
                     <tr key={s.id} className="border-b border-border/40 hover:bg-border/20">
-                      <td className="px-2 py-1.5 text-white text-xs font-medium">{s.symbol}</td>
+                      <td className="px-2 py-1.5 text-ink text-xs font-medium">{s.symbol}</td>
                       <td className="px-2 py-1.5">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
+                        <span className={`text-[12px] px-1.5 py-0.5 rounded font-semibold
                           ${s.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
                           {s.direction?.toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-2 py-1.5 text-muted text-[11px]">{s.sector}</td>
-                      <td className="px-2 py-1.5 text-muted text-[11px]">{new Date(s.opened_at).toLocaleTimeString('en-IN', { hour12: false })}</td>
-                      <td className="px-2 py-1.5 text-muted text-[11px]">
+                      <td className="px-2 py-1.5 text-muted text-[12.5px]">{s.sector}</td>
+                      <td className="px-2 py-1.5 text-muted text-[12.5px]">{new Date(s.opened_at).toLocaleTimeString('en-IN', { hour12: false })}</td>
+                      <td className="px-2 py-1.5 text-muted text-[12.5px]">
                         {s.closed_at ? new Date(s.closed_at).toLocaleTimeString('en-IN', { hour12: false }) : <span className="text-up">active</span>}
                       </td>
-                      <td className="px-2 py-1.5 text-white text-xs">{s.duration_sec != null ? `${s.duration_sec}s` : '—'}</td>
+                      <td className="px-2 py-1.5 text-ink text-xs">{s.duration_sec != null ? `${s.duration_sec}s` : '—'}</td>
                       <td className="px-2 py-1.5 text-accent text-xs">{s.entry_score}/{s.max_score}</td>
-                      <td className="px-2 py-1.5 text-xs">{s.was_traded ? <span className="text-up">✓</span> : <span className="text-muted">—</span>}</td>
+                      <td className="px-2 py-1.5 text-xs">{s.was_traded ? <Check size={15} weight="bold" className="text-up" /> : <span className="text-muted">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1538,7 +1535,7 @@ export default function ReportsView() {
         </div>
       )}
       {tab === 'tradable' && (!trd || trd.status) && (
-        <div className="bg-surface rounded-xl border border-border p-8 text-center">
+        <div className="bg-surface rounded-panel border border-border p-8 text-center">
           <p className="text-muted text-sm">No tradable windows report. Click Refresh to generate.</p>
         </div>
       )}
@@ -1549,14 +1546,14 @@ export default function ReportsView() {
           <StrategyGrowthSection
             trades={allEsTrades}
             label="Early Scalp [ES]"
-            accentColor="#a855f7"
-            borderColor="rgba(168,85,247,0.3)"
+            accentColor="rgb(65 105 176)"
+            borderColor="rgb(65 105 176 / 0.3)"
           />
           <StrategyGrowthSection
             trades={allObTrades}
             label="Opening Breakout [OB]"
-            accentColor="#3b82f6"
-            borderColor="rgba(59,130,246,0.3)"
+            accentColor="rgb(26 122 105)"
+            borderColor="rgb(26 122 105 / 0.3)"
           />
         </div>
       )}

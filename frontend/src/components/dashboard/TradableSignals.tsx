@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { CaretUp } from '@phosphor-icons/react';
 
 const API = 'http://localhost:8000';
 
@@ -46,9 +47,9 @@ export default function TradableSignals() {
   }, []);
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4">
+    <div className="bg-surface rounded-panel border border-border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-white font-semibold text-sm flex items-center gap-2">
+        <h2 className="text-ink font-bold text-base flex items-center gap-2">
           Tradable Now
           <span className="text-xs text-muted font-normal">stocks meeting entry criteria</span>
         </h2>
@@ -67,28 +68,28 @@ export default function TradableSignals() {
           {active.map(t => (
             <div
               key={t.token}
-              className={`rounded-lg border p-3 transition-all duration-500
-                ${flash.has(t.token) ? 'border-up shadow-[0_0_14px_rgba(34,197,94,0.6)]' : 'border-border'}
+              className={`rounded-control border p-3 transition-all duration-500
+                ${flash.has(t.token) ? 'border-up shadow-[0_0_0_3px_rgb(11_125_69_/_0.18)]' : 'border-border'}
                 ${t.direction === 'call' ? 'bg-up/5' : 'bg-down/5'}`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-white font-bold text-sm">{t.symbol}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
+                <span className="text-ink font-bold text-sm">{t.symbol}</span>
+                <span className={`text-[12px] px-1.5 py-0.5 rounded font-semibold
                   ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
                   {t.direction.toUpperCase()}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-[11px] text-muted mb-1">
+              <div className="flex items-center justify-between text-[12.5px] text-muted mb-1">
                 <span>{t.sector}</span>
                 <span className="text-accent font-semibold">{t.entry_score}/{t.max_score}</span>
               </div>
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-[12.5px]">
                 <span className="text-muted">LTP</span>
-                <span className="text-white">{t.ltp ? `₹${t.ltp.toFixed(1)}` : '—'}</span>
+                <span className="text-ink">{t.ltp ? `₹${t.ltp.toFixed(1)}` : '—'}</span>
               </div>
-              <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between text-[10px]">
+              <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between text-[12px]">
                 <span className="text-muted">since {fmtTime(t.opened_at)}</span>
-                <span className="text-up font-semibold">▲ {fmtDuration(t.live_secs)}</span>
+                <span className="inline-flex items-center gap-0.5 text-up font-semibold"><CaretUp size={13} weight="fill" />{fmtDuration(t.live_secs)}</span>
               </div>
             </div>
           ))}

@@ -35,10 +35,10 @@ function fmtPnL(v: number) {
 
 function PnLStat({ label, value, count, color }: { label: string; value: number; count: number; color: string }) {
   return (
-    <div className={`flex flex-col px-4 py-2 rounded-lg border ${color}`}>
-      <div className="text-[10px] uppercase tracking-wider mb-0.5 opacity-70">{label}</div>
+    <div className={`flex flex-col px-4 py-2 rounded-control border ${color}`}>
+      <div className="text-xs font-semibold mb-0.5 opacity-70">{label}</div>
       <div className={`font-bold text-base ${pnlColor(value)}`}>{fmtPnL(value)}</div>
-      <div className="text-[10px] opacity-50">{count} trade{count !== 1 ? 's' : ''}</div>
+      <div className="text-[12px] opacity-50">{count} trade{count !== 1 ? 's' : ''}</div>
     </div>
   );
 }
@@ -124,19 +124,19 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
   const visible = filter === 'ALL' ? rangedTrades : rangedTrades.filter(t => getStrategy(t.entry_logic) === filter);
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4 space-y-4">
+    <div className="bg-surface rounded-panel border border-border p-4 space-y-4">
 
       {/* ── PnL stat cards ── */}
       <div className="flex flex-wrap gap-3">
-        <PnLStat label="Early Scalp [ES]"       value={esPnL} count={esTrades.length} color="border-purple-500/30 bg-purple-500/5" />
-        <PnLStat label="Opening Breakout [OB]"   value={obPnL} count={obTrades.length} color="border-blue-500/30 bg-blue-500/5" />
+        <PnLStat label="Early Scalp [ES]"       value={esPnL} count={esTrades.length} color="border-brand/30 bg-brand/5" />
+        <PnLStat label="Opening Breakout [OB]"   value={obPnL} count={obTrades.length} color="border-teal/30 bg-teal/5" />
         {teTrades.length > 0 && (
           <PnLStat label="Trading Engine [TE]"   value={tePnL} count={teTrades.length} color="border-border bg-border/10" />
         )}
-        <div className="flex flex-col px-4 py-2 rounded-lg border border-border bg-white/5 ml-auto">
-          <div className="text-[10px] uppercase tracking-wider mb-0.5 text-muted">Net PnL</div>
+        <div className="flex flex-col px-4 py-2 rounded-control border border-border bg-white/5 ml-auto">
+          <div className="text-xs font-semibold mb-0.5 text-muted">Net PnL</div>
           <div className={`font-bold text-xl ${pnlColor(netPnL)}`}>{fmtPnL(netPnL)}</div>
-          <div className="text-[10px] text-muted">
+          <div className="text-[12px] text-muted">
             {rangedTrades.length} trades · {rangedTrades.length ? Math.round(wins / rangedTrades.length * 100) : 0}% win
           </div>
         </div>
@@ -150,11 +150,11 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`text-[11px] px-3 py-1 rounded font-semibold transition-colors ${
+            className={`text-[12.5px] px-3 py-1 rounded font-semibold transition-colors ${
               filter === f
-                ? f === 'ES' ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50'
-                  : f === 'OB' ? 'bg-blue-500/30 text-blue-300 border border-blue-500/50'
-                  : 'bg-accent/20 text-accent border border-accent/40'
+                ? f === 'ES' ? 'bg-brand/30 text-brand border border-brand/50'
+                  : f === 'OB' ? 'bg-teal/30 text-teal border border-teal/50'
+                  : 'bg-gold-400/20 text-accent border border-accent/40'
                 : 'bg-border/30 text-muted border border-border hover:bg-border/50'
             }`}
           >
@@ -174,7 +174,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
+              <tr className="text-muted text-xs font-semibold border-b border-border">
                 <th className="px-3 pb-2">#</th>
                 <th className="px-3 pb-2">Strategy</th>
                 <th className="px-3 pb-2">Symbol</th>
@@ -201,25 +201,25 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                     >
                       <td className="px-3 py-2 text-muted text-xs">{t.id}</td>
                       <td className="px-3 py-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold tracking-wide
-                          ${strat === 'ES' ? 'bg-purple-500/20 text-purple-300'
-                            : strat === 'OB' ? 'bg-blue-500/20 text-blue-300'
+                        <span className={`text-[12px] px-1.5 py-0.5 rounded font-bold tracking-wide
+                          ${strat === 'ES' ? 'bg-brand/20 text-brand'
+                            : strat === 'OB' ? 'bg-teal/20 text-teal'
                             : 'bg-border text-muted'}`}>
                           {strat}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-white font-medium text-xs">{t.symbol}</td>
+                      <td className="px-3 py-2 text-ink font-medium text-xs">{t.symbol}</td>
                       <td className="px-3 py-2">
                         <span className={`text-xs px-1.5 py-0.5 rounded font-semibold
                           ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
                           {t.direction?.toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-[11px] text-white font-mono">
+                      <td className="px-3 py-2 text-[12.5px] text-ink font-mono">
                         {t.strike ? `${t.strike} ${t.option_type || ''}` : (t.option_symbol || '—')}
                         {t.expiry && <span className="text-muted ml-1">{t.expiry.slice(5)}</span>}
                       </td>
-                      <td className="px-3 py-2 text-[11px] text-white font-mono">
+                      <td className="px-3 py-2 text-[12.5px] text-ink font-mono">
                         {t.quantity != null && t.lot_size != null
                           ? <>{t.quantity}×{t.lot_size}<span className="text-muted ml-1">={t.quantity * t.lot_size}</span></>
                           : '—'}
@@ -228,7 +228,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                       <td className="px-3 py-2 text-xs">
                         {t.status === 'open'
                           ? (t.live_ltp != null
-                              ? <span className="text-white">₹{t.live_ltp.toFixed(2)} <span className="text-[9px] text-accent">live</span></span>
+                              ? <span className="text-ink">₹{t.live_ltp.toFixed(2)} <span className="text-[11px] text-accent">live</span></span>
                               : <span className="text-muted">—</span>)
                           : (t.exit_price != null ? <span className="text-muted">₹{t.exit_price.toFixed(2)}</span> : '—')}
                       </td>
@@ -237,23 +237,23 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                         <span className="text-muted ml-1">({(t.pnl_pct || 0).toFixed(1)}%)</span>
                       </td>
                       <td className="px-3 py-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded capitalize
-                          ${t.status === 'open'      ? 'bg-accent/20 text-accent' :
+                        <span className={`text-[12px] px-1.5 py-0.5 rounded capitalize
+                          ${t.status === 'open'      ? 'bg-gold-400/20 text-accent' :
                             t.status === 'sl_hit'    ? 'bg-down/20 text-down'    :
                             t.status === 'target'    ? 'bg-up/20 text-up'        :
-                            t.status === 'breakeven' ? 'bg-yellow-500/20 text-yellow-400' :
+                            t.status === 'breakeven' ? 'bg-yellow-500/20 text-amber-700' :
                             'bg-border text-muted'}`}>
                           {t.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.entered_at)}</td>
-                      <td className="px-3 py-2 text-muted text-[10px] font-mono">{fmtTime(t.exited_at)}</td>
+                      <td className="px-3 py-2 text-muted text-[12px] font-mono">{fmtTime(t.entered_at)}</td>
+                      <td className="px-3 py-2 text-muted text-[12px] font-mono">{fmtTime(t.exited_at)}</td>
                     </tr>
                     {expanded === t.id && (
                       <tr key={`exp-${t.id}`} className="bg-bg/50">
                         <td colSpan={12} className="px-4 py-3 text-xs text-muted leading-relaxed">
-                          <p><span className="text-white font-semibold">Entry logic: </span>{t.entry_logic || 'N/A'}</p>
-                          <p className="mt-1"><span className="text-white font-semibold">Exit logic: </span>{t.exit_logic || 'N/A'}</p>
+                          <p><span className="text-ink font-semibold">Entry logic: </span>{t.entry_logic || 'N/A'}</p>
+                          <p className="mt-1"><span className="text-ink font-semibold">Exit logic: </span>{t.exit_logic || 'N/A'}</p>
                         </td>
                       </tr>
                     )}

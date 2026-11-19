@@ -5,8 +5,8 @@ function intensity(pct: number) {
   const abs = Math.min(Math.abs(pct), 4);
   const alpha = 0.25 + (abs / 4) * 0.65;
   return pct >= 0
-    ? `rgba(34,197,94,${alpha.toFixed(2)})`
-    : `rgba(239,68,68,${alpha.toFixed(2)})`;
+    ? `rgb(11 125 69 / ${alpha.toFixed(2)})`
+    : `rgb(196 43 35 / ${alpha.toFixed(2)})`;
 }
 
 function SectorBlock({ name, data }: { name: string; data: SectorData }) {
@@ -16,14 +16,14 @@ function SectorBlock({ name, data }: { name: string; data: SectorData }) {
 
   return (
     <div
-      className="rounded-lg p-2 border border-white/5 flex flex-col gap-1"
+      className="rounded-control p-2 border border-white/5 flex flex-col gap-1"
       style={{
         background: intensity(pct),
         gridRow: `span ${Math.ceil(area)}`,
       }}
     >
       <div className="flex items-center justify-between">
-        <span className="text-white font-bold text-xs uppercase tracking-wider">{name}</span>
+        <span className="text-ink font-bold text-xs font-semibold">{name}</span>
         <span className={`text-xs font-semibold ${pct >= 0 ? 'text-up' : 'text-down'}`}>
           {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
         </span>
@@ -34,7 +34,7 @@ function SectorBlock({ name, data }: { name: string; data: SectorData }) {
           return (
             <div
               key={s.token}
-              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/30 text-white"
+              className="px-1.5 py-0.5 rounded text-[12px] font-semibold bg-white/70 text-ink"
               title={`${s.symbol} ${spct >= 0 ? '+' : ''}${spct.toFixed(2)}%`}
             >
               {s.symbol}
@@ -57,14 +57,14 @@ export default function SectorHeatmap() {
 
   if (!sectors.length) {
     return (
-      <div className="bg-surface rounded-xl border border-border p-4">
+      <div className="bg-surface rounded-panel border border-border p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-white font-semibold text-sm">Sector Scope</h2>
+          <h2 className="text-ink font-bold text-base">Sector Scope</h2>
           <span className="text-muted text-xs">Waiting for market data…</span>
         </div>
         <div className="grid grid-cols-4 gap-2 h-40 animate-pulse">
           {[...Array(8)].map((_, i) => (
-            <div key={i} className="bg-border rounded-lg" />
+            <div key={i} className="bg-border rounded-control" />
           ))}
         </div>
       </div>
@@ -72,8 +72,8 @@ export default function SectorHeatmap() {
   }
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4">
-      <h2 className="text-white font-semibold text-sm mb-3">
+    <div className="bg-surface rounded-panel border border-border p-4">
+      <h2 className="text-ink font-bold text-base mb-3">
         Sector Scope
         <span className="ml-2 text-xs text-muted font-normal">
           {sectors.length} sectors · live

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CircleNotch, LockKey, ArrowSquareOut } from '@phosphor-icons/react';
 
 const API = 'http://localhost:8000';
 
@@ -56,35 +57,38 @@ export default function LoginBanner() {
 
   // Backend not reachable yet
   if (!st) return (
-    <div className="bg-yellow-500/10 border-b border-yellow-500/30 px-4 py-2">
-      <span className="text-yellow-400 text-xs font-medium">
-        ⏳ Backend not reachable — waiting for server on port 8000…
-      </span>
+    <div className="flex items-center gap-2 px-5 py-2.5 bg-gold-100/70 border-b border-gold-300/70 text-sm text-ink2">
+      <CircleNotch size={16} className="animate-spin text-accent" />
+      Waiting for the trading server on port 8000
     </div>
   );
 
   return (
-    <div className="bg-down/10 border-b border-down/40 px-4 py-3">
+    <div className="px-5 py-3 bg-white/80 border-b border-down/25" style={{ backdropFilter: 'blur(16px)' }}>
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-down font-semibold text-sm">🔐 Zerodha login required for today</span>
+        <span className="flex items-center gap-2 text-down font-bold text-sm">
+          <LockKey size={18} weight="fill" /> Sign in to Zerodha for today
+        </span>
         <button onClick={openLogin}
-          className="px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-semibold hover:bg-blue-600">
-          1 · Open Zerodha login
+          className="pressable btn-gold inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-control text-sm font-bold">
+          Open Zerodha login <ArrowSquareOut size={15} weight="bold" />
         </button>
-        <span className="text-muted text-xs">2 · paste the request_token from the callback page →</span>
+        <span className="text-muted text-sm">then paste the request_token</span>
         <input
           value={rt} onChange={e => setRt(e.target.value)}
           placeholder="request_token"
-          className="bg-bg border border-border text-white text-xs rounded px-2 py-1.5 w-64"
+          aria-label="Zerodha request token"
+          className="bg-white border border-border text-ink text-sm rounded-control px-3 py-1.5 w-64
+            focus:border-gold-500 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
         />
         <button onClick={submit} disabled={busy}
-          className="px-3 py-1.5 bg-up text-white rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-50">
-          {busy ? 'Logging in…' : '3 · Activate'}
+          className="pressable px-3.5 py-1.5 bg-ink text-white rounded-control text-sm font-bold disabled:opacity-50">
+          {busy ? 'Signing in' : 'Activate'}
         </button>
-        {err && <span className="text-down text-xs">{err}</span>}
+        {err && <span className="text-down text-sm">{err}</span>}
       </div>
-      <p className="text-muted text-[10px] mt-1">
-        Until you log in, the live feed and trading are paused. The token lasts until ~6 AM tomorrow.
+      <p className="text-muted text-xs mt-1.5">
+        Until you sign in, the live feed and trading are paused. The session lasts until about 6 AM tomorrow.
       </p>
     </div>
   );

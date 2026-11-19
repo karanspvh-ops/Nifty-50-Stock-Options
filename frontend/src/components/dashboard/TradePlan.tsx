@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { Robot, PauseCircle, Broadcast, CheckCircle, Circle } from '@phosphor-icons/react';
 
 const API = 'http://localhost:8000';
 
@@ -87,21 +88,21 @@ export default function TradePlan() {
   const windowOpen = plan?.entry_window_open;
 
   return (
-    <div className={`rounded-xl border p-4 ${
+    <div className={`rounded-panel border p-4 ${
       showPreview
         ? (bullish ? 'border-up/50 bg-up/5' : 'border-down/50 bg-down/5')
         : 'border-border bg-surface'}`}>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-white font-semibold text-sm flex items-center gap-2">
+        <h2 className="text-ink font-bold text-base flex items-center gap-2">
           Opening Breakout — Trade Plan
           {plan && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg text-muted">
+            <span className="text-[12px] px-1.5 py-0.5 rounded bg-bg text-muted">
               {PHASE_LABEL[plan.phase] || plan.phase}
             </span>
           )}
         </h2>
         <button onClick={toggle}
-          className={`text-[10px] px-2 py-1 rounded font-semibold
+          className={`text-[12px] px-2 py-1 rounded font-semibold
             ${plan?.enabled ? 'bg-up/20 text-up' : 'bg-border text-muted'}`}>
           {plan?.enabled ? 'STRATEGY ON' : 'STRATEGY OFF'}
         </button>
@@ -116,28 +117,28 @@ export default function TradePlan() {
           {/* Decision banner */}
           <div className="flex items-center gap-3 mb-3 flex-wrap">
             <span className={`text-xs px-2 py-1 rounded font-bold
-              ${plan.trend === 'mixed' ? 'bg-yellow-500/20 text-yellow-400'
+              ${plan.trend === 'mixed' ? 'bg-yellow-500/20 text-amber-700'
                 : bullish ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
               {plan.trend.toUpperCase()}
               {plan.trend === 'mixed' ? ' — best setups BOTH sides' : (bullish ? ' → BUY CALLS' : ' → BUY PUTS')}
             </span>
-            <span className="text-xs text-white">
+            <span className="text-xs text-ink">
               Lead sector: <span className="font-semibold">{plan.sector}</span>
               <span className={`ml-1 ${plan.sector_pct >= 0 ? 'text-up' : 'text-down'}`}>
                 {plan.sector_pct >= 0 ? '+' : ''}{plan.sector_pct.toFixed(2)}%
               </span>
             </span>
-            <span className="text-[10px] ml-auto">
+            <span className="text-[12px] ml-auto">
               {windowOpen
-                ? <span className="text-up">🟢 Entry window OPEN (≤9:45; if nothing fires, extends to 10:30)</span>
-                : <span className="text-muted">⏸ Entry window closed — opens 9:15 tomorrow. Current breakout picture below.</span>}
+                ? <span className="inline-flex items-center gap-1.5 text-up font-semibold"><Broadcast size={16} weight="bold" /> Entry window open (until 9:45; extends to 10:30 if nothing fires)</span>
+                : <span className="inline-flex items-center gap-1.5 text-muted"><PauseCircle size={16} /> Entry window closed. Opens 9:15 tomorrow; current breakout picture below.</span>}
             </span>
           </div>
 
           {/* Planned stocks */}
           <table className="w-full text-left">
             <thead>
-              <tr className="text-muted text-[10px] uppercase tracking-wider border-b border-border">
+              <tr className="text-muted text-xs font-semibold border-b border-border">
                 <th className="px-2 pb-2">Stock</th>
                 <th className="px-2 pb-2">Open Move</th>
                 <th className="px-2 pb-2">R-Factor</th>
@@ -150,10 +151,10 @@ export default function TradePlan() {
             <tbody>
               {plan.stocks.map(s => { const b = s.direction === 'call'; return (
                 <tr key={s.token} className="border-b border-border/40">
-                  <td className="px-2 py-1.5 text-white text-xs font-semibold">{s.symbol}
-                    <span className={`ml-1 text-[10px] px-1 rounded ${b ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>{b ? 'CE' : 'PE'}</span>
+                  <td className="px-2 py-1.5 text-ink text-xs font-semibold">{s.symbol}
+                    <span className={`ml-1 text-[12px] px-1 rounded ${b ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>{b ? 'CE' : 'PE'}</span>
                     <span className="text-muted ml-1">₹{s.ltp?.toFixed(1)}</span>
-                    <span className="block text-[9px] text-muted font-normal">{s.sector}</span>
+                    <span className="block text-[11px] text-muted font-normal">{s.sector}</span>
                   </td>
                   <td className={`px-2 py-1.5 text-xs font-semibold ${s.opening_move >= 0 ? 'text-up' : 'text-down'}`}>
                     {s.opening_move >= 0 ? '+' : ''}{s.opening_move.toFixed(2)}%
@@ -167,45 +168,45 @@ export default function TradePlan() {
                   <td className={`px-2 py-1.5 text-xs ${s.vol_ratio >= 1.3 ? 'text-up' : 'text-muted'}`}>
                     {s.vol_ratio?.toFixed(1)}×
                   </td>
-                  <td className="px-2 py-1.5 text-[11px] text-muted font-mono">
+                  <td className="px-2 py-1.5 text-[12.5px] text-muted font-mono">
                     {s.vp_poc ? `${s.vp_poc} / ${s.vp_vah} / ${s.vp_val}` : '—'}
                   </td>
                   <td className="px-2 py-1.5 text-xs">
                     {s.entered
-                      ? <span className={b ? 'text-up' : 'text-down'}>● in trade</span>
+                      ? <span className={`inline-flex items-center gap-1 ${b ? 'text-up' : 'text-down'}`}><Circle size={9} weight="fill" /> in trade</span>
                       : s.confirmed
-                        ? <span className={b ? 'text-up' : 'text-down'}>✓ confirmed</span>
+                        ? <span className={`inline-flex items-center gap-1 ${b ? 'text-up' : 'text-down'}`}><CheckCircle size={13} weight="fill" /> confirmed</span>
                         : s.eligible
-                          ? <span className="text-yellow-400">moved, awaiting confirm</span>
+                          ? <span className="text-amber-700">moved, awaiting confirm</span>
                           : <span className="text-muted">waiting for ±1.5%</span>}
                   </td>
                 </tr>
               );})}
             </tbody>
           </table>
-          <p className="text-[10px] text-muted mt-2">{plan.note} · SL 10% · target 50% · positional</p>
+          <p className="text-[12px] text-muted mt-2">{plan.note} · SL 10% · target 50% · positional</p>
         </>
       )}
 
       {/* Trailing gap control + ML auto-tune */}
       <div className="mt-3 pt-3 border-t border-border flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted uppercase tracking-wider">Trailing gap</span>
+          <span className="text-[12px] text-muted uppercase tracking-wider">Trailing gap</span>
           <input type="range" min={8} max={35} step={1} value={gap ?? 20}
             disabled={gap === null}
             onChange={e => saveGap(parseInt(e.target.value))}
             className="w-28 accent-accent disabled:opacity-40" />
-          <span className="text-xs text-white font-semibold w-10">{gap === null ? '…' : `${gap}%`}</span>
+          <span className="text-xs text-ink font-semibold w-10">{gap === null ? '…' : `${gap}%`}</span>
         </div>
 
         {tune && tune.status === 'insufficient_data' && (
-          <span className="text-[10px] text-muted">
-            🤖 Auto-tune learning: {tune.trades}/{tune.required} trades
+          <span className="text-[12px] text-muted">
+            <Robot size={14} className="inline -mt-0.5 mr-1" />Auto-tune learning: {tune.trades}/{tune.required} trades
           </span>
         )}
         {tune && (tune.status === 'tuned' || tune.status === 'analyzed') && (
-          <span className={`text-[10px] ${tune.applied ? 'text-up' : 'text-muted'}`}>
-            🤖 {tune.applied ? `Auto-tuned → ${tune.recommended_gap}%` : `Suggests ${tune.recommended_gap}%`}
+          <span className={`text-[12px] ${tune.applied ? 'text-up' : 'text-muted'}`}>
+            <Robot size={14} className="inline -mt-0.5 mr-1" />{tune.applied ? `Auto-tuned → ${tune.recommended_gap}%` : `Suggests ${tune.recommended_gap}%`}
             {tune.rationale ? ` · ${tune.rationale}` : ''}
           </span>
         )}

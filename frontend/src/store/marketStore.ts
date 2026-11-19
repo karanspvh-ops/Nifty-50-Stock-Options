@@ -44,7 +44,7 @@ export interface TradeTick {
   trail_armed: boolean;
 }
 export interface Settings {
-  is_live: boolean; available_funds: number;
+  is_live: boolean; es_live: boolean; ob_live: boolean; available_funds: number;
   target_profit_pct: number; trade_sl_pct: number;
   portfolio_sl_pct: number; dynamic_sl_enabled: boolean;
   active_index: string;
@@ -100,7 +100,7 @@ export const useMarketStore = create<MarketStore>((set, get) => ({
   closedTrades: [],
   tradesVersion: 0,
   settings: {
-    is_live: false, available_funds: 0, target_profit_pct: 0,
+    is_live: false, es_live: false, ob_live: false, available_funds: 0, target_profit_pct: 0,
     trade_sl_pct: 5, portfolio_sl_pct: 10,
     dynamic_sl_enabled: true, active_index: 'NIFTY50',
   },

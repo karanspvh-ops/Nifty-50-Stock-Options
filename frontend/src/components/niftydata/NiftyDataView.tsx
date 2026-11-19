@@ -72,15 +72,15 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
       {gridVals.map((v, i) => (
         <g key={i}>
-          <line x1={PL} y1={y(v)} x2={W - PR} y2={y(v)} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-          <text x={PL - 6} y={y(v)} textAnchor="end" dominantBaseline="middle" fontSize="9" fill="#6b7280">
+          <line x1={PL} y1={y(v)} x2={W - PR} y2={y(v)} stroke="rgb(22 24 29 / 0.07)" strokeWidth="1" />
+          <text x={PL - 6} y={y(v)} textAnchor="end" dominantBaseline="middle" fontSize="9" fill="rgb(92 98 112)">
             {v.toFixed(0)}
           </text>
         </g>
       ))}
       {shown.map((c, i) => {
         const up = c.close >= c.open;
-        const color = up ? '#4ade80' : '#f87171';
+        const color = up ? 'rgb(11 125 69)' : 'rgb(196 43 35)';
         const bodyTop = y(Math.max(c.open, c.close));
         const bodyBot = y(Math.min(c.open, c.close));
         return (
@@ -88,7 +88,7 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
             <line x1={x(i)} y1={y(c.high)} x2={x(i)} y2={y(c.low)} stroke={color} strokeWidth="1" />
             <rect x={x(i) - bw / 2} y={bodyTop} width={bw} height={Math.max(1, bodyBot - bodyTop)} fill={color} />
             {i % showEvery === 0 && (
-              <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="#6b7280">
+              <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="rgb(92 98 112)">
                 {showDate ? fmtTime(c.time, true).slice(0, 10) : fmtTime(c.time).slice(0, 5)}
               </text>
             )}
@@ -177,7 +177,7 @@ export default function NiftyDataView() {
   return (
     <div className="p-6 space-y-4 overflow-y-auto h-full">
       <div className="flex items-center justify-between">
-        <h1 className="text-white font-bold text-lg">Nifty Data Collector</h1>
+        <h1 className="text-ink font-bold text-2xl leading-tight">Nifty Data Collector</h1>
         <div className="flex items-center gap-2 text-xs">
           <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
           <span className="text-muted">
@@ -188,13 +188,13 @@ export default function NiftyDataView() {
       </div>
 
       {/* Range switch */}
-      <div className="flex items-center gap-1 bg-surface border border-border rounded-lg p-1 w-fit">
+      <div className="flex items-center gap-1 bg-surface border border-border rounded-control p-1 w-fit">
         {RANGES.map(r => (
           <button
             key={r.key}
             onClick={() => setRange(r.key)}
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
-              ${range === r.key ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
+              ${range === r.key ? 'btn-gold text-ink' : 'text-muted hover:text-ink'}`}
           >
             {r.label}
           </button>
@@ -203,26 +203,26 @@ export default function NiftyDataView() {
 
       {/* Status strip */}
       <div className="grid grid-cols-5 gap-3">
-        <div className="bg-surface rounded-lg border border-border p-3">
-          <div className="text-[10px] uppercase text-muted mb-1">Rows Today</div>
-          <div className="text-lg font-bold text-white">{status?.rows_today ?? '—'}</div>
+        <div className="bg-surface rounded-control border border-border p-3">
+          <div className="text-[12px] uppercase text-muted mb-1">Rows Today</div>
+          <div className="text-lg font-bold text-ink">{status?.rows_today ?? '—'}</div>
         </div>
-        <div className="bg-surface rounded-lg border border-border p-3">
-          <div className="text-[10px] uppercase text-muted mb-1">Last Snapshot</div>
-          <div className="text-lg font-bold text-white">
+        <div className="bg-surface rounded-control border border-border p-3">
+          <div className="text-[12px] uppercase text-muted mb-1">Last Snapshot</div>
+          <div className="text-lg font-bold text-ink">
             {status?.last_snapshot_at ? fmtTime(status.last_snapshot_at) : '—'}
           </div>
         </div>
-        <div className="bg-surface rounded-lg border border-border p-3">
-          <div className="text-[10px] uppercase text-muted mb-1">Contracts Tracked</div>
-          <div className="text-lg font-bold text-white">{status?.contracts ?? '—'}</div>
+        <div className="bg-surface rounded-control border border-border p-3">
+          <div className="text-[12px] uppercase text-muted mb-1">Contracts Tracked</div>
+          <div className="text-lg font-bold text-ink">{status?.contracts ?? '—'}</div>
         </div>
-        <div className="bg-surface rounded-lg border border-border p-3">
-          <div className="text-[10px] uppercase text-muted mb-1">Expiry</div>
-          <div className="text-lg font-bold text-white">{status?.expiry ?? '—'}</div>
+        <div className="bg-surface rounded-control border border-border p-3">
+          <div className="text-[12px] uppercase text-muted mb-1">Expiry</div>
+          <div className="text-lg font-bold text-ink">{status?.expiry ?? '—'}</div>
         </div>
-        <div className="bg-surface rounded-lg border border-border p-3">
-          <div className="text-[10px] uppercase text-muted mb-1">Index Feed</div>
+        <div className="bg-surface rounded-control border border-border p-3">
+          <div className="text-[12px] uppercase text-muted mb-1">Index Feed</div>
           <div className={`text-lg font-bold ${status?.index_subscribed ? 'text-up' : 'text-down'}`}>
             {status?.index_subscribed ? 'Subscribed' : 'Not yet'}
           </div>
@@ -230,9 +230,9 @@ export default function NiftyDataView() {
       </div>
 
       {/* Candle chart */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden">
+      <div className="bg-surface rounded-panel border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-white">
+          <span className="font-bold text-sm text-ink">
             NIFTY 50 Spot — 1m candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
           </span>
           <span className="text-xs text-muted">{candles.length} candles</span>
@@ -243,18 +243,18 @@ export default function NiftyDataView() {
       </div>
 
       {/* Raw data table — newest first */}
-      <div className="bg-surface rounded-xl border border-border overflow-hidden">
+      <div className="bg-surface rounded-panel border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <span className="font-bold text-sm text-white">
+          <span className="font-bold text-sm text-ink">
             Raw Snapshots — newest first {range !== 'today' && <span className="text-muted font-normal">({RANGES.find(r => r.key === range)?.label})</span>}
           </span>
           <span className="text-xs text-muted">Showing {rows.length} rows across {minuteCount} minute(s)</span>
         </div>
         <div ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
              className="max-h-[520px] overflow-y-auto overflow-x-auto">
-          <table className="w-full text-left" style={{ tableLayout: 'fixed' }}>
-            <thead className="sticky top-0 bg-surface2 z-10">
-              <tr className="text-[10px] uppercase tracking-wider text-muted border-b border-border">
+          <table className="w-full text-left" style={{ tableLayout: 'fixed', minWidth: 1560 }}>
+            <thead className="sticky top-0 bg-white/95 backdrop-blur z-10">
+              <tr className="text-xs font-semibold text-muted border-b border-border">
                 <th className="px-2 py-2">Time</th>
                 <th className="px-2 py-2 text-right">Spot</th>
                 <th className="px-2 py-2 text-right">Strike</th>
@@ -285,13 +285,13 @@ export default function NiftyDataView() {
                 <tr key={`${r.snapshot_time}-${r.strike}-${r.option_type}`} style={{ height: ROW_H }}
                     className={`border-b border-border/30 hover:bg-white/[0.02] text-xs
                       ${isGroupStart ? 'border-t-2 border-t-bg' : ''}`}>
-                  <td className="px-2 text-white font-medium">
+                  <td className="px-2 text-ink font-medium">
                     {isGroupStart ? fmtTime(r.snapshot_time, range !== 'today') : ''}
                   </td>
                   <td className="px-2 text-right text-muted">
                     {isGroupStart && r.nifty_spot != null ? r.nifty_spot.toFixed(2) : ''}
                   </td>
-                  <td className="px-2 text-right text-white">{r.strike.toFixed(0)}</td>
+                  <td className="px-2 text-right text-ink">{r.strike.toFixed(0)}</td>
                   <td className={`px-2 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>
                     {r.option_type}
                   </td>
@@ -301,7 +301,7 @@ export default function NiftyDataView() {
                   <td className="px-2 text-right text-muted">{r.open?.toFixed(2) ?? '—'}</td>
                   <td className="px-2 text-right text-up">{r.high?.toFixed(2) ?? '—'}</td>
                   <td className="px-2 text-right text-down">{r.low?.toFixed(2) ?? '—'}</td>
-                  <td className="px-2 text-right text-white">{r.close?.toFixed(2) ?? '—'}</td>
+                  <td className="px-2 text-right text-ink">{r.close?.toFixed(2) ?? '—'}</td>
                   <td className="px-2 text-right text-muted">{r.oi?.toLocaleString('en-IN') ?? '—'}</td>
                   <td className="px-2 text-right text-muted whitespace-nowrap">
                     {r.oi_day_high != null ? r.oi_day_high.toLocaleString('en-IN') : '—'}

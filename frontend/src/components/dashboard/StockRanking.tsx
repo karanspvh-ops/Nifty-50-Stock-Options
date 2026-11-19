@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CaretUp, CaretDown, Minus } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
@@ -14,25 +15,25 @@ interface SectorGroup {
 }
 
 function SignalArrow({ s }: { s: string }) {
-  if (s === 'up')   return <span className="text-up">▲</span>;
-  if (s === 'down') return <span className="text-down">▼</span>;
-  return <span className="text-muted">▬</span>;
+  if (s === 'up')   return <CaretUp size={14} weight="fill" className="text-up inline" />;
+  if (s === 'down') return <CaretDown size={14} weight="fill" className="text-down inline" />;
+  return <Minus size={14} weight="bold" className="text-muted inline" />;
 }
 
 function SectorCard({ g }: { g: SectorGroup }) {
   const total = g.up_count + g.down_count || 1;
   const upPct = Math.round((g.up_count / total) * 100);
   return (
-    <div className="bg-bg rounded-lg border border-border overflow-hidden">
+    <div className="bg-bg rounded-control border border-border overflow-hidden">
       {/* Sector header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <div className="flex items-center gap-2">
-          <span className="text-white font-bold text-xs uppercase tracking-wider">{g.sector}</span>
+          <span className="text-ink font-bold text-xs font-semibold">{g.sector}</span>
           <span className={`text-xs font-semibold ${(g.sector_pct ?? 0) >= 0 ? 'text-up' : 'text-down'}`}>
             {(g.sector_pct ?? 0) >= 0 ? '+' : ''}{(g.sector_pct ?? 0).toFixed(2)}%
           </span>
         </div>
-        <span className="text-[10px] text-muted">{g.up_count}▲ {g.down_count}▼</span>
+        <span className="text-[12px] text-muted"><span className="text-up">{g.up_count} up</span> · <span className="text-down">{g.down_count} down</span></span>
       </div>
       {/* Up/Down ratio bar */}
       <div className="h-1 w-full bg-down/40 flex">
@@ -41,7 +42,7 @@ function SectorCard({ g }: { g: SectorGroup }) {
       {/* Stock rows */}
       <table className="w-full">
         <thead>
-          <tr className="text-muted text-[9px] uppercase tracking-wider border-b border-border/50">
+          <tr className="text-muted text-xs font-semibold border-b border-border/50">
             <th className="text-left px-3 py-1">Symbol</th>
             <th className="text-right px-2 py-1">LTP</th>
             <th className="text-right px-2 py-1">%</th>
@@ -52,7 +53,7 @@ function SectorCard({ g }: { g: SectorGroup }) {
         <tbody>
           {g.stocks.map(s => (
             <tr key={s.token} className="border-b border-border/30 hover:bg-border/20">
-              <td className="px-3 py-1 text-white text-xs font-medium">{s.symbol}</td>
+              <td className="px-3 py-1 text-ink text-xs font-medium">{s.symbol}</td>
               <td className="px-2 py-1 text-right text-muted text-xs">
                 {s.ltp ? `₹${s.ltp.toFixed(1)}` : '—'}
               </td>
@@ -87,14 +88,14 @@ export default function StockRanking() {
   }, [settings.active_index, order]);
 
   return (
-    <div className="bg-surface rounded-xl border border-border p-4">
+    <div className="bg-surface rounded-panel border border-border p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-white font-semibold text-sm">
+        <h2 className="text-ink font-bold text-base">
           Stock Ranking — Sector-wise
           <span className="ml-2 text-xs text-muted font-normal">{settings.active_index} · live</span>
         </h2>
         {/* Filter */}
-        <div className="flex gap-1 bg-bg rounded-lg p-0.5 border border-border">
+        <div className="flex gap-1 bg-bg rounded-control p-0.5 border border-border">
           {([
             ['most_likely',  'Most Likely'],
             ['least_likely', 'Least Likely'],
@@ -103,7 +104,7 @@ export default function StockRanking() {
               key={val}
               onClick={() => setOrder(val)}
               className={`px-3 py-1 rounded-md text-xs font-medium transition-colors
-                ${order === val ? 'bg-accent text-white' : 'text-muted hover:text-white'}`}
+                ${order === val ? 'btn-gold text-ink' : 'text-muted hover:text-ink'}`}
             >
               {label}
             </button>

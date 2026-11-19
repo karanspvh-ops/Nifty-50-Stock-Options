@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+
 import { useMarketStore } from '../../store/marketStore';
 
 const API = 'http://localhost:8000';
@@ -84,7 +85,7 @@ function fmtTime(iso?: string | null) {
 
 const PHASE_COLOR: Record<string, string> = {
   IDLE:     'text-muted',
-  WARMING:  'text-yellow-400',
+  WARMING:  'text-amber-700',
   SCANNING: 'text-accent',
   ENTERING: 'text-up',
   MANAGING: 'text-up',
@@ -109,7 +110,7 @@ function ParamSlider({
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs text-muted">
         <span>{label}</span>
-        <span className="text-white font-semibold">{value}{unit}</span>
+        <span className="text-ink font-semibold">{value}{unit}</span>
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
@@ -164,10 +165,10 @@ function ActiveTrades({ trades }: { trades: ScalpTrade[] }) {
             return (
               <tr key={t.trade_id} className={`border-b border-border/40 hover:bg-border/20
                 ${isClosed ? 'opacity-50' : ''}`}>
-                <td className="py-2 pr-3 font-semibold text-white">
+                <td className="py-2 pr-3 font-semibold text-ink">
                   {t.symbol}
                   {isClosed && (
-                    <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-border text-muted font-semibold align-middle">
+                    <span className="ml-1.5 text-[11px] px-1 py-0.5 rounded bg-border text-muted font-semibold align-middle">
                       CLOSED
                     </span>
                   )}
@@ -251,7 +252,7 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
                     ${c.entered ? 'bg-up/5' : ''}`}
                 >
                   <td className="py-1.5 pr-2 text-muted">{i + 1}</td>
-                  <td className="py-1.5 pr-2 font-semibold text-white">{c.symbol}</td>
+                  <td className="py-1.5 pr-2 font-semibold text-ink">{c.symbol}</td>
                   <td className="py-1.5 pr-2">
                     <span className={`px-1.5 py-0.5 rounded text-xs font-semibold
                       ${c.direction === 'call'
@@ -311,9 +312,9 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
                         <button
                           onClick={() => forceEntry(c.symbol, c.direction)}
                           disabled={forcing === `${c.symbol}-${c.direction}`}
-                          className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-semibold
+                          className="ml-1 px-1.5 py-0.5 rounded text-[11px] font-semibold
                             border border-accent/40 text-accent/70
-                            hover:border-accent hover:text-accent hover:bg-accent/10
+                            hover:border-accent hover:text-accent hover:bg-gold-400/10
                             disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           {forcing === `${c.symbol}-${c.direction}` ? '…' : 'Force'}
@@ -406,12 +407,12 @@ export default function EarlyScalpView() {
       });
       const d = await r.json();
       if (d.status === 'entered') {
-        setForceMsg(`✓ Entered ${d.option_symbol} @ ₹${d.entry_price} · SL ₹${d.sl_price?.toFixed(2)}`);
+        setForceMsg(`OK: Entered ${d.option_symbol} @ ₹${d.entry_price} · SL ₹${d.sl_price?.toFixed(2)}`);
       } else {
-        setForceMsg(`✗ ${d.reason}`);
+        setForceMsg(`Rejected: ${d.reason}`);
       }
     } catch (e) {
-      setForceMsg('✗ Request failed');
+      setForceMsg('Rejected: request failed');
     }
     setForcing(null);
     setTimeout(() => setForceMsg(null), 6000);
@@ -443,8 +444,8 @@ export default function EarlyScalpView() {
 
       {/* ── Force-entry result toast ───────────────────────────────────────── */}
       {forceMsg && (
-        <div className={`text-xs px-3 py-2 rounded-lg border font-medium
-          ${forceMsg.startsWith('✓')
+        <div className={`text-xs px-3 py-2 rounded-control border font-medium
+          ${forceMsg.startsWith('OK')
             ? 'bg-up/10 border-up/30 text-up'
             : 'bg-down/10 border-down/30 text-down'}`}>
           {forceMsg}
@@ -454,8 +455,8 @@ export default function EarlyScalpView() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-white font-bold text-lg">Early Scalp</h1>
-          <span className="text-xs font-normal text-accent bg-accent/10 px-2 py-0.5 rounded">
+          <h1 className="text-ink font-bold text-2xl leading-tight">Early Scalp</h1>
+          <span className="text-xs font-normal text-accent bg-gold-400/10 px-2 py-0.5 rounded">
             9:25–9:30 · Gap &amp; Go
           </span>
           <StatusBadge phase={phase} />
@@ -495,7 +496,7 @@ export default function EarlyScalpView() {
           {/* Params toggle */}
           <button
             onClick={() => setShowParams(v => !v)}
-            className="text-xs px-3 py-1 rounded bg-border text-muted hover:text-white transition-colors"
+            className="text-xs px-3 py-1 rounded bg-border text-muted hover:text-ink transition-colors"
           >
             {showParams ? 'Hide Params' : 'Params'}
           </button>
@@ -516,7 +517,7 @@ export default function EarlyScalpView() {
 
       {/* ── Parameters panel ───────────────────────────────────────────────── */}
       {showParams && p && (
-        <div className="bg-surface border border-border rounded-lg p-4 space-y-4">
+        <div className="bg-surface border border-border rounded-control p-4 space-y-4">
           <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">
             Parameters
           </div>
@@ -555,7 +556,7 @@ export default function EarlyScalpView() {
             <button
               onClick={saveParams}
               disabled={saving}
-              className="text-xs px-4 py-1.5 rounded bg-accent text-white hover:bg-accent/80 disabled:opacity-50"
+              className="text-xs px-4 py-1.5 rounded btn-gold text-ink disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -564,9 +565,9 @@ export default function EarlyScalpView() {
       )}
 
       {/* ── Active positions ────────────────────────────────────────────────── */}
-      <div className="bg-surface border border-border rounded-lg p-4">
+      <div className="bg-surface border border-border rounded-control p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-sm font-semibold text-white">
+          <div className="text-sm font-semibold text-ink">
             Active Positions
             {openCount > 0 && (
               <span className="ml-2 text-xs text-up bg-up/10 px-1.5 py-0.5 rounded">
@@ -584,9 +585,9 @@ export default function EarlyScalpView() {
       </div>
 
       {/* ── Scan results ────────────────────────────────────────────────────── */}
-      <div className="bg-surface border border-border rounded-lg p-4">
+      <div className="bg-surface border border-border rounded-control p-4">
         <div className="flex items-center gap-3 mb-3">
-          <div className="text-sm font-semibold text-white">Scan Candidates</div>
+          <div className="text-sm font-semibold text-ink">Scan Candidates</div>
           <div className="text-xs text-muted">
             Ranked by composite score (gap × move × vol × OI)
           </div>
@@ -602,13 +603,13 @@ export default function EarlyScalpView() {
       </div>
 
       {/* ── Strategy logic summary ──────────────────────────────────────────── */}
-      <div className="bg-surface border border-border rounded-lg p-4">
+      <div className="bg-surface border border-border rounded-control p-4">
         <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
           How this strategy works
         </div>
         <div className="grid grid-cols-3 gap-4 text-xs">
           <div>
-            <div className="text-white font-semibold mb-1">Entry (9:25–9:30)</div>
+            <div className="text-ink font-semibold mb-1">Entry (9:25–9:30)</div>
             <ul className="text-muted space-y-0.5">
               <li>· Gap from prev close ≥ {p?.gap_min_pct ?? 0.5}%</li>
               <li>· Opening move from 9:15 ≥ {p?.move_min_pct ?? 1.0}%</li>
@@ -619,7 +620,7 @@ export default function EarlyScalpView() {
             </ul>
           </div>
           <div>
-            <div className="text-white font-semibold mb-1">Exit rules</div>
+            <div className="text-ink font-semibold mb-1">Exit rules</div>
             <ul className="text-muted space-y-0.5">
               <li>· Hard SL: option premium −{p?.hard_sl_pct ?? 5}%</li>
               <li>· Target: option premium +{p?.target_pct ?? 12}%</li>
@@ -628,7 +629,7 @@ export default function EarlyScalpView() {
             </ul>
           </div>
           <div>
-            <div className="text-white font-semibold mb-1">OI signal</div>
+            <div className="text-ink font-semibold mb-1">OI signal</div>
             <ul className="text-muted space-y-0.5">
               <li>· Fetches ATM Call &amp; Put OI via Kite quote</li>
               <li>· Call OI &gt; Put OI × 1.25 → bullish OI</li>

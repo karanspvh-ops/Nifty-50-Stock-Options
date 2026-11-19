@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { CheckCircle, XCircle, X, CaretDown } from '@phosphor-icons/react';
 
 const API = 'http://localhost:8000';
 
@@ -19,13 +20,7 @@ interface DryRunStatus {
   run_at:  string | null;
 }
 
-const NODE_COLORS: Record<string, string> = {
-  'strategy-es': 'bg-green-500/15 text-green-400 border-green-500/30',
-  'strategy-ob': 'bg-teal-500/15 text-teal-400 border-teal-500/30',
-  'execution':   'bg-orange-500/15 text-orange-400 border-orange-500/30',
-  'integration': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
-  'reporting':   'bg-blue-500/15 text-blue-400 border-blue-500/30',
-};
+
 
 const ALL_NODES = [
   { check: 'ES · Params',           node: 'strategy-es' },
@@ -47,9 +42,8 @@ const ALL_NODES = [
 ];
 
 function NodeBadge({ node }: { node: string }) {
-  const cls = NODE_COLORS[node] ?? 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30';
   return (
-    <span className={`inline-flex items-center text-[9px] font-mono tracking-wider px-1.5 py-0.5 rounded border ${cls}`}>
+    <span className="inline-flex items-center text-[11px] font-mono px-1.5 py-px rounded-md bg-bg text-muted border border-border">
       {node}
     </span>
   );
@@ -58,32 +52,32 @@ function NodeBadge({ node }: { node: string }) {
 function NodeRow({ result, pending }: { result?: CheckResult; pending?: string }) {
   if (!result) {
     return (
-      <div className="flex items-center gap-2.5 py-1.5 px-3 rounded-lg">
+      <div className="flex items-center gap-2.5 py-1.5 px-3 rounded-control">
         <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center">
-          <span className="w-3 h-3 rounded-full border-2 border-zinc-600 border-t-zinc-400 animate-spin" />
+          <span className="w-3 h-3 rounded-full border-2 border-border border-t-muted animate-spin" />
         </span>
-        <span className="text-xs text-zinc-500">{pending}</span>
+        <span className="text-xs text-muted">{pending}</span>
       </div>
     );
   }
 
   return (
-    <div className={`flex items-start gap-2.5 py-1.5 px-3 rounded-lg transition-colors
-      ${result.ok ? 'bg-green-500/5' : 'bg-red-500/8'}`}>
+    <div className={`flex items-start gap-2.5 py-1.5 px-3 rounded-control transition-colors
+      ${result.ok ? '' : 'bg-down/[0.06]'}`}>
       <span className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-center leading-none">
         {result.ok
-          ? <span className="text-green-400 text-xs">✓</span>
-          : <span className="text-red-400 text-xs">✗</span>
+          ? <CheckCircle size={16} weight="fill" className="text-up" />
+          : <XCircle size={16} weight="fill" className="text-down" />
         }
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className={`text-xs font-medium ${result.ok ? 'text-zinc-200' : 'text-red-300'}`}>
+          <span className={`text-xs font-medium ${result.ok ? 'text-ink' : 'text-down'}`}>
             {result.check}
           </span>
           <NodeBadge node={result.node} />
         </div>
-        <p className={`text-[10px] leading-snug break-all ${result.ok ? 'text-zinc-500' : 'text-red-400/80'}`}>
+        <p className={`text-[12px] leading-snug break-all ${result.ok ? 'text-muted' : 'text-down'}`}>
           {result.msg}
         </p>
       </div>
@@ -152,12 +146,12 @@ export default function StrategyDryRunPanel() {
     return (
       <button
         onClick={expand}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-green-500/8 border border-green-500/20
-          rounded-xl text-xs text-green-400 hover:bg-green-500/12 transition-colors"
+        className="pressable w-full flex items-center gap-2 px-4 py-2.5 bg-surface border border-border
+          rounded-xl text-sm text-ink hover:border-gold-300"
       >
-        <span>✓</span>
+        <CheckCircle size={18} weight="fill" className="text-up" />
         <span>All {ALL_NODES.length} strategy nodes passed dry-run</span>
-        <span className="ml-auto text-green-500/40">click to expand</span>
+        <span className="ml-auto flex items-center gap-1 text-muted text-xs">Details <CaretDown size={12} /></span>
       </button>
     );
   }
@@ -177,9 +171,9 @@ export default function StrategyDryRunPanel() {
   });
 
   return (
-    <div className={`rounded-xl border transition-colors overflow-hidden
+    <div className={`rounded-panel border transition-colors overflow-hidden
       ${isDone
-        ? isGo  ? 'bg-surface border-green-500/30' : 'bg-surface border-red-500/30'
+        ? isGo  ? 'bg-surface border-border' : 'bg-surface border-down/40'
         : 'bg-surface border-border'
       }`}>
 
@@ -190,33 +184,33 @@ export default function StrategyDryRunPanel() {
             <span className="w-3 h-3 flex-shrink-0 rounded-full border-2 border-accent border-t-transparent animate-spin" />
           )}
           {isDone && (
-            <span className={`text-sm ${isGo ? 'text-green-400' : 'text-red-400'}`}>
-              {isGo ? '✓' : '✗'}
-            </span>
+            isGo
+              ? <CheckCircle size={20} weight="fill" className="text-up" />
+              : <XCircle size={20} weight="fill" className="text-down" />
           )}
-          <h2 className="text-white font-semibold text-sm">Strategy Dry-Run</h2>
+          <h2 className="text-ink font-bold text-base">Strategy Dry-Run</h2>
           {isDone && (
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded
-              ${isGo ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>
+            <span className={`text-[12px] font-semibold px-2 py-0.5 rounded
+              ${isGo ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>
               {isGo ? 'CLEAN' : 'BUGS FOUND'}
             </span>
           )}
           {isRunning && (
-            <span className="text-[10px] text-muted">running {results.length}/{total}…</span>
+            <span className="text-[12px] text-muted">running {results.length}/{total}…</span>
           )}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
           {isDone && (
-            <span className={`text-xs font-mono ${isGo ? 'text-green-400' : 'text-red-400'}`}>
+            <span className={`text-xs font-mono ${isGo ? 'text-up' : 'text-down'}`}>
               {passed}/{total}
             </span>
           )}
           <button
             onClick={rerun}
             disabled={isRunning}
-            className="text-[10px] px-2.5 py-1 rounded border border-border text-muted
-              hover:border-accent hover:text-accent disabled:opacity-40 disabled:cursor-not-allowed
+            className="pressable text-xs font-semibold px-3 py-1 rounded-full border border-border bg-white text-ink2
+              hover:border-gold-400 hover:text-accent disabled:opacity-40 disabled:cursor-not-allowed
               transition-colors"
           >
             {isRunning ? 'running…' : 'Re-run'}
@@ -224,9 +218,9 @@ export default function StrategyDryRunPanel() {
           {isDone && isGo && (
             <button
               onClick={dismiss}
-              className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors px-1"
+              aria-label="Collapse" className="pressable text-muted hover:text-ink p-1 rounded-md hover:bg-ink/5"
             >
-              ✕
+              <X size={16} />
             </button>
           )}
         </div>
@@ -245,9 +239,9 @@ export default function StrategyDryRunPanel() {
           return (
             <div key={i} className="flex items-center gap-2.5 py-1.5 px-3 opacity-30">
               <span className="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center">
-                <span className="w-2 h-2 rounded-full bg-zinc-700" />
+                <span className="w-2 h-2 rounded-full bg-border" />
               </span>
-              <span className="text-xs text-zinc-600">{item.check}</span>
+              <span className="text-xs text-faint">{item.check}</span>
               <NodeBadge node={item.node} />
             </div>
           );
@@ -262,8 +256,8 @@ export default function StrategyDryRunPanel() {
 
       {/* Footer on failure */}
       {isDone && !isGo && (
-        <div className="px-4 py-2.5 border-t border-red-500/20 bg-red-500/5">
-          <p className="text-[10px] text-red-400">
+        <div className="px-4 py-2.5 border-t border-down/20 bg-down/[0.05]">
+          <p className="text-xs text-down">
             {total - passed} node{total - passed !== 1 ? 's' : ''} failed.
             Fix the errors above — these will crash during a live session.
           </p>

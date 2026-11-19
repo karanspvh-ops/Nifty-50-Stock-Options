@@ -43,9 +43,23 @@ class ErrorBoundary extends Component<
 
 const API = 'http://localhost:8000';
 
+function PageTitle({ title, note, live }: { title: string; note: string; live?: boolean }) {
+  return (
+    <div className="flex items-end gap-3 mb-4">
+      <h1 className="text-2xl font-bold text-ink leading-none">{title}</h1>
+      <span className={`inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[12.5px] font-bold tracking-wide
+        ${live ? 'btn-gold' : 'bg-bg text-ink2 border border-border'}`}>
+        {live && <span className="live-dot w-1.5 h-1.5 rounded-full bg-down" />}
+        {live ? 'LIVE' : 'PAPER'}
+      </span>
+      <span className="text-sm text-muted pb-px">{note}</span>
+    </div>
+  );
+}
+
 function Dashboard() {
   return (
-    <div className="p-6 space-y-4 overflow-y-auto h-full">
+    <div className="px-6 py-5 space-y-4 overflow-y-auto h-full">
       <SystemCheckPanel />
       <StrategyDryRunPanel />
       <OpenTradesPanel />
@@ -54,22 +68,6 @@ function Dashboard() {
       <SectorBarChart />
       <TradableSignals />
       <StockRanking />
-    </div>
-  );
-}
-
-function EngineStatus() {
-  const { feedHealth, haltStatus } = useMarketStore();
-  return (
-    <div className="flex items-center gap-2 px-4 py-1 bg-surface border-b border-border text-xs">
-      <span className={`w-1.5 h-1.5 rounded-full ${feedHealth.connected ? 'bg-up' : 'bg-down'}`} />
-      <span className="text-muted">Feed: {feedHealth.connected ? 'Connected' : 'Disconnected'}</span>
-      {feedHealth.last_tick && (
-        <span className="text-muted">· Last tick: {new Date(feedHealth.last_tick).toLocaleTimeString()}</span>
-      )}
-      {haltStatus.halted && (
-        <span className="ml-auto text-down font-semibold">⚠ TRADING HALTED — {haltStatus.reason}</span>
-      )}
     </div>
   );
 }
@@ -93,30 +91,23 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-bg text-white">
+    <div className="flex h-full w-full overflow-hidden text-ink">
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
         <LoginBanner />
-        <EngineStatus />
         <main className="flex-1 overflow-hidden">
           {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
           {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (
-            <div className="p-6 overflow-y-auto h-full">
-              <h1 className="text-white font-bold text-lg mb-4">
-                Testing Lab
-                <span className="ml-2 text-xs font-normal text-accent bg-accent/10 px-2 py-0.5 rounded">PAPER</span>
-              </h1>
+            <div className="px-6 py-5 overflow-y-auto h-full">
+              <PageTitle title="Paper trades" note="Every simulated trade from ES and OB" />
               <TradeTable env="paper" />
             </div>
           )}
           {activeView === 'battle_ground' && (
-            <div className="p-6 overflow-y-auto h-full">
-              <h1 className="text-white font-bold text-lg mb-4">
-                Battle Ground
-                <span className="ml-2 text-xs font-normal text-down bg-down/10 px-2 py-0.5 rounded">LIVE</span>
-              </h1>
+            <div className="px-6 py-5 overflow-y-auto h-full">
+              <PageTitle title="Live trades" note="Real orders placed on Zerodha" live />
               <TradeTable env="live" />
             </div>
           )}
