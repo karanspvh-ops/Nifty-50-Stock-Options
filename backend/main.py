@@ -105,6 +105,8 @@ async def lifespan(app: FastAPI):
     account_monitor.start()
     from backend.execution.reconciler import reconciler
     reconciler.start()
+    from backend.execution import ban_list
+    ban_list.start()
 
     print("[BOOT] Starting risk engine...")
     risk_engine.start()

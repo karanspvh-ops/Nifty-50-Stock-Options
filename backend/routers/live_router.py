@@ -50,6 +50,12 @@ def _readiness() -> list:
     checks.append({"key": "feed", "label": "Live price feed", "ok": feed,
                    "detail": "Connected" if feed else "Feed is not connected"})
 
+    from backend.execution import ban_list
+    bl = ban_list.status()
+    checks.append({"key": "banlist", "label": "F&O ban list loaded", "ok": bl["ready"],
+                   "detail": (f"{len(bl['banned'])} banned today: {', '.join(bl['banned']) or 'none'}"
+                              if bl["ready"] else f"Not loaded yet ({bl['error'] or 'fetching'})")})
+
     halted = market.is_trading_halted()
     checks.append({"key": "halt", "label": "Trading not halted", "ok": not halted,
                    "detail": market.get_halt_reason() if halted else "No halt in force"})
@@ -127,7 +133,7 @@ def set_live(strategy: str, payload: LiveSwitch):
         phrase = f"GO LIVE {tag}"
         if payload.confirm.strip().upper() != phrase:
             raise HTTPException(400, f'Type "{phrase}" to confirm')
-        blocking = [c for c in _readiness() if not c["ok"] and c["key"] in ("broker", "feed", "halt")]
+        blocking = [c for c in _readiness() if not c["ok"] and c["key"] in ("broker", "feed", "halt", "banlist")]
         if blocking:
             raise HTTPException(409, "Not ready: " + "; ".join(c["detail"] for c in blocking))
 

@@ -30,7 +30,7 @@ export default function GoLiveDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const blocking = (status?.readiness ?? []).filter(c => !c.ok && ['broker', 'feed', 'halt'].includes(c.key));
+  const blocking = (status?.readiness ?? []).filter(c => !c.ok && ['broker', 'feed', 'halt', 'banlist'].includes(c.key));
   const hasOpen  = open.paper + open.live > 0;
   const canGo    = !!status && !live && typed.trim().toUpperCase() === phrase
                    && blocking.length === 0 && !hasOpen && !busy;

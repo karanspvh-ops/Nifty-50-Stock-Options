@@ -36,6 +36,13 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
     if market.is_trading_halted():
         print(f"[ORDER] REJECTED — trading halted: {market.get_halt_reason()}")
         return None
+    from backend.execution import ban_list
+    if ban_list.is_banned(symbol):
+        print(f"[ORDER] REJECTED — {symbol} is in today's NSE F&O ban list")
+        return None
+    if env == TradeEnv.LIVE and not ban_list.is_ready():
+        print(f"[ORDER] REJECTED — {symbol}: today's F&O ban list not loaded yet (live entries fail closed)")
+        return None
 
     settings        = get_settings()
     trade_sl_pct    = sl_pct_override     if sl_pct_override     is not None else settings.get("trade_sl_pct", 5.0)
