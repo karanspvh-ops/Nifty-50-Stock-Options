@@ -249,11 +249,12 @@ class OBEntryMixin:
         session = get_or_create_session(env)
         max_pos = int(self._p("max_positions"))
 
+        # Hard daily cap, paper and live: max_positions trades per day in total.
+        # A slot freed by an exit is never refilled.
         total_ob_today = self._count_ob_today(env)
-        net_ob_pnl     = self._ob_net_pnl_today(env) if total_ob_today >= max_pos else 0.0
 
         for ps in self._plan.stocks:
-            if open_ob >= max_pos:
+            if open_ob >= max_pos or total_ob_today >= max_pos:
                 break
             if ps.entered or self._already_in(env, ps.symbol):
                 continue
@@ -300,19 +301,6 @@ class OBEntryMixin:
                 _log_ob_outcome(candidate_id, blocked_reason=f"{bo.consec} consec candles > max {self._p('consec_max')}")
                 continue
 
-            if total_ob_today >= max_pos and net_ob_pnl > 0:
-                if not self._is_extreme_conviction(ps, bo, move):
-                    print(f"[OB] {ps.symbol} REFILL BLOCK — "
-                          f"day net +Rs.{net_ob_pnl:,.0f} after {total_ob_today} trades, "
-                          f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} not spike-level")
-                    _log_ob_outcome(candidate_id, blocked_reason=(
-                        f"refill block — day net +Rs.{net_ob_pnl:,.0f} after {total_ob_today} trades, "
-                        f"not spike-level"))
-                    continue
-                print(f"[OB] {ps.symbol} EXTREME CONVICTION REFILL — "
-                      f"vol {bo.vol_ratio:.1f}x / R {ps.r_factor:.1f} / move {move:+.2f}% "
-                      f"(day net +Rs.{net_ob_pnl:,.0f})")
-
             ok, reval_why = self._revalidate_ob(ps, move)
             if not ok:
                 print(f"[OB] {ps.symbol} REVAL SKIP — {reval_why}")
@@ -337,6 +325,7 @@ class OBEntryMixin:
             if trade:
                 ps.entered = True
                 open_ob += 1
+                total_ob_today += 1
                 update_session_status(env, SessionStatus.ACTIVE)
                 _log_ob_outcome(candidate_id, was_traded=True, trade_id=trade.id)
                 print(f"[OB] ENTERED {ps.symbol} {self._plan.direction.upper()} @ "

@@ -60,7 +60,16 @@ class ESStateMixin:
     def _refills_blocked(self, env: TradeEnv, inflight: int = 0) -> bool:
         """Hard daily cap: at most 5 ES trades entered per day, no refills after that.
 
-        `inflight` counts entries whose order is being placed but not yet in the DB,
-        so simultaneous tick-entry threads cannot overshoot the cap.
+        Counted across paper AND live, so switching to live mid-day can't open
+        a fresh 5. `inflight` counts entries whose order is being placed but not
+        yet in the DB, so simultaneous tick-entry threads cannot overshoot the cap.
         """
-        return self._count_today(env) + inflight >= self.MAX_TRADES_PER_DAY
+        return self._count_today_all_envs() + inflight >= self.MAX_TRADES_PER_DAY
+
+    def _count_today_all_envs(self) -> int:
+        from_dt = self._today_from_dt()
+        with DBSession() as db:
+            return db.query(Trade).filter(
+                Trade.entry_logic.like(f"%{ES_TAG}%"),
+                Trade.entered_at >= from_dt,
+            ).count()

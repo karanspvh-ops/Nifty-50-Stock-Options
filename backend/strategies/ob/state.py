@@ -19,13 +19,13 @@ class OBStateMixin:
             db.close()
 
     def _count_ob_today(self, env: TradeEnv) -> int:
-        """All OB trades entered today (open or closed) — guards the extended hunt."""
+        """All OB trades entered today (open or closed), paper and live together --
+        the hard daily cap of max_positions, no refills."""
         d = date.today()
         from_dt = _dt(d.year, d.month, d.day, 0, 0, 0)
         db = DBSession()
         try:
             return db.query(Trade).filter(
-                Trade.env == env,
                 Trade.entry_logic.like(f"%{OB_TAG}%"),
                 Trade.entered_at >= from_dt,
             ).count()
