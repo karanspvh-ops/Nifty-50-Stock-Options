@@ -101,7 +101,10 @@ function CapitalLimit({ limit, startFunds, live, onSaved }: {
   const nudge = (d: number) => { const v = Math.min(max, Math.max(STEP, draft + d)); setDraft(v); save(v); };
 
   const liveCapital = startFunds == null ? null : Math.max(0, Math.min(startFunds, draft));
-  const lakh = (v: number) => `₹${(v / 100_000).toLocaleString('en-IN', { maximumFractionDigits: 2 })}L`;
+  // Lakhs for real capital; small or negative balances in plain rupees (−₹295, not ₹-0L)
+  const lakh = (v: number) => Math.abs(v) >= 100_000
+    ? `₹${(v / 100_000).toLocaleString('en-IN', { maximumFractionDigits: 2 })}L`
+    : `${v < 0 ? '−' : ''}₹${Math.abs(Math.round(v)).toLocaleString('en-IN')}`;
   const btn = 'pressable w-7 h-7 rounded-full border border-border bg-white text-ink2 hover:border-gold-400 font-bold leading-none';
 
   return (
