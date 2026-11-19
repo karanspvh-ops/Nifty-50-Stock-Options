@@ -29,6 +29,7 @@ def init_db():
     # Import models so they register on Base before create_all
     import backend.storage.models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
 
     from backend.storage.models import Settings
     db = Session()
@@ -38,6 +39,21 @@ def init_db():
             db.commit()
     finally:
         db.close()
+
+
+def _add_missing_columns():
+    """create_all() never alters existing tables, so add columns introduced
+    after the DB was first created. Each entry: (table, column, DDL type+default)."""
+    from sqlalchemy import inspect, text
+    wanted = [
+        ("settings", "es_live", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("settings", "ob_live", "BOOLEAN NOT NULL DEFAULT 0"),
+    ]
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table, col, ddl in wanted:
+            if col not in {c["name"] for c in insp.get_columns(table)}:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
 
 
 def get_db():

@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from backend.core.market_state   import market
 from backend.core.stock_universe import get_stocks_for_index
-from backend.core.settings_manager import is_live_mode
+from backend.core.settings_manager import is_strategy_live
 from backend.core.session_manager  import get_or_create_session
 from backend.execution.order_executor import place_entry_order
 
@@ -131,7 +131,7 @@ class ESEntryMixin:
                 skip_reason=skip_reason,
             ))
 
-        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        env = TradeEnv.LIVE if is_strategy_live("ES") else TradeEnv.PAPER
         entered_syms = self._entered_symbols(env)
         for c in candidates:
             if c.symbol in entered_syms:
@@ -287,7 +287,7 @@ class ESEntryMixin:
         if not ok:
             return
 
-        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        env = TradeEnv.LIVE if is_strategy_live("ES") else TradeEnv.PAPER
         self._entry_pending.add(token)
         threading.Thread(
             target=self._tick_entry,

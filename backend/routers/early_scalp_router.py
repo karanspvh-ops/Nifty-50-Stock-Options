@@ -64,8 +64,8 @@ class ForceEntryPayload(BaseModel):
 def force_entry(payload: ForceEntryPayload):
     """Paper-mode only: enter one ES trade immediately, bypassing the time gate.
     Used for testing the dashboard entry flow outside the 9:25-9:30 window."""
-    from backend.core.settings_manager import is_live_mode
-    if is_live_mode():
+    from backend.core.settings_manager import is_strategy_live
+    if is_strategy_live("ES"):
         return {"status": "rejected", "reason": "force-entry is only allowed in paper mode"}
 
     from backend.core.market_state   import market

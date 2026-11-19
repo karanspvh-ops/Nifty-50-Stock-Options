@@ -28,8 +28,14 @@ class RiskPortfolioMixin:
             if ltp is None:
                 return {"error": "Option LTP unavailable — feed may be disconnected"}
 
-            self._trigger_exit(db, trade, ltp, TradeStatus.CLOSED, reason)
-            return {"status": "exited", "trade_id": trade_id, "exit_price": ltp}
+            try:
+                self._trigger_exit(db, trade, ltp, TradeStatus.CLOSED, reason)
+            except Exception as e:
+                # Live SELL failed: the trade is still OPEN and will be retried.
+                db.rollback()
+                return {"error": f"Exit not completed: {e}"}
+            # trade.exit_price is the real fill for live trades, the LTP for paper
+            return {"status": "exited", "trade_id": trade_id, "exit_price": trade.exit_price}
         finally:
             db.close()
 

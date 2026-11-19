@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from backend.core.market_state      import market
-from backend.core.settings_manager  import is_live_mode
+from backend.core.settings_manager  import is_strategy_live
 from backend.core.session_manager   import check_portfolio_sl, set_selected_stocks
 
 from backend.database import TradeEnv
@@ -105,7 +105,7 @@ class OpeningBreakout(OBParamsMixin, OBFiltersMixin, OBStateMixin,
         if not self._enabled or not market.is_feed_connected():
             return
 
-        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        env = TradeEnv.LIVE if is_strategy_live("OB") else TradeEnv.PAPER
 
         if check_portfolio_sl(env):
             self._phase = "KILLED"

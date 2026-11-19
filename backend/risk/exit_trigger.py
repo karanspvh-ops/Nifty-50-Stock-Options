@@ -31,6 +31,12 @@ class RiskExitMixin:
         status: TradeStatus,
         reason: str,
     ):
+        # Live trades: sell at Zerodha FIRST and only close the DB row once the
+        # SELL has filled, at the real fill price. If the SELL fails the trade
+        # stays OPEN (LiveOrderError propagates) and the next check retries it.
+        if trade.env == TradeEnv.LIVE:
+            price = self._live_sell(db, trade)
+
         pnl     = (price - trade.entry_price) * trade.quantity * trade.lot_size
         pnl_pct = ((price - trade.entry_price) / trade.entry_price) * 100
 
@@ -98,6 +104,33 @@ class RiskExitMixin:
             except Exception as e:
                 print(f"[RISK] Exit callback error: {e}")
 
+    @staticmethod
+    def _live_sell(db: DBSession, trade: Trade) -> float:
+        """Sell the whole live position and return the average fill price."""
+        from backend.execution.live_orders import (
+            LiveOrderError, claim_exit, release_exit, sell,
+        )
+        if not claim_exit(trade.id):
+            raise LiveOrderError(f"trade #{trade.id} exit already in progress")
+        units = trade.quantity * trade.lot_size
+        try:
+            fill = sell(trade.option_symbol, units)
+        except LiveOrderError as e:
+            release_exit(trade.id, sold=False)
+            if e.sold_qty:
+                # Part of the position is gone: shrink it so the retry only
+                # sells what is still held.
+                trade.quantity = (units - e.sold_qty) // trade.lot_size
+                db.commit()
+            print(f"[LIVE] CRITICAL exit failed for trade #{trade.id} "
+                  f"{trade.option_symbol}: {e} -- position still open, will retry")
+            raise
+        except Exception:
+            release_exit(trade.id, sold=False)
+            raise
+        release_exit(trade.id, sold=True)
+        return fill.avg_price
+
     def _kill_all_open_trades(self, env: TradeEnv, reason: str):
         db: DBSession = Session()
         try:
@@ -108,7 +141,13 @@ class RiskExitMixin:
             )
             for trade in open_trades:
                 ltp = self._trade_ltp(trade) or trade.entry_price
-                self._trigger_exit(db, trade, ltp, TradeStatus.KILLED, reason)
+                try:
+                    self._trigger_exit(db, trade, ltp, TradeStatus.KILLED, reason)
+                except Exception as e:
+                    # Keep killing the rest; a failed live SELL stays OPEN and
+                    # the next risk cycle retries it.
+                    print(f"[RISK] Kill-switch exit failed for trade #{trade.id}: {e}")
+                    db.rollback()
 
             update_session_status(env, SessionStatus.KILLED)
             market.halt_trading(reason)

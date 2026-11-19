@@ -410,6 +410,11 @@ class ESManageMixin:
                 self._pending_exit.add(tid)
                 try:
                     result = risk_engine.force_exit_trade(t.id, exit_reason)
+                    if isinstance(result, dict) and "error" in result:
+                        # Still OPEN (e.g. live SELL not filled) -- retry next cycle
+                        self._pending_exit.discard(tid)
+                        print(f"[ES] Exit {t.symbol} not completed: {result['error']}")
+                        continue
                     market.push_trade_update({"type": "trade_closed", "trade_id": tid})
                     # Update realized PnL cache using the actual fill price returned by
                     # force_exit_trade — the same value written to trade.exit_price/pnl.

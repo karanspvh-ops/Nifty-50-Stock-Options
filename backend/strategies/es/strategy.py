@@ -13,7 +13,7 @@ from datetime import datetime, date
 from typing import Dict, Optional
 
 from backend.core.market_state   import market
-from backend.core.settings_manager import is_live_mode
+from backend.core.settings_manager import is_strategy_live
 from backend.core.session_manager  import check_portfolio_sl
 
 from backend.database import TradeEnv
@@ -182,7 +182,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         if not self._enabled or not market.is_feed_connected():
             return
 
-        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        env = TradeEnv.LIVE if is_strategy_live("ES") else TradeEnv.PAPER
 
         if check_portfolio_sl(env):
             self._phase = "KILLED"
@@ -263,7 +263,7 @@ class EarlyScalp(ESParamsMixin, ESFiltersMixin, ESStateMixin,
         }
 
     def get_state(self) -> dict:
-        env = TradeEnv.LIVE if is_live_mode() else TradeEnv.PAPER
+        env = TradeEnv.LIVE if is_strategy_live("ES") else TradeEnv.PAPER
         return {
             "enabled":        self._enabled,
             "phase":          self._phase,

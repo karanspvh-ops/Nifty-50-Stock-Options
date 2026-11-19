@@ -31,6 +31,8 @@ class Settings(Base):
 
     id                 = Column(Integer, primary_key=True, default=1)
     is_live            = Column(Boolean, default=False, nullable=False)
+    es_live            = Column(Boolean, default=False, nullable=False)  # ES places real orders
+    ob_live            = Column(Boolean, default=False, nullable=False)  # OB places real orders
     available_funds    = Column(Float,   default=0.0)
     target_profit_pct  = Column(Float,   default=0.0)    # 0 = no fixed target
     trade_sl_pct       = Column(Float,   default=5.0)    # hard SL per trade

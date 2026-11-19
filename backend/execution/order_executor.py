@@ -1,11 +1,12 @@
 """order_executor.py — Places and squares off option orders via Zerodha Kite.
 
 Paper mode:  fills at the real option LTP (Kite quote), writes to DB.
-Live mode:   kite.place_order() (NFO, MARKET, MIS intraday) then writes to DB.
+Live mode:   live_orders.buy() (NFO, marketable LIMIT, MIS intraday), waits for
+             the fill, then writes the real fill price and quantity to DB.
 
 Rules:
   - Feed disconnected -> reject.
-  - MARKET orders only (option spreads are wide).
+  - Marketable LIMIT orders with a capped buffer (option spreads are wide).
   - Option BUYING only (BUY to enter, SELL to exit). No shorting.
 """
 
@@ -23,6 +24,7 @@ from backend.database import Session, Trade, TradeEnv, TradeDirection, TradeStat
 from backend.execution.quantity        import calc_quantity
 from backend.execution.option_selector import select_option, option_premium, option_bid_ask
 from backend.execution.liquidity       import has_liquidity
+from backend.execution                 import live_orders
 
 
 def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
@@ -74,19 +76,21 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
         entry_price = premium
         print(f"[PAPER] BUY {qty}x {opt_symbol} @ ₹{entry_price:.2f} | SL ₹{trade_sl_price:.2f}")
     else:
+        # Real order: record what Zerodha actually filled, at the real average
+        # price. A rejected or unfilled BUY must never become an OPEN trade.
         try:
-            kite = broker.kite()
-            order_id = kite.place_order(
-                variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO,
-                tradingsymbol=opt_symbol, transaction_type=kite.TRANSACTION_TYPE_BUY,
-                quantity=qty * lot_size, product=kite.PRODUCT_MIS,
-                order_type=kite.ORDER_TYPE_MARKET,
-            )
-            entry_price = premium
-            print(f"[LIVE] BUY {opt_symbol} qty {qty*lot_size} | order {order_id}")
+            fill = live_orders.buy(opt_symbol, qty * lot_size)
         except Exception as e:
             print(f"[ORDER] LIVE entry failed: {e}")
             return None
+        qty = fill.filled_qty // lot_size
+        if qty <= 0:
+            print(f"[ORDER] LIVE entry filled {fill.filled_qty} units, below one lot of {lot_size}")
+            return None
+        entry_price    = fill.avg_price
+        trade_sl_price = round(entry_price * (1 - trade_sl_pct / 100), 2)
+        target_price   = round(entry_price * (1 + target_pct / 100), 2) if target_pct > 0 else None
+        print(f"[LIVE] BOUGHT {qty}x{lot_size} {opt_symbol} @ ₹{entry_price:.2f} | order {fill.order_id}")
 
     db = Session()
     try:
@@ -129,26 +133,9 @@ def place_entry_order(env, symbol, token, direction, session_id, entry_logic,
 
 
 def place_exit_order(trade_id: int, exit_price: float, reason: str, env: TradeEnv) -> bool:
-    if env == TradeEnv.LIVE:
-        db = Session()
-        try:
-            trade = db.query(Trade).filter(Trade.id == trade_id).first()
-            if not trade or not trade.option_symbol:
-                return False
-            kite = broker.kite()
-            order_id = kite.place_order(
-                variety=kite.VARIETY_REGULAR, exchange=kite.EXCHANGE_NFO,
-                tradingsymbol=trade.option_symbol,
-                transaction_type=kite.TRANSACTION_TYPE_SELL,
-                quantity=trade.quantity * trade.lot_size,
-                product=kite.PRODUCT_MIS, order_type=kite.ORDER_TYPE_MARKET,
-            )
-            print(f"[LIVE] SELL {trade.option_symbol} | {reason} | order {order_id}")
-            return True
-        except Exception as e:
-            print(f"[ORDER] LIVE exit failed: {e}")
-            return False
-        finally:
-            db.close()
-    print(f"[PAPER] EXIT trade #{trade_id} @ ₹{exit_price:.2f} | {reason}")
+    """Post-exit notification. The live SELL itself is sent by
+    RiskExitMixin._trigger_exit *before* the trade is closed in the DB, so a
+    failed SELL leaves the trade OPEN and gets retried. Nothing to send here."""
+    tag = "LIVE" if env == TradeEnv.LIVE else "PAPER"
+    print(f"[{tag}] EXIT trade #{trade_id} @ ₹{exit_price:.2f} | {reason}")
     return True
