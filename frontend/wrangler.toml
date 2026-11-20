@@ -9,7 +9,7 @@ compatibility_date = "2026-11-01"
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/relay"]
+run_worker_first = ["/api/*", "/relay", "/sync/*"]
 
 [[durable_objects.bindings]]
 name = "RELAY"
@@ -18,3 +18,13 @@ class_name = "Relay"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Relay"]
+
+# Cloud NIFTY collector staging store (rows are deleted once the backend has synced them)
+[[d1_databases]]
+binding = "DB"
+database_name = "spvh-nifty"
+database_id = "51a2b286-c5c8-486d-97f4-cf5507170921"
+
+# Every minute 08:30-16:29 IST on weekdays; the collector itself keeps to 09:15-15:30
+[triggers]
+crons = ["* 3-10 * * 1-5"]

@@ -83,7 +83,8 @@ def _readiness() -> list:
 def desk_status():
     """Team site connection: relay address, connected since, requests served."""
     from backend.core.desk_relay import desk_relay
-    return desk_relay.status()
+    from backend.market_data.cloud_sync import cloud_sync
+    return {**desk_relay.status(), "cloud_collector_sync": cloud_sync.status()}
 
 
 @router.get("/actions")

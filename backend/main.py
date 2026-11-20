@@ -109,6 +109,8 @@ async def lifespan(app: FastAPI):
     ban_list.start()
     from backend.core.desk_relay import desk_relay
     desk_relay.start()             # team site: one outbound connection to the Cloudflare relay
+    from backend.market_data.cloud_sync import cloud_sync
+    cloud_sync.start()             # supply + drain the Cloudflare NIFTY collector
 
     print("[BOOT] Starting risk engine...")
     risk_engine.start()
@@ -155,6 +157,8 @@ async def lifespan(app: FastAPI):
     account_monitor.stop()
     from backend.core.desk_relay import desk_relay
     desk_relay.stop()
+    from backend.market_data.cloud_sync import cloud_sync
+    cloud_sync.stop()
     print("[SHUTDOWN] Stopping trading engine...")
     trading_engine.stop()
     print("[SHUTDOWN] Stopping risk engine...")

@@ -17,6 +17,7 @@
 // billed) and their polling is answered from a local cache, not the network.
 
 import { DurableObject } from 'cloudflare:workers';
+import { collect, sync } from './collector.js';
 
 // Bump to start a fresh instance (a new deploy doesn't restart one held open by live sockets)
 const DESK_INSTANCE = 'desk-v2';
@@ -30,10 +31,17 @@ const REPLAY_TYPES = { market: ['market_update'], trades: ['snapshot', 'account'
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/sync/')) return sync(request, { ...env, DESK_INSTANCE }, url);
     if (url.pathname === '/relay' || url.pathname.startsWith('/api/')) {
       return env.RELAY.get(env.RELAY.idFromName(DESK_INSTANCE)).fetch(request);
     }
     return env.ASSETS.fetch(request);
+  },
+
+  // Every minute in market hours: cloud NIFTY collector (only while the office backend is offline)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(collect({ ...env, DESK_INSTANCE }).then(r => console.log('collect', JSON.stringify(r)))
+      .catch(e => console.log('collect failed', String(e))));
   },
 };
 
