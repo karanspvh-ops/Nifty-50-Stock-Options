@@ -1,19 +1,21 @@
 """cloud_sync.py — Keep the Cloudflare NIFTY collector supplied, and drain it.
 
-While the office backend is offline, the team site's Worker collects NIFTY
-option snapshots itself (frontend/worker/collector.js) into Cloudflare D1.
-This module, running inside the backend, every SYNC_SEC:
+The team site's Worker is the only NIFTY collector (frontend/worker/collector.js):
+every minute in market hours it stores option snapshots in Cloudflare D1,
+whether or not this backend is running. This module, inside the backend:
 
-  1. sends today's Zerodha access token + API key (needed for the Worker to
-     call the quote API) whenever a new session exists
+  1. sends today's Zerodha access token + API key the moment a session exists
+     (checked every TICK_SEC, and immediately after a login via poke())
   2. sends the NIFTY option list for the next two expiries, once a day
-  3. pulls every row the Worker has collected, merges it into the local
-     nifty_options.db (a minute already recorded locally keeps its values;
-     only empty fields are filled), commits, and only THEN tells Cloudflare
-     to delete those rows -- so nothing is deleted before it is safely here
+  3. pulls collected rows into nifty_options.db -- never while trading:
+       before 09:00   everything, then the OHLC completion for past days
+       09:00-15:40    only previous days' rows, and only with no ES/OB trade open
+       after 15:40    everything incl. today, then today's OHLC completion
+     Rows are committed locally first; only then does Cloudflare delete
+     exactly those rows, so nothing is lost and its storage stays small.
 
-Minute OHLC and volume aren't in a quote snapshot; nifty_backfill's daily
-completion fills them from Zerodha's minute history.
+Minute OHLC and volume aren't in a quote snapshot; nifty_backfill fills them
+from Zerodha's minute history right after a full sync.
 """
 
 import json
@@ -27,8 +29,11 @@ import requests
 from backend.core.clock import now_ist
 
 _PROJECT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SYNC_SEC = 300
+TICK_SEC = 30            # session/option-list check
+PULL_SEC = 300           # pull cadence inside an allowed window
 BATCH = 1000
+PREMARKET_END = (9, 0)
+AFTER_CLOSE = (15, 40)
 _FIELDS = ("nifty_spot", "close", "oi", "oi_day_high", "oi_day_low", "buy_quantity", "sell_quantity",
            "day_volume", "bid_price", "ask_price", "spread_pct", "bid_depth", "ask_depth")
 
@@ -46,6 +51,9 @@ class CloudSync:
         self._running = False
         self._sent_token = None        # (date, token) last sent
         self._sent_chain = None        # date the chain was last sent
+        self._next_pull = 0.0
+        self._completed_on = None      # date the post-sync OHLC completion last ran
+        self._wake = threading.Event()
         self.last_run = None
         self.last_pulled = 0
         self.error = ""
@@ -66,6 +74,11 @@ class CloudSync:
 
     def stop(self):
         self._running = False
+        self._wake.set()
+
+    def poke(self):
+        """A Zerodha login just happened: send the new session to Cloudflare now."""
+        self._wake.set()
 
     def status(self) -> dict:
         return {"last_run": self.last_run, "rows_pulled_last_run": self.last_pulled, "error": self.error or None}
@@ -79,17 +92,44 @@ class CloudSync:
             except Exception as e:
                 self.error = str(e)
                 print(f"[CLOUD-SYNC] {e}")
-            time.sleep(SYNC_SEC)
+            self._wake.wait(TICK_SEC)
+            self._wake.clear()
 
-    def run_once(self):
+    @staticmethod
+    def _open_trades() -> int:
+        from backend.database import Session, Trade, TradeStatus
+        db = Session()
+        try:
+            return db.query(Trade).filter(Trade.status == TradeStatus.OPEN).count()
+        finally:
+            db.close()
+
+    def run_once(self, force_pull: bool = False):
         site, secret = self._site()
         if not site:
             return
         h = {"X-Relay-Secret": secret}
         self._push_session(site, h)
         self._push_chain(site, h)
-        self.last_pulled = self._pull(site, h)
-        self.last_run = now_ist().strftime("%H:%M:%S")
+
+        if not force_pull and time.monotonic() < self._next_pull:
+            return
+        self._next_pull = time.monotonic() + PULL_SEC
+        now = now_ist()
+        hm, today = (now.hour, now.minute), now.date()
+        full = hm < PREMARKET_END or hm >= AFTER_CLOSE or now.weekday() >= 5
+        if not full and self._open_trades():
+            return                      # trading in progress: sync later
+        before = None if full else today.isoformat()
+        self.last_pulled = self._pull(site, h, before_date=before)
+        self.last_run = now.strftime("%H:%M:%S")
+
+        # OHLC/volume completion once the day's cloud rows are local
+        if full and self._completed_on != today:
+            from backend.market_data import nifty_backfill
+            if nifty_backfill.run_async(nifty_backfill.recent_trading_days(7)):
+                self._completed_on = today
+                print("[CLOUD-SYNC] Started the OHLC/volume completion for the last 7 trading days")
 
     def _push_session(self, site, h):
         from backend.core.broker import broker
@@ -119,18 +159,22 @@ class CloudSync:
         self._sent_chain = today
         print(f"[CLOUD-SYNC] NIFTY option list sent ({len(contracts)} contracts, expiries {', '.join(expiries)})")
 
-    def _pull(self, site, h) -> int:
-        """Merge everything the cloud collected, deleting it there batch by batch once saved."""
+    def _pull(self, site, h, before_date=None) -> int:
+        """Merge what the cloud collected (optionally only days before before_date),
+        deleting exactly those rows there, batch by batch, once saved here."""
         pulled = 0
+        params = {"after": 0, "limit": BATCH}
+        if before_date:
+            params["before_date"] = before_date
         while True:
-            r = requests.get(f"{site}/sync/nifty", headers=h, params={"after": 0, "limit": BATCH}, timeout=30)
+            r = requests.get(f"{site}/sync/nifty", headers=h, params=params, timeout=30)
             r.raise_for_status()
             rows = r.json().get("rows") or []
             if not rows:
                 break
             self._merge(rows)                                  # commits locally first
-            upto = max(int(x["id"]) for x in rows)
-            a = requests.post(f"{site}/sync/nifty/ack", headers=h, json={"upto": upto}, timeout=20)
+            a = requests.post(f"{site}/sync/nifty/ack", headers=h,
+                              json={"ids": [int(x["id"]) for x in rows]}, timeout=30)
             a.raise_for_status()
             pulled += len(rows)
             if len(rows) < BATCH:

@@ -1,7 +1,8 @@
 // Cloud NIFTY option collector + sync endpoints (D1 binding: DB).
 //
-// Every minute 09:15-15:30 IST on weekdays (Cron Trigger), IF the office
-// backend is offline, take one snapshot of the ±10 strike ladder around ATM
+// Every minute 09:15-15:30 IST on weekdays (Cron Trigger) -- whether or not
+// the office backend is running; this is the only NIFTY collector -- take one
+// snapshot of the ±10 strike ladder around ATM
 // (nearest expiry) straight from Zerodha's quote API: LTP, OI, OI range,
 // pending buy/sell quantity, day volume, bid/ask and 5-level depth. Minute
 // OHLC/volume aren't in a quote; the backend's end-of-day completion fills
@@ -11,7 +12,7 @@
 //   POST /sync/kite         today's access token + api key      (secret header)
 //   POST /sync/chain        NIFTY option list for the next expiries
 //   GET  /sync/nifty?after= rows to merge into the local database
-//   POST /sync/nifty/ack    {upto: id}: delete rows the backend has saved
+//   POST /sync/nifty/ack    {ids: [...]}: delete exactly the rows the backend has saved
 // The token is stored in D1 and never returned by any endpoint.
 
 const LADDER = 10;
@@ -34,9 +35,14 @@ async function kvPut(env, k, v) {
 }
 
 async function kite(env, auth, path) {
-  const r = await fetch(`https://api.kite.trade${path}`, {
+  const call = () => fetch(`https://api.kite.trade${path}`, {
     headers: { 'X-Kite-Version': '3', Authorization: `token ${auth.api_key}:${auth.access_token}` },
   });
+  let r = await call();
+  if (r.status === 429) {                      // shares the 1/s quote limit with the office backend
+    await new Promise(res => setTimeout(res, QUOTE_GAP_MS));
+    r = await call();
+  }
   if (!r.ok) throw new Error(`Kite ${path.split('?')[0]} -> HTTP ${r.status}`);
   return (await r.json()).data || {};
 }
@@ -45,10 +51,6 @@ export async function collect(env, { force = false } = {}) {
   const now = ist();
   if (!force && (now.dow === 0 || now.dow === 6 || now.hm < '09:15' || now.hm > '15:30')) return { skipped: 'outside market hours' };
 
-  if (!force) {
-    const st = await env.RELAY.get(env.RELAY.idFromName(env.DESK_INSTANCE)).fetch('https://desk/api/_relay/status');
-    if ((await st.json()).online) return { skipped: 'office backend is collecting' };
-  }
   const auth = await kvGet(env, 'kite');
   if (!auth || auth.date !== now.date) return { skipped: 'no Zerodha session for today (log in on the office PC)' };
   const chain = await kvGet(env, 'nifty_chain');
@@ -111,15 +113,24 @@ export async function sync(request, env, url) {
   if (p === '/sync/nifty' && request.method === 'GET') {
     const after = Number(url.searchParams.get('after') || 0);
     const limit = Math.min(2000, Number(url.searchParams.get('limit') || 1000));
-    const { results } = await env.DB.prepare('SELECT * FROM nifty_snapshots WHERE id > ? ORDER BY id LIMIT ?').bind(after, limit).all();
+    const before = url.searchParams.get('before_date') || '9999-12-31';     // date < before_date only
+    const { results } = await env.DB.prepare('SELECT * FROM nifty_snapshots WHERE id > ? AND date < ? ORDER BY id LIMIT ?')
+      .bind(after, before, limit).all();
     const left = await env.DB.prepare('SELECT COUNT(*) AS n FROM nifty_snapshots').first();
     return json({ rows: results, total: left.n });
   }
   if (p === '/sync/nifty/ack' && request.method === 'POST') {
     const b = await request.json();
-    const upto = Number(b.upto || 0);
-    if (!upto) return json({ error: 'upto required' }, 400);
-    const r = await env.DB.prepare('DELETE FROM nifty_snapshots WHERE id <= ?').bind(upto).run();
+    const ids = Array.isArray(b.ids) ? b.ids.map(Number).filter(Boolean) : [];
+    if (!ids.length) return json({ error: 'ids required' }, 400);
+    // Delete exactly the rows the backend saved (rows of other days stay until their turn)
+    const stmts = [];
+    for (let i = 0; i < ids.length; i += 90) {
+      const part = ids.slice(i, i + 90);
+      stmts.push(env.DB.prepare(`DELETE FROM nifty_snapshots WHERE id IN (${part.map(() => '?').join(',')})`).bind(...part));
+    }
+    const res = await env.DB.batch(stmts);
+    const r = { meta: { changes: res.reduce((s, x) => s + (x.meta?.changes || 0), 0) } };
     return json({ ok: true, deleted: r.meta?.changes ?? null });
   }
   if (p === '/sync/collect-now' && request.method === 'POST') {

@@ -1,8 +1,8 @@
 """nifty_backfill.py — End-of-day completion of the NIFTY option chain data.
 
-The live collector (nifty_options_collector.py) only records while the backend
-is running. This fills everything Zerodha still has for a day from its minute
-history: per-minute OHLC, volume and OI for every strike within ±10 of ATM
+The Cloudflare collector records quote snapshots (no minute OHLC); cloud_sync
+runs this right after each full sync. It fills everything Zerodha still has
+for a day from its minute history: per-minute OHLC, volume and OI for every strike within ±10 of ATM
 (ATM re-evaluated every minute from the index's own minute close), plus NIFTY
 spot candles. Running it at 15:35 means the backend no longer has to stay up
 until 15:30 for price/volume/OI.

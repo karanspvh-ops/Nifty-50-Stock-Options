@@ -35,6 +35,10 @@ from backend.storage.nifty_options_engine import NiftySession, init_nifty_option
 from backend.storage.nifty_options_models import NiftyOptionSnapshot, NiftySpotCandle
 
 _LADDER_SIZE      = 10     # strikes each side of ATM
+# The Cloudflare collector (frontend/worker/collector.js) is the only NIFTY
+# collector; its rows reach nifty_options.db via market_data/cloud_sync.py.
+# Set True only to fall back to collecting on this PC.
+LOCAL_COLLECTOR_ENABLED = False
 _BACKFILL_AT      = (15, 35)   # IST: complete today's data from Zerodha minute history
 _RECENTER_MINUTES = 60     # re-resolve the strike ladder this often, not just once/day
 
@@ -63,6 +67,9 @@ class NiftyOptionsCollector:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def start(self):
+        if not LOCAL_COLLECTOR_ENABLED:
+            print("[NIFTY-DATA] Local collector off -- Cloudflare collects; rows sync to this PC outside trading hours")
+            return
         if self._running:
             return
         init_nifty_options_db()

@@ -54,7 +54,9 @@ def login(payload: LoginPayload):
         # no-op if it's already running, so calling it here on every login is
         # always safe and gives the collector the same daily restart hook
         # tick_engine already gets.
-        nifty_options_collector.start()
+        nifty_options_collector.start()     # no-op while the Cloudflare collector is in use
+        from backend.market_data.cloud_sync import cloud_sync
+        cloud_sync.poke()                   # new session -> Cloudflare collector at once
         start_backfill()                      # warm up indicators (DB + Kite history)
     except Exception as e:
         print(f"[BROKER] post-login startup warning: {e}")

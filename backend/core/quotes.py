@@ -80,8 +80,19 @@ class QuoteBatcher:
                 with rate_gate.preacquired():
                     data = broker.kite().quote(list(batch))
             except Exception as e:
-                print(f"[QUOTES] batch of {len(batch)} failed: {e}")
-                data = {}
+                # The Cloudflare NIFTY collector shares this API key's 1/s quote
+                # limit; if both asked in the same second, wait and retry once.
+                if "429" in str(e) or "too many" in str(e).lower():
+                    time.sleep(1.05)
+                    try:
+                        with rate_gate.preacquired():
+                            data = broker.kite().quote(list(batch))
+                    except Exception as e2:
+                        print(f"[QUOTES] batch of {len(batch)} failed after retry: {e2}")
+                        data = {}
+                else:
+                    print(f"[QUOTES] batch of {len(batch)} failed: {e}")
+                    data = {}
             now = time.monotonic()
             with self._cond:
                 for k, v in (data or {}).items():
