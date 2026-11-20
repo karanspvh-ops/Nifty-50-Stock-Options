@@ -18,14 +18,14 @@ function StrategySwitch({ tag, label, short, live, onClick, disabled, className 
       title={disabled ? 'Unavailable while the office PC is offline'
         : live ? `${label} is placing real orders. Click to move back to paper.` : `${label} is on paper. Click to go live.`}
       className={`pressable disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 h-11 md:h-10 pl-3 pr-1 rounded-full border
-        ${live ? 'bg-white border-spvh-400 shadow-primary' : 'bg-white/70 border-border hover:border-spvh-300'} ${className}`}
+        ${live ? 'glass-pill border-spvh-400/70' : 'glass-pill border-transparent hover:border-spvh-300/70'} ${className}`}
     >
       <span className={`text-sm font-bold ${tag === 'ES' ? 'text-es' : 'text-teal'}`}>{tag}</span>
       <span className="text-xs text-muted truncate md:hidden">{short}</span>
       <span className="text-xs text-muted hidden xl:inline">{label}</span>
       <span
         className={`ml-auto md:ml-0 flex items-center gap-1.5 h-9 md:h-8 px-3 rounded-full text-xs font-bold tracking-wide shrink-0
-          ${live ? 'btn-primary' : 'bg-bg text-ink2'}`}
+          ${live ? 'btn-primary' : 'glass-track text-ink2'}`}
       >
         {live && <span className="live-dot w-2 h-2 rounded-full bg-down" />}
         {live ? 'LIVE' : 'PAPER'}
@@ -56,7 +56,7 @@ export default function Header() {
   );
 
   return (
-    <header className="glass relative z-30 shrink-0 border-b border-white/60 pt-[env(safe-area-inset-top)]">
+    <header className="glass z-30 pt-[env(safe-area-inset-top)] md:pt-0 md:rounded-[22px]">
       <div className="flex items-center gap-3 md:gap-4 h-14 md:h-16 px-3 sm:px-4 md:px-5">
         {/* Brand: mark on phones (no rail there), full wordmark on desktop */}
         <img src={`${import.meta.env.BASE_URL}spvh-mark.png`} alt="SPVH" className="md:hidden w-8 h-8 object-contain select-none" draggable={false} />

@@ -1,4 +1,4 @@
-import { useEffect, Component, type ReactNode } from 'react';
+import { useEffect, useRef, Component, type ReactNode } from 'react';
 import { useMarketSocket } from './hooks/useMarketSocket';
 import { useTradesSocket } from './hooks/useTradesSocket';
 import { useMarketStore } from './store/marketStore';
@@ -76,6 +76,17 @@ export default function App() {
   useTradesSocket();
   const { activeView, setSettings } = useMarketStore();
 
+  // The header floats over the page; pages pad themselves by its live height
+  // (it grows when alerts or the Zerodha sign-in banner appear).
+  const chrome = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = chrome.current; if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--chrome-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    const ro = new ResizeObserver(set);
+    ro.observe(el); set();
+    return () => ro.disconnect();
+  }, []);
+
   // Load settings on startup — retry every 2s until the backend responds
   useEffect(() => {
     let cancelled = false;
@@ -90,13 +101,18 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex flex-col md:flex-row h-full w-full overflow-hidden text-ink">
+    <div className="flex h-full w-full overflow-hidden text-ink">
       <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0 min-h-0">
-        <Header />
-        <AlertsBanner />
-        <LoginBanner />
-        <main className="flex-1 min-h-0 overflow-hidden">
+      <div className="relative flex-1 min-w-0 h-full">
+        {/* Floating chrome: content scrolls underneath and shows through the glass */}
+        <div ref={chrome} className="absolute inset-x-0 top-0 z-30 pointer-events-none [&>*]:pointer-events-auto md:px-3 md:pt-3">
+          <Header />
+          <div className="mt-0 md:mt-2 md:rounded-[18px] md:overflow-hidden empty:hidden shadow-[0_10px_30px_-14px_rgb(30_50_90/0.3)]">
+            <AlertsBanner />
+            <LoginBanner />
+          </div>
+        </div>
+        <main className="h-full overflow-hidden">
           {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
           {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (

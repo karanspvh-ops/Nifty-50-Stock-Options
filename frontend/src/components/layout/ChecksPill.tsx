@@ -44,8 +44,8 @@ export default function ChecksPill() {
   const done    = !!(sys?.done && dry?.done);
   const allOk   = done && passed === total;
 
-  const tone = running || !done ? 'bg-bg text-ink2 border-border'
-    : allOk ? 'bg-up/10 text-up border-up/20' : 'bg-down/10 text-down border-down/30';
+  const tone = running || !done ? 'glass-pill text-ink2 border-transparent'
+    : allOk ? 'glass-pill text-up border-up/25' : 'glass-pill text-down border-down/40';
 
   return (
     // Phones: the wrapper is not positioned, so the panel anchors to the

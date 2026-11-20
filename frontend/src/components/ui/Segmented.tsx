@@ -1,4 +1,9 @@
-/** iOS-style segmented control: a quiet track with the selected segment raised in SPVH blue. */
+import { useLayoutEffect, useRef, useState } from 'react';
+
+/**
+ * iOS-style segmented control: a recessed glass track with a raised clear-glass
+ * thumb that slides to the chosen segment (the label turns SPVH blue).
+ */
 export default function Segmented<T extends string>({
   value, options, onChange, label,
 }: {
@@ -7,8 +12,28 @@ export default function Segmented<T extends string>({
   onChange: (v: T) => void;
   label: string;
 }) {
+  const track = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ x: number; w: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = track.current; if (!el) return;
+    const measure = () => {
+      const b = el.querySelector<HTMLButtonElement>('[aria-checked="true"]');
+      setThumb(b ? { x: b.offsetLeft, w: b.offsetWidth } : null);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value, options.length]);
+
   return (
-    <div role="radiogroup" aria-label={label} className="scroll-x inline-flex max-w-full items-center gap-0.5 p-0.5 rounded-full bg-bg border border-border">
+    <div ref={track} role="radiogroup" aria-label={label}
+         className="glass-track scroll-x relative inline-flex max-w-full items-center gap-0.5 p-[3px] rounded-full">
+      {thumb && (
+        <span aria-hidden className="glass-thumb absolute top-[3px] bottom-[3px] left-0 rounded-full"
+              style={{ width: thumb.w, transform: `translateX(${thumb.x}px)` }} />
+      )}
       {options.map(o => {
         const on = o.key === value;
         return (
@@ -17,8 +42,8 @@ export default function Segmented<T extends string>({
             role="radio"
             aria-checked={on}
             onClick={() => onChange(o.key)}
-            className={`pressable shrink-0 h-9 md:h-7 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap
-              ${on ? 'btn-primary' : 'text-ink2 hover:text-ink hover:bg-white/80'}`}
+            className={`pressable relative shrink-0 h-9 md:h-7 px-3.5 rounded-full text-xs whitespace-nowrap
+              ${on ? 'text-accent font-bold' : 'text-ink2 font-semibold hover:text-ink'}`}
           >
             {o.label}
           </button>
