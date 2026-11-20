@@ -38,8 +38,8 @@ export default function AccountPanel() {
   return (
     <section className="bg-surface rounded-panel border border-border overflow-hidden" aria-label="Zerodha account">
       <div className="flex flex-wrap items-stretch">
-        <div className="flex-1 min-w-[260px] px-5 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-ink2">
+        <div className="basis-full lg:basis-0 flex-1 min-w-0 px-4 md:px-5 py-3.5 md:py-4">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm font-semibold text-ink2">
             <Wallet size={18} weight="duotone" className="text-accent" />
             Available to trade
             <span className="ml-1 inline-flex items-center gap-1.5 text-xs font-normal text-muted">
@@ -49,17 +49,18 @@ export default function AccountPanel() {
                 : `Updated ${age == null ? '' : age < 1 ? 'just now' : `${age.toFixed(0)}s ago`}`}
             </span>
           </div>
-          <div className={`mt-1 text-[40px] leading-[46px] font-bold tabular-nums ${(bal ?? 0) < 0 ? 'text-down' : 'text-ink'}`}>
+          <div className={`mt-1 text-[34px] leading-[40px] md:text-[40px] md:leading-[46px] font-bold tabular-nums ${(bal ?? 0) < 0 ? 'text-down' : 'text-ink'}`}>
             {rs(bal)}
           </div>
           {account?.ok === false && account.error && <div className="mt-1 text-xs text-down">{account.error}</div>}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 border-t md:border-t-0 md:border-l border-border flex-[2] min-w-[320px]">
-          {stats.map(s => (
-            <div key={s.l} className="px-4 py-4 border-r border-border/70 last:border-r-0">
-              <div className="text-xs font-semibold text-muted">{s.l}</div>
-              <div className={`mt-1 text-lg font-bold tabular-nums ${s.c ?? 'text-ink'}`}>{s.v}</div>
+        <div className="basis-full lg:basis-0 flex-[2] min-w-0 grid grid-cols-2 sm:grid-cols-5 border-t lg:border-t-0 lg:border-l border-border">
+          {stats.map((s, i) => (
+            <div key={s.l} className={`min-w-0 px-4 py-3 md:py-4 sm:border-r border-border/70 last:border-r-0
+              ${i === stats.length - 1 ? 'col-span-2 sm:col-span-1' : ''} ${i >= 2 ? 'border-t sm:border-t-0' : ''}`}>
+              <div className="text-xs font-semibold text-muted truncate">{s.l}</div>
+              <div className={`mt-0.5 md:mt-1 text-base md:text-lg font-bold tabular-nums truncate ${s.c ?? 'text-ink'}`}>{s.v}</div>
             </div>
           ))}
         </div>
@@ -105,12 +106,12 @@ function CapitalLimit({ limit, startFunds, live, onSaved }: {
   const lakh = (v: number) => Math.abs(v) >= 100_000
     ? `₹${(v / 100_000).toLocaleString('en-IN', { maximumFractionDigits: 2 })}L`
     : `${v < 0 ? '−' : ''}₹${Math.abs(Math.round(v)).toLocaleString('en-IN')}`;
-  const btn = 'pressable w-7 h-7 rounded-full border border-border bg-white text-ink2 hover:border-spvh-400 font-bold leading-none';
+  const btn = 'pressable shrink-0 w-10 h-10 md:w-7 md:h-7 text-lg md:text-base rounded-full border border-border bg-white text-ink2 hover:border-spvh-400 font-bold leading-none';
 
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 border-t border-border bg-bg/50">
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-semibold text-ink2">Capital limit</span>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 md:px-5 py-3 border-t border-border bg-bg/50">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 w-full sm:w-auto">
+        <span className="basis-full sm:basis-auto text-sm font-semibold text-ink2">Capital limit</span>
         <button className={btn} onClick={() => nudge(-STEP)} aria-label="Lower capital limit by ₹1 lakh">−</button>
         <input
           type="range" min={STEP} max={max} step={STEP} value={draft}
@@ -118,10 +119,10 @@ function CapitalLimit({ limit, startFunds, live, onSaved }: {
           onChange={e => { dragging.current = true; setDraft(Number(e.target.value)); }}
           onPointerUp={e => save(Number((e.target as HTMLInputElement).value))}
           onKeyUp={e => save(Number((e.target as HTMLInputElement).value))}
-          className="w-48 accent-[rgb(var(--spvh-500))]"
+          className="flex-1 min-w-0 sm:flex-none sm:w-48 h-10 md:h-auto accent-[rgb(var(--spvh-500))]"
         />
         <button className={btn} onClick={() => nudge(STEP)} aria-label="Raise capital limit by ₹1 lakh">+</button>
-        <span className="text-base font-bold text-ink tabular-nums w-20">{lakh(draft)}</span>
+        <span className="text-base font-bold text-ink tabular-nums w-[4.5rem] sm:w-20 text-right sm:text-left">{lakh(draft)}</span>
         {saving && <span className="text-xs text-muted">Saving</span>}
       </div>
       <div className="text-sm text-ink2 tabular-nums">

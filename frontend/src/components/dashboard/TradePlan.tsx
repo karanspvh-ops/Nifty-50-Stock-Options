@@ -30,7 +30,7 @@ const STEPS: { label: string; time: string; phases: string[] }[] = [
 function Timeline({ phase }: { phase: string }) {
   const at = STEPS.findIndex(s => s.phases.includes(phase));
   return (
-    <ol className="grid grid-cols-6 gap-1" aria-label="Session progress">
+    <ol className="grid grid-cols-3 sm:grid-cols-6 gap-x-1.5 gap-y-3" aria-label="Session progress">
       {STEPS.map((s, i) => {
         const done = at >= 0 && i < at, now = i === at;
         return (
@@ -103,12 +103,14 @@ export default function TradePlan() {
   return (
     <section className="bg-surface rounded-panel border border-border overflow-hidden" aria-label="Opening Breakout trade plan">
       {/* Header: name, on/off switch */}
-      <div className="flex items-center gap-3 px-4 pt-4">
-        <h2 className="text-ink font-bold text-base">Opening Breakout</h2>
-        <span className="text-xs text-muted">trade plan · SL 10% · target 50%</span>
+      <div className="flex items-center gap-x-3 px-3 md:px-4 pt-3 md:pt-4">
+        <div className="min-w-0 flex flex-wrap items-baseline gap-x-3">
+          <h2 className="text-ink font-bold text-base">Opening Breakout</h2>
+          <span className="text-xs text-muted">trade plan · SL 10% · target 50%</span>
+        </div>
         <button
           role="switch" aria-checked={!!plan?.enabled} onClick={toggle} disabled={!plan}
-          className="ml-auto flex items-center gap-2 text-xs font-semibold text-ink2 disabled:opacity-40"
+          className="ml-auto shrink-0 flex items-center gap-2 min-h-[44px] md:min-h-0 text-xs font-semibold text-ink2 disabled:opacity-40"
         >
           {plan?.enabled ? 'Strategy on' : 'Strategy off'}
           <span className={`relative w-10 h-6 rounded-full transition-colors duration-200 ${plan?.enabled ? 'bg-up' : 'bg-border'}`}>
@@ -119,21 +121,21 @@ export default function TradePlan() {
       </div>
 
       {/* Where the session is */}
-      <div className="px-4 pt-3 pb-4">
+      <div className="px-3 md:px-4 pt-2 md:pt-3 pb-4">
         {killed
           ? <div className="flex items-center gap-2 text-sm font-semibold text-down"><WarningOctagon size={18} weight="fill" /> Halted by the portfolio stop-loss</div>
           : <Timeline phase={plan?.phase ?? 'IDLE'} />}
       </div>
 
       {!plan || !plan.sector ? (
-        <div className="flex items-center gap-2 px-4 py-4 border-t border-border text-sm text-muted">
-          <Clock size={16} />
+        <div className="flex items-start gap-2 px-3 md:px-4 py-4 border-t border-border text-sm text-muted">
+          <Clock size={16} className="shrink-0 mt-0.5" />
           {plan?.note && plan.note !== 'Waiting for market data…' ? plan.note : 'Sectors are scanned from 9:15. The plan appears here once a lead sector emerges.'}
         </div>
       ) : (
         <>
           {/* Decision */}
-          <div className="flex items-center gap-x-4 gap-y-2 flex-wrap px-4 py-3 border-t border-border bg-bg/50">
+          <div className="flex items-center gap-x-4 gap-y-2 flex-wrap px-3 md:px-4 py-3 border-t border-border bg-bg/50">
             {bias && <span className={`text-sm font-bold px-2.5 py-1 rounded-full ${bias.c}`}>{bias.t}</span>}
             <span className="text-sm text-ink2">
               Lead sector <span className="font-bold text-ink">{plan.sector}</span>
@@ -146,7 +148,7 @@ export default function TradePlan() {
               <span className="font-bold text-ink">{counts.confirmed}</span> confirmed ·{' '}
               <span className="font-bold text-ink">{counts.moved}</span> moved
             </span>
-            <span className="ml-auto text-xs">
+            <span className="lg:ml-auto text-xs">
               {plan.entry_window_open
                 ? <span className="inline-flex items-center gap-1.5 text-up font-semibold"><Broadcast size={15} weight="bold" /> Entry window open until 9:45 (10:30 if nothing fires)</span>
                 : <span className="inline-flex items-center gap-1.5 text-muted"><PauseCircle size={15} /> Entry window closed</span>}
@@ -155,16 +157,16 @@ export default function TradePlan() {
 
           {/* Candidates, most advanced first */}
           <div className="max-h-[360px] overflow-y-auto border-t border-border">
-            <table className="w-full text-sm tabular-nums">
+            <table className="w-full text-sm tabular-nums whitespace-nowrap">
               <thead className="sticky top-0 bg-white/95 backdrop-blur z-[1]">
                 <tr className="text-muted text-xs font-semibold border-b border-border">
-                  <th className="text-left px-4 py-1.5">Stock</th>
+                  <th className="text-left px-3 md:px-4 py-1.5">Stock</th>
                   <th className="text-right px-2 py-1.5">Open move</th>
                   <th className="text-right px-2 py-1.5">R-factor</th>
                   <th className="text-right px-2 py-1.5">Momentum</th>
                   <th className="text-right px-2 py-1.5">Volume</th>
-                  <th className="text-right px-2 py-1.5">POC / VAH / VAL</th>
-                  <th className="text-right px-4 py-1.5">Status</th>
+                  <th className="hidden lg:table-cell text-right px-2 py-1.5">POC / VAH / VAL</th>
+                  <th className="text-right px-3 md:px-4 py-1.5">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -172,10 +174,10 @@ export default function TradePlan() {
                   const b = s.direction === 'call';
                   return (
                     <tr key={s.token} className={`border-b border-border/50 ${s.entered ? 'bg-spvh-50' : ''}`}>
-                      <td className="px-4 py-1.5 whitespace-nowrap">
+                      <td className="px-3 md:px-4 py-1.5">
                         <span className="font-semibold text-ink">{s.symbol}</span>
                         <span className={`ml-2 text-[11px] font-bold px-1.5 py-px rounded ${b ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>{b ? 'CE' : 'PE'}</span>
-                        <span className="ml-2 text-xs text-muted">₹{s.ltp?.toFixed(1)} · {s.sector}</span>
+                        <span className="hidden lg:inline ml-2 text-xs text-muted">₹{s.ltp?.toFixed(1)} · {s.sector}</span>
                       </td>
                       <td className={`px-2 py-1.5 text-right font-semibold ${s.opening_move >= 0 ? 'text-up' : 'text-down'}`}>
                         {s.opening_move >= 0 ? '+' : ''}{s.opening_move.toFixed(2)}%
@@ -187,10 +189,10 @@ export default function TradePlan() {
                       <td className={`px-2 py-1.5 text-right ${s.vol_ratio >= 1.3 ? 'text-up font-semibold' : 'text-muted'}`}>
                         {s.vol_ratio?.toFixed(1)}×
                       </td>
-                      <td className="px-2 py-1.5 text-right text-xs text-muted">
+                      <td className="hidden lg:table-cell px-2 py-1.5 text-right text-xs text-muted">
                         {s.vp_poc ? `${s.vp_poc} / ${s.vp_vah} / ${s.vp_val}` : '—'}
                       </td>
-                      <td className="px-4 py-1.5 text-right whitespace-nowrap"><Status s={s} /></td>
+                      <td className="px-3 md:px-4 py-1.5 text-right"><Status s={s} /></td>
                     </tr>
                   );
                 })}

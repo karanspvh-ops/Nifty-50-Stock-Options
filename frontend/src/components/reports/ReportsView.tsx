@@ -496,7 +496,7 @@ function CapitalCandleChart({ data, base, markerDate }: { data: DayData[]; base:
   };
   const onUp = () => { drag.current = null; setDragging(false); };
 
-  const btn = 'px-2 py-0.5 rounded border border-border text-[12.5px] text-muted hover:text-ink hover:bg-white/5';
+  const btn = 'pressable min-w-[36px] h-8 md:min-w-0 md:h-auto px-2 md:py-0.5 rounded-full md:rounded border border-border bg-white text-[12.5px] text-ink2 hover:text-ink';
   const rangeTxt = shown.length
     ? `${dayLabel(shown[0].date, { day: '2-digit', month: 'short' })} – ${dayLabel(shown[shown.length - 1].date, { day: '2-digit', month: 'short', year: '2-digit' })} · ${shown.length} of ${N} days`
     : '';
@@ -504,7 +504,7 @@ function CapitalCandleChart({ data, base, markerDate }: { data: DayData[]; base:
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1 text-[12.5px] text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 mb-1 text-[12.5px] text-muted">
         <span>{rangeTxt}</span>
         <span className="flex items-center gap-1.5">
           <span className="hidden sm:inline mr-1 opacity-60">scroll = zoom · drag = move</span>
@@ -514,7 +514,7 @@ function CapitalCandleChart({ data, base, markerDate }: { data: DayData[]; base:
           <button className={btn} onClick={() => { setVis(N); setOff(0); }}>All</button>
         </span>
       </div>
-      <div ref={wrapRef} className="relative select-none" style={{ touchAction: 'none' }}>
+      <div ref={wrapRef} className="relative select-none" style={{ touchAction: 'pan-y' }}>
         <svg width={width} height={H} style={{ display: 'block', cursor: dragging ? 'grabbing' : 'crosshair' }}
           onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           onPointerCancel={onUp} onPointerLeave={() => { if (!drag.current) setHover(null); }}>
@@ -657,26 +657,26 @@ function CapitalGrowthTab() {
   return (
     <div className="space-y-4">
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-5 gap-y-3">
+        <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-5 gap-y-3">
           <Segmented label="Strategy" value={strat} onChange={setStrat}
             options={[{ key: 'ES', label: 'Early Scalp' }, { key: 'OB', label: 'Opening Breakout' }]} />
           <Segmented label="Account" value={acct} onChange={setAcct}
             options={[{ key: 'combined', label: 'Paper + live' }, { key: 'paper', label: 'Paper' }, { key: 'live', label: 'Live' }]} />
           <span className="text-xs text-muted">₹5L base · after charges{liveFrom ? ` · live since ${dayLabel(liveFrom, { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}</span>
-          <div className="ml-auto flex gap-6">
+          <div className="w-full xl:w-auto xl:ml-auto grid grid-cols-3 xl:flex gap-3 xl:gap-6">
             {[
               { l: 'Current balance', v: fmtINR(final), c: final >= 500_000 ? 'text-up' : 'text-down' },
               { l: 'Total P&L (net)', v: signed(totalPnL), c: totalPnL >= 0 ? 'text-up' : 'text-down' },
               { l: 'Up / total days', v: `${winDays} / ${data.length}`, c: 'text-ink' },
             ].map(s => (
-              <div key={s.l} className="text-right">
-                <div className="text-xs font-semibold text-muted">{s.l}</div>
+              <div key={s.l} className="min-w-0 xl:text-right">
+                <div className="text-xs font-semibold text-muted truncate">{s.l}</div>
                 <div className={`text-base font-bold tabular-nums ${s.c}`}>{s.v}</div>
               </div>
             ))}
           </div>
         </div>
-        <div className="px-4 pt-3 pb-2">
+        <div className="px-3 md:px-4 pt-3 pb-2">
           <div className={`text-sm font-bold mb-1 ${color}`}>{name}</div>
           {loading ? (
             <div className="h-[340px] flex items-center justify-center text-sm text-muted">Loading trades</div>
@@ -717,7 +717,7 @@ function MonthlyPnl({ data }: { data: DayData[] }) {
     const net = days.reduce((s, d) => s + d.netPnl, 0);
     return (
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+        <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-3 gap-y-2">
           <button onClick={() => { setYear(yy); setMonth(null); }}
             className="pressable text-sm font-semibold text-accent hover:underline">All months</button>
           <span className="text-muted">/</span>
@@ -727,7 +727,7 @@ function MonthlyPnl({ data }: { data: DayData[] }) {
           <span className={`ml-auto text-base font-bold tabular-nums ${net >= 0 ? 'text-up' : 'text-down'}`}>{signed(net)}</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm tabular-nums">
+          <table className="w-full text-left text-sm tabular-nums whitespace-nowrap">
             <thead>
               <tr className="text-xs font-semibold text-muted border-b border-border bg-bg/50">
                 {['Date', 'Trades', 'Opening capital', 'Closing capital', 'Gross P&L', 'Charges', 'Net P&L', 'Net % of capital used', 'Peak capital used'].map(h => (
@@ -772,15 +772,16 @@ function MonthlyPnl({ data }: { data: DayData[] }) {
 
   return (
     <div className="bg-surface rounded-panel border border-border overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+      <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-base font-bold text-ink mr-1">P&amp;L by month</span>
         <button className={nav} disabled={yIdx <= 0} onClick={() => setYear(years[yIdx - 1])} aria-label="Previous year">‹</button>
         <span className="text-base font-bold text-ink w-14 text-center tabular-nums">{year}</span>
         <button className={nav} disabled={yIdx >= years.length - 1} onClick={() => setYear(years[yIdx + 1])} aria-label="Next year">›</button>
-        <span className="text-xs text-muted">Click a month for its daily detail</span>
+        <span className="hidden lg:inline text-xs text-muted">Click a month for its daily detail</span>
         <span className={`ml-auto text-base font-bold tabular-nums ${yearNet >= 0 ? 'text-up' : 'text-down'}`}>{signed(yearNet)} in {year}</span>
       </div>
-      <table className="w-full text-left text-sm tabular-nums">
+      <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm tabular-nums whitespace-nowrap">
         <thead>
           <tr className="text-xs font-semibold text-muted border-b border-border bg-bg/50">
             {['Month', 'Trading days', 'Up days', 'Trades', 'Gross P&L', 'Charges', 'Net P&L', 'Closing capital'].map(h => (
@@ -805,6 +806,7 @@ function MonthlyPnl({ data }: { data: DayData[] }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -1046,8 +1048,8 @@ function EmailModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/25 backdrop-blur-sm">
-      <div className="glass-strong rise-in rounded-panel p-6 w-full max-w-sm space-y-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-ink/25 backdrop-blur-sm">
+      <div className="glass-strong rise-in rounded-panel p-5 sm:p-6 w-full max-w-sm space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-ink font-bold text-lg">Email report</h3>
           <button onClick={onClose} aria-label="Close" className="pressable p-1 rounded-md text-muted hover:text-ink hover:bg-ink/5"><X size={18} /></button>
@@ -1308,35 +1310,35 @@ export default function ReportsView() {
   ];
 
   return (
-    <div className="p-6 space-y-4 overflow-y-auto h-full">
+    <div className="page"><div className="page-inner space-y-3 md:space-y-4">
       {showEmail && (
         <EmailModal onClose={() => setShowEmail(false)} onSend={sendEmail} />
       )}
 
       {/* Header row */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-ink font-bold text-2xl leading-tight">Reports</h1>
+        <h1 className="text-ink font-bold text-xl md:text-2xl leading-tight">Reports</h1>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={handleDownloadPDF}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
+            className="flex items-center gap-1.5 px-3 h-9 md:h-8 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
             <DownloadSimple size={15} weight="bold" /> Download PDF
           </button>
           <button onClick={() => setShowEmail(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
+            className="flex items-center gap-1.5 px-3 h-9 md:h-8 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
             <EnvelopeSimple size={15} weight="bold" /> Email report
           </button>
           <button onClick={generate} disabled={loading}
-            className="pressable flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-border text-ink2 hover:text-ink hover:border-spvh-400 rounded-full disabled:opacity-50">
+            className="flex items-center gap-1.5 px-3 h-9 md:h-8 text-xs pressable border border-border rounded-full bg-white font-semibold text-ink2 hover:text-ink hover:border-spvh-400 disabled:opacity-50">
             {loading ? 'Generating…' : <><ArrowClockwise size={15} weight="bold" /> Refresh</>}
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2">
+      <div className="scroll-x -mx-3 px-3 sm:mx-0 sm:px-0 flex gap-2">
         {([['pnl','P&L Report'], ['tradable','Tradable Windows'], ['ml','ML Retrospective'], ['capital','Capital Growth']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-control text-sm font-medium transition-colors
+            className={`pressable shrink-0 whitespace-nowrap px-4 h-10 md:h-9 rounded-control text-sm font-medium
               ${tab === t ? 'btn-primary' : 'bg-surface border border-border text-muted hover:text-ink'}`}>
             {label}
           </button>
@@ -1347,11 +1349,11 @@ export default function ReportsView() {
       {tab === 'pnl' && (
         <div className="space-y-4">
           {/* Period selector */}
-          <div className="bg-surface rounded-panel border border-border p-4 space-y-3">
+          <div className="bg-surface rounded-panel border border-border p-3 md:p-4 space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Segmented label="Account" value={env} onChange={setEnv}
                 options={[{ key: 'paper', label: 'Paper' }, { key: 'live', label: 'Live' }]} />
-              <div className="w-px h-6 bg-border" />
+              <div className="hidden sm:block w-px h-6 bg-border" />
               <Segmented label="Period" value={period} onChange={setPeriod} options={PERIODS} />
             </div>
             {period === 'custom' && (
@@ -1375,7 +1377,7 @@ export default function ReportsView() {
           {/* Combined summary */}
           <div className="bg-surface rounded-panel border border-border p-4">
             <div className="text-xs font-semibold text-muted mb-3">{periodLabel} — Combined</div>
-            <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-x-4 gap-y-3">
               {[
                 { label: 'Total Trades',   val: String(stats.all.n) },
                 { label: 'Win Rate',        val: `${stats.all.n ? Math.round(stats.all.wins / stats.all.n * 100) : 0}%` },
@@ -1394,7 +1396,7 @@ export default function ReportsView() {
           </div>
 
           {/* ES + OB strategy cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
             {/* ES */}
             <div className="bg-surface rounded-panel border border-es/30 bg-es/5 p-4">
               <div className="text-xs font-semibold text-es mb-3">Early Scalp [ES]</div>
@@ -1413,7 +1415,7 @@ export default function ReportsView() {
                   <div className="text-muted text-[12px] mt-0.5">gross {fmtPnL(stats.es.gross)} · charges −{fmtRs(stats.es.charges)}</div>
                 </div>
               </div>
-              <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
+              <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted border-t border-border/40 pt-2">
                 <span>Profit Factor: <span className="text-ink">{isFinite(stats.es.pf) ? stats.es.pf : '∞'}</span></span>
                 <span>Avg Capital: <span className="text-ink">{stats.es.avgCap ? fmtRs(stats.es.avgCap) : '—'}</span></span>
               </div>
@@ -1437,7 +1439,7 @@ export default function ReportsView() {
                   <div className="text-muted text-[12px] mt-0.5">gross {fmtPnL(stats.ob.gross)} · charges −{fmtRs(stats.ob.charges)}</div>
                 </div>
               </div>
-              <div className="flex justify-between text-xs text-muted border-t border-border/40 pt-2">
+              <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted border-t border-border/40 pt-2">
                 <span>Profit Factor: <span className="text-ink">{isFinite(stats.ob.pf) ? stats.ob.pf : '∞'}</span></span>
                 <span>Avg Capital: <span className="text-ink">{stats.ob.avgCap ? fmtRs(stats.ob.avgCap) : '—'}</span></span>
               </div>
@@ -1450,7 +1452,8 @@ export default function ReportsView() {
               <div className="px-4 py-3 border-b border-border">
                 <span className="text-ink font-semibold text-sm">Daily Breakdown</span>
               </div>
-              <table className="w-full text-left">
+              <div className="overflow-x-auto">
+              <table className="w-full text-left whitespace-nowrap">
                 <thead>
                   <tr className="text-muted text-xs font-semibold bg-border/20 border-b border-border">
                     <th className="px-3 py-2">Date</th>
@@ -1492,6 +1495,7 @@ export default function ReportsView() {
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
@@ -1583,12 +1587,12 @@ export default function ReportsView() {
             <div className="space-y-2">
               {Object.entries(ml.patterns || {}).map(([k, v]: [string, any]) => (
                 <div key={k} className="flex items-center gap-3">
-                  <div className="w-32 text-[12px] text-muted truncate uppercase">{k.replace(/_/g,' ')}</div>
+                  <div className="w-24 sm:w-32 shrink-0 text-[12px] text-muted truncate uppercase">{k.replace(/_/g,' ')}</div>
                   <div className="flex-1 bg-border rounded-full h-2">
                     <div className="bg-down h-2 rounded-full" style={{ width: `${v.pct_of_total}%` }} />
                   </div>
                   <div className="text-xs text-down w-12 text-right">{v.pct_of_total}%</div>
-                  <div className="text-xs text-muted w-20 text-right">avg ₹{v.avg_loss}</div>
+                  <div className="hidden sm:block text-xs text-muted w-20 text-right">avg ₹{v.avg_loss}</div>
                 </div>
               ))}
             </div>
@@ -1620,7 +1624,7 @@ export default function ReportsView() {
       {/* ── Tradable Windows Tab ─────────────────────────────────────────────── */}
       {tab === 'tradable' && trd && !trd.status && (
         <div className="space-y-4">
-          <div className="bg-surface rounded-panel border border-border p-4 grid grid-cols-4 gap-4">
+          <div className="bg-surface rounded-panel border border-border p-3 md:p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: 'Total Windows',  val: trd.summary?.total_windows },
               { label: 'Traded',         val: trd.summary?.windows_traded,  color: 'text-up' },
@@ -1683,6 +1687,6 @@ export default function ReportsView() {
           <CapitalGrowthTab />
         </div>
       )}
-    </div>
+    </div></div>
   );
 }

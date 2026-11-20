@@ -53,8 +53,8 @@ export default function TradableSignals() {
 
   return (
     <div className="bg-surface rounded-panel border border-border overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h2 className="text-ink font-bold text-base flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 md:px-4 py-3 border-b border-border">
+        <h2 className="text-ink font-bold text-base flex flex-wrap items-baseline gap-x-2">
           Tradable Now
           <span className="text-xs text-muted font-normal">stocks meeting entry criteria</span>
         </h2>
@@ -70,18 +70,18 @@ export default function TradableSignals() {
       </div>
 
       {!active.length ? (
-        <p className="text-muted text-sm px-4 py-4">No stocks meet the entry criteria right now.</p>
+        <p className="text-muted text-sm px-3 md:px-4 py-4">No stocks meet the entry criteria right now.</p>
       ) : (
         <div className="max-h-[300px] overflow-y-auto">
-          <table className="w-full text-sm tabular-nums">
+          <table className="w-full text-sm tabular-nums whitespace-nowrap">
             <thead className="sticky top-0 bg-white/95 backdrop-blur z-[1]">
               <tr className="text-muted text-xs font-semibold border-b border-border">
-                <th className="text-left px-4 py-1.5">Stock</th>
-                <th className="text-left px-2 py-1.5">Sector</th>
+                <th className="text-left px-3 md:px-4 py-1.5">Stock</th>
+                <th className="hidden sm:table-cell text-left px-2 py-1.5">Sector</th>
                 <th className="text-right px-2 py-1.5">Score</th>
                 <th className="text-right px-2 py-1.5">LTP</th>
-                <th className="text-right px-2 py-1.5">Since</th>
-                <th className="text-right px-4 py-1.5">Live for</th>
+                <th className="hidden sm:table-cell text-right px-2 py-1.5">Since</th>
+                <th className="text-right px-3 md:px-4 py-1.5">Live for</th>
               </tr>
             </thead>
             <tbody>
@@ -91,19 +91,19 @@ export default function TradableSignals() {
                 return (
                   <tr key={t.token}
                       className={`border-b border-border/50 transition-colors duration-700 ${flash.has(t.token) ? 'bg-spvh-100/80' : ''}`}>
-                    <td className="px-4 py-1.5 whitespace-nowrap">
+                    <td className="px-3 md:px-4 py-1.5">
                       <span className="font-semibold text-ink">{t.symbol}</span>
                       <span className={`ml-2 text-[11px] font-bold px-1.5 py-px rounded ${call ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>
                         {call ? 'CE' : 'PE'}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-muted text-xs whitespace-nowrap">{t.sector}</td>
+                    <td className="hidden sm:table-cell px-2 py-1.5 text-muted text-xs">{t.sector}</td>
                     <td className={`px-2 py-1.5 text-right font-semibold ${full ? 'text-accent' : 'text-ink2'}`}>
                       {t.entry_score}/{t.max_score}
                     </td>
                     <td className="px-2 py-1.5 text-right text-ink">{t.ltp ? `₹${t.ltp.toFixed(1)}` : '—'}</td>
-                    <td className="px-2 py-1.5 text-right text-muted text-xs">{fmtTime(t.opened_at)}</td>
-                    <td className="px-4 py-1.5 text-right text-ink2 text-xs">{fmtDuration(t.live_secs)}</td>
+                    <td className="hidden sm:table-cell px-2 py-1.5 text-right text-muted text-xs">{fmtTime(t.opened_at)}</td>
+                    <td className="px-3 md:px-4 py-1.5 text-right text-ink2 text-xs">{fmtDuration(t.live_secs)}</td>
                   </tr>
                 );
               })}

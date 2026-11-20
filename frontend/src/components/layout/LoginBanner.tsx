@@ -57,14 +57,14 @@ export default function LoginBanner() {
 
   // Backend not reachable yet
   if (!st) return (
-    <div className="flex items-center gap-2 px-5 py-2.5 bg-spvh-100/70 border-b border-spvh-300/70 text-sm text-ink2">
+    <div className="flex items-center gap-2 px-3 md:px-5 py-2.5 bg-spvh-100/70 border-b border-spvh-300/70 text-sm text-ink2">
       <CircleNotch size={16} className="animate-spin text-accent" />
       Waiting for the trading server on port 8000
     </div>
   );
 
   return (
-    <div className="px-5 py-3 bg-white/80 border-b border-down/25" style={{ backdropFilter: 'blur(16px)' }}>
+    <div className="px-3 md:px-5 py-3 bg-white/80 border-b border-down/25" style={{ backdropFilter: 'blur(16px)' }}>
       <div className="flex items-center gap-3 flex-wrap">
         <span className="flex items-center gap-2 text-down font-bold text-sm">
           <LockKey size={18} weight="fill" /> Sign in to Zerodha for today
@@ -78,7 +78,7 @@ export default function LoginBanner() {
           value={rt} onChange={e => setRt(e.target.value)}
           placeholder="request_token"
           aria-label="Zerodha request token"
-          className="bg-white border border-border text-ink text-sm rounded-control px-3 py-1.5 w-64
+          className="bg-white border border-border text-ink text-sm rounded-control px-3 py-1.5 w-full sm:w-64
             focus:border-spvh-500 focus:outline-none focus:ring-2 focus:ring-spvh-400/40"
         />
         <button onClick={submit} disabled={busy}

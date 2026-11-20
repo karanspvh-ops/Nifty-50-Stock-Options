@@ -123,10 +123,10 @@ function MinuteDetail({ rows }: { rows: Snapshot[] | 'loading' }) {
   const th = 'px-2 py-1.5 text-right font-semibold';
   return (
     <div className="overflow-x-auto bg-white/60 border-b border-border">
-      <table className="w-full text-xs" style={{ minWidth: 1320 }}>
+      <table className="w-full text-xs whitespace-nowrap" style={{ minWidth: 1320 }}>
         <thead>
           <tr className="text-muted border-b border-border bg-bg/70">
-            <th className={th}>Strike</th><th className="px-2 py-1.5 text-left font-semibold">Type</th><th className={th}>Rank</th>
+            <th className={`${th} sticky left-0 z-[1] bg-bg`}>Strike</th><th className="px-2 py-1.5 text-left font-semibold">Type</th><th className={th}>Rank</th>
             <th className={th}>Open</th><th className={th}>High</th><th className={th}>Low</th><th className={th}>Close</th>
             <th className={th}>Vol (1m)</th><th className={th}>Day vol</th><th className={th}>OI</th><th className={th}>OI high / low</th>
             <th className={th}>Buy qty</th><th className={th}>Sell qty</th><th className={th}>Bid</th><th className={th}>Ask</th><th className={th}>Spread %</th>
@@ -138,7 +138,7 @@ function MinuteDetail({ rows }: { rows: Snapshot[] | 'loading' }) {
             return (
               <tr key={`${r.strike}-${r.option_type}`}
                   className={`border-b border-border/50 tabular-nums ${atm ? 'bg-spvh-100/70' : r.option_type === 'PE' ? 'bg-bg/40' : ''}`}>
-                <td className={`px-2 py-1 text-right text-ink ${atm ? 'font-bold' : ''}`}>{r.strike.toFixed(0)}</td>
+                <td className={`sticky left-0 z-[1] px-2 py-1 text-right text-ink ${atm ? 'font-bold bg-spvh-100' : 'bg-white'}`}>{r.strike.toFixed(0)}</td>
                 <td className={`px-2 py-1 font-semibold ${r.option_type === 'CE' ? 'text-up' : 'text-down'}`}>{r.option_type}</td>
                 <td className={`px-2 py-1 text-right ${atm ? 'text-accent font-bold' : 'text-muted'}`}>
                   {atm ? 'ATM' : r.moneyness_rank > 0 ? `+${r.moneyness_rank}` : r.moneyness_rank}
@@ -244,10 +244,10 @@ export default function NiftyDataView() {
   const lastRun = bf?.results ?? [];
 
   return (
-    <div className="px-6 py-5 space-y-4 overflow-y-auto h-full">
+    <div className="page"><div className="page-inner space-y-3 md:space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-end gap-3">
-          <h1 className="text-ink font-bold text-2xl leading-tight">Nifty Data Collector</h1>
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+          <h1 className="text-ink font-bold text-xl md:text-2xl leading-tight">Nifty Data Collector</h1>
           <span className="flex items-center gap-1.5 text-xs pb-1">
             <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
             <span className="text-muted">
@@ -255,8 +255,8 @@ export default function NiftyDataView() {
             </span>
           </span>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted text-right">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 w-full sm:w-auto">
+          <span className="text-xs text-muted sm:text-right">
             {bf?.running
               ? `Completing from Zerodha (${lastRun.length} day${lastRun.length === 1 ? '' : 's'} done)`
               : 'Runs automatically at 3:35 pm'}
@@ -265,7 +265,7 @@ export default function NiftyDataView() {
             onClick={startBackfill}
             disabled={!!bf?.running}
             title="Fill every missing minute, strike, OI and volume for the last 7 trading days from Zerodha's minute history"
-            className="pressable flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-spvh-400 disabled:opacity-50"
+            className="pressable flex items-center gap-1.5 px-3.5 h-10 md:h-8 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-spvh-400 disabled:opacity-50"
           >
             {bf?.running ? <CircleNotch size={15} className="animate-spin" /> : <ArrowsClockwise size={15} weight="bold" />}
             Complete from Zerodha
@@ -277,8 +277,8 @@ export default function NiftyDataView() {
         <div className="bg-surface rounded-panel border border-border px-4 py-3 text-xs space-y-1">
           <div className="font-semibold text-ink text-sm">Last completion run</div>
           {lastRun.map(r => (
-            <div key={r.date} className="flex gap-3">
-              <span className="w-24 text-ink2 tabular-nums">{r.date}</span>
+            <div key={r.date} className="flex flex-wrap gap-x-3">
+              <span className="w-24 shrink-0 text-ink2 tabular-nums">{r.date}</span>
               <span className={r.status === 'ok' ? 'text-up' : r.status === 'error' ? 'text-down' : 'text-muted'}>
                 {r.status === 'ok'
                   ? `${(r.inserted ?? 0).toLocaleString('en-IN')} rows added, ${r.filled ?? 0} filled`
@@ -299,7 +299,7 @@ export default function NiftyDataView() {
           { l: 'Contracts tracked', v: status?.contracts ?? '—' },
           { l: 'Expiry', v: status?.expiry ?? '—' },
         ].map(c => (
-          <div key={c.l} className="bg-surface rounded-panel border border-border p-3">
+          <div key={c.l} className="min-w-0 bg-surface rounded-panel border border-border p-3">
             <div className="text-xs font-semibold text-muted mb-1">{c.l}</div>
             <div className="text-lg font-bold text-ink">{c.v}</div>
           </div>
@@ -314,20 +314,20 @@ export default function NiftyDataView() {
 
       {/* Candle chart */}
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-x-3">
           <span className="font-bold text-base text-ink">
             NIFTY 50 spot, 1-minute candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
           </span>
           <span className="text-xs text-muted">{candles.length} candles</span>
         </div>
-        <div className="px-4 pt-3 pb-1">
+        <div className="px-2 md:px-4 pt-3 pb-1">
           <CandleChart candles={candles} showDate={multiDay} />
         </div>
       </div>
 
       {/* Minute snapshots: collapsed to time + spot, expand for the strike ladder */}
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
           <span className="font-bold text-base text-ink">Minute snapshots, newest first</span>
           <span className="text-xs text-muted">{minutes.length.toLocaleString('en-IN')} minutes · click a minute for its strikes</span>
         </div>
@@ -347,16 +347,16 @@ export default function NiftyDataView() {
                 <button
                   onClick={() => toggle(m.t)}
                   aria-expanded={isOpen}
-                  className={`w-full flex items-center gap-4 px-4 h-10 text-sm border-b border-border/60 text-left
+                  className={`w-full flex items-center gap-3 md:gap-4 px-3 md:px-4 h-12 md:h-10 text-sm border-b border-border/60 text-left
                     transition-colors ${isOpen ? 'bg-spvh-50' : 'hover:bg-ink/[0.025]'}`}
                 >
                   <CaretRight size={14} weight="bold"
                     className={`shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90 text-accent' : 'text-muted'}`} />
                   <span className="w-14 font-semibold text-ink tabular-nums">{m.t.slice(11, 16)}</span>
-                  <span className="w-32 text-ink2 tabular-nums">
+                  <span className="w-28 md:w-32 text-ink2 tabular-nums">
                     <span className="text-muted text-xs mr-1.5">Spot</span>{m.spot != null ? m.spot.toFixed(2) : '—'}
                   </span>
-                  <span className="text-xs text-muted">{m.rows} contracts</span>
+                  <span className="hidden sm:inline text-xs text-muted">{m.rows} contracts</span>
                   <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full
                     ${m.book > 0 ? 'bg-up/10 text-up' : 'bg-bg text-muted border border-border'}`}
                     title={m.book > 0 ? 'Recorded live: includes bid/ask and order book' : 'Filled from Zerodha history: price, volume and OI only'}>
@@ -377,6 +377,6 @@ export default function NiftyDataView() {
           </div>
         )}
       </div>
-    </div>
+    </div></div>
   );
 }

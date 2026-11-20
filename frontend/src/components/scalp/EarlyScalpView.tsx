@@ -144,7 +144,7 @@ function ActiveTrades({ trades }: { trades: ScalpTrade[] }) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs whitespace-nowrap">
         <thead>
           <tr className="text-muted border-b border-border">
             <th className="text-left py-2 pr-3">Symbol</th>
@@ -223,7 +223,7 @@ function CandidateTable({ candidates, env, forcing, forceEntry }: {
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-xs whitespace-nowrap">
           <thead>
             <tr className="text-muted border-b border-border">
               <th className="text-left py-2 pr-2">#</th>
@@ -440,7 +440,7 @@ export default function EarlyScalpView() {
                   : plan?.market_trend === 'bearish' ? 'text-down' : 'text-muted';
 
   return (
-    <div className="p-6 space-y-4 overflow-y-auto h-full">
+    <div className="page"><div className="page-inner space-y-3 md:space-y-4">
 
       {/* ── Force-entry result toast ───────────────────────────────────────── */}
       {forceMsg && (
@@ -453,18 +453,18 @@ export default function EarlyScalpView() {
       )}
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-ink font-bold text-2xl leading-tight">Early Scalp</h1>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <h1 className="text-ink font-bold text-xl md:text-2xl leading-tight">Early Scalp</h1>
           <span className="text-xs font-normal text-accent bg-spvh-400/10 px-2 py-0.5 rounded">
             9:25–9:30 · Gap &amp; Go
           </span>
           <StatusBadge phase={phase} />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 w-full sm:w-auto">
           {/* Market context */}
           {plan && (
-            <div className="flex items-center gap-3 text-xs text-muted">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted basis-full sm:basis-auto">
               <span>
                 Nifty{' '}
                 <span className={plan.nifty_move >= 0 ? 'text-up' : 'text-down'}>
@@ -486,7 +486,7 @@ export default function EarlyScalpView() {
           {/* Enable toggle */}
           <button
             onClick={toggleEnabled}
-            className={`text-xs px-3 py-1 rounded font-semibold transition-colors
+            className={`pressable text-xs px-3 h-9 md:h-7 rounded-full font-semibold
               ${enabled
                 ? 'bg-up/20 text-up hover:bg-up/30'
                 : 'bg-border text-muted hover:bg-border/80'}`}
@@ -496,7 +496,7 @@ export default function EarlyScalpView() {
           {/* Params toggle */}
           <button
             onClick={() => setShowParams(v => !v)}
-            className="text-xs px-3 py-1 rounded bg-border text-muted hover:text-ink transition-colors"
+            className="pressable text-xs px-3 h-9 md:h-7 rounded-full bg-border text-ink2 hover:text-ink"
           >
             {showParams ? 'Hide Params' : 'Params'}
           </button>
@@ -521,7 +521,7 @@ export default function EarlyScalpView() {
           <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">
             Parameters
           </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             <ParamSlider label="Min gap from prev close" unit="%"
               value={p.gap_min_pct} min={0.2} max={3} step={0.1}
               onChange={v => setLocalParams(prev => prev ? {...prev, gap_min_pct: v} : prev)} />
@@ -547,7 +547,7 @@ export default function EarlyScalpView() {
               value={p.max_positions} min={1} max={5} step={1}
               onChange={v => setLocalParams(prev => prev ? {...prev, max_positions: v} : prev)} />
           </div>
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             <div className="text-xs text-muted">
               SL {p.hard_sl_pct}% · Target {p.target_pct}% ·
               Trail @+{p.trail_activate_pct}% gap {p.trail_gap_pct}% ·
@@ -556,7 +556,7 @@ export default function EarlyScalpView() {
             <button
               onClick={saveParams}
               disabled={saving}
-              className="text-xs px-4 py-1.5 rounded btn-primary disabled:opacity-50"
+              className="pressable text-xs px-4 h-9 md:h-8 rounded-full btn-primary disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -586,13 +586,13 @@ export default function EarlyScalpView() {
 
       {/* ── Scan results ────────────────────────────────────────────────────── */}
       <div className="bg-surface border border-border rounded-control p-4">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-3">
           <div className="text-sm font-semibold text-ink">Scan Candidates</div>
           <div className="text-xs text-muted">
             Ranked by composite score (gap × move × vol × OI)
           </div>
           {/* Column legend */}
-          <div className="ml-auto flex items-center gap-3 text-xs text-muted">
+          <div className="lg:ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
             <span><span className="text-accent font-semibold">1m</span> = consecutive 1-min candles</span>
             <span><span className="text-accent font-semibold">3m</span> = consecutive 3-min candles</span>
           </div>
@@ -607,7 +607,7 @@ export default function EarlyScalpView() {
         <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
           How this strategy works
         </div>
-        <div className="grid grid-cols-3 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
           <div>
             <div className="text-ink font-semibold mb-1">Entry (9:25–9:30)</div>
             <ul className="text-muted space-y-0.5">
@@ -640,6 +640,6 @@ export default function EarlyScalpView() {
         </div>
       </div>
 
-    </div>
+    </div></div>
   );
 }

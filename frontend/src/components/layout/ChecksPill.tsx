@@ -31,11 +31,11 @@ export default function ChecksPill() {
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     const onKey  = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('mousedown', onDown);
+    window.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey); };
+    return () => { window.removeEventListener('pointerdown', onDown); window.removeEventListener('keydown', onKey); };
   }, [open]);
 
   const running = !!(sys?.running || dry?.running);
@@ -48,22 +48,27 @@ export default function ChecksPill() {
     : allOk ? 'bg-up/10 text-up border-up/20' : 'bg-down/10 text-down border-down/30';
 
   return (
-    <div ref={ref} className="relative">
+    // Phones: the wrapper is not positioned, so the panel anchors to the
+    // header and spans the screen; from md it drops from the pill itself.
+    <div ref={ref} className="md:relative">
       <button
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
         title="System check and strategy dry-run"
-        className={`pressable flex items-center gap-1.5 h-8 px-3 rounded-full border text-xs font-semibold ${tone}`}
+        className={`pressable flex items-center gap-1.5 h-9 md:h-8 px-3 rounded-full border text-xs font-semibold whitespace-nowrap ${tone}`}
       >
         {running ? <CircleNotch size={15} className="animate-spin" />
           : allOk || !done ? <ShieldCheck size={15} weight="fill" /> : <ShieldWarning size={15} weight="fill" />}
-        {running ? 'Checking' : !done ? 'Checks' : allOk ? `Checks ${passed}/${total}` : `${total - passed} check${total - passed > 1 ? 's' : ''} failed`}
+        {running ? 'Checking' : !done ? 'Checks' : allOk
+          ? <><span className="hidden sm:inline">Checks </span>{passed}/{total}</>
+          : <>{total - passed}<span className="hidden sm:inline"> check{total - passed > 1 ? 's' : ''}</span> failed</>}
         <CaretDown size={11} weight="bold" className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="glass-strong rise-in absolute left-0 top-10 z-50 w-[620px] max-w-[calc(100vw-120px)] max-h-[75vh] overflow-y-auto rounded-panel p-3 space-y-3"
-             style={{ transformOrigin: 'top left' }}>
+        <div className="glass-strong rise-in absolute inset-x-2 top-full mt-1 md:inset-x-auto md:left-0 md:top-10 md:mt-0 z-50
+                        md:w-[620px] md:max-w-[calc(100vw-120px)] max-h-[min(75dvh,720px)] overflow-y-auto overscroll-contain
+                        rounded-panel p-2.5 md:p-3 space-y-3 origin-top md:origin-top-left">
           <SystemCheckPanel />
           <StrategyDryRunPanel />
         </div>

@@ -45,21 +45,21 @@ import { API } from './lib/api';
 
 function PageTitle({ title, note, live }: { title: string; note: string; live?: boolean }) {
   return (
-    <div className="flex items-end gap-3 mb-4">
-      <h1 className="text-2xl font-bold text-ink leading-none">{title}</h1>
+    <div className="flex flex-wrap items-end gap-x-3 gap-y-1.5 mb-3 md:mb-4">
+      <h1 className="text-xl md:text-2xl font-bold text-ink leading-none">{title}</h1>
       <span className={`inline-flex items-center gap-1.5 h-6 px-2.5 rounded-full text-[12.5px] font-bold tracking-wide
         ${live ? 'btn-primary' : 'bg-bg text-ink2 border border-border'}`}>
         {live && <span className="live-dot w-1.5 h-1.5 rounded-full bg-down" />}
         {live ? 'LIVE' : 'PAPER'}
       </span>
-      <span className="text-sm text-muted pb-px">{note}</span>
+      <span className="basis-full sm:basis-auto text-sm text-muted pb-px">{note}</span>
     </div>
   );
 }
 
 function Dashboard() {
   return (
-    <div className="px-6 py-5 space-y-4 overflow-y-auto h-full">
+    <div className="page"><div className="page-inner space-y-3 md:space-y-4">
       <AccountPanel />
       <OpenTradesPanel />
       <TradePlan />
@@ -67,7 +67,7 @@ function Dashboard() {
       <SectorBarChart />
       <StockRanking />
       <TradableSignals />
-    </div>
+    </div></div>
   );
 }
 
@@ -90,26 +90,26 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-full w-full overflow-hidden text-ink">
+    <div className="flex flex-col md:flex-row h-full w-full overflow-hidden text-ink">
       <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <Header />
         <AlertsBanner />
         <LoginBanner />
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 min-h-0 overflow-hidden">
           {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
           {activeView === 'early_scalp'   && <ErrorBoundary><EarlyScalpView /></ErrorBoundary>}
           {activeView === 'testing_lab'   && (
-            <div className="px-6 py-5 overflow-y-auto h-full">
+            <div className="page"><div className="page-inner">
               <PageTitle title="Paper trades" note="Every simulated trade from ES and OB" />
               <TradeTable env="paper" />
-            </div>
+            </div></div>
           )}
           {activeView === 'battle_ground' && (
-            <div className="px-6 py-5 overflow-y-auto h-full">
+            <div className="page"><div className="page-inner">
               <PageTitle title="Live trades" note="Real orders placed on Zerodha" live />
               <TradeTable env="live" />
-            </div>
+            </div></div>
           )}
           {activeView === 'reports'       && <ReportsView />}
           {activeView === 'nifty_data'    && <NiftyDataView />}

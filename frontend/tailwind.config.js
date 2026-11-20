@@ -5,6 +5,9 @@ const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
 
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  // hover: styles only on devices that can hover, so a tapped button on a
+  // phone doesn't stay stuck in its hover colour
+  future: { hoverOnlyWhenSupported: true },
   theme: {
     extend: {
       colors: {

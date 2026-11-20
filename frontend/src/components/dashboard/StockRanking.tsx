@@ -89,8 +89,8 @@ export default function StockRanking() {
   }, [settings.active_index, order]);
 
   return (
-    <div className="bg-surface rounded-panel border border-border p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="bg-surface rounded-panel border border-border p-3 md:p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h2 className="text-ink font-bold text-base">
           Stock ranking by sector
           <span className="ml-2 text-xs text-muted font-normal">{settings.active_index} · live</span>
@@ -102,7 +102,7 @@ export default function StockRanking() {
       {!groups.length ? (
         <p className="text-muted text-xs">Waiting for market data…</p>
       ) : (
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-3 max-h-[480px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 max-h-[70dvh] md:max-h-[480px] overflow-y-auto overscroll-contain md:pr-1">
           {groups.map(g => <SectorCard key={g.sector} g={g} />)}
         </div>
       )}

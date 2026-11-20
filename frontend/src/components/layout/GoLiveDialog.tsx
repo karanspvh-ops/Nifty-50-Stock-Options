@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckCircle, XCircle, Warning, X, CircleNotch } from '@phosphor-icons/react';
 import type { LiveStatus } from './useLiveStatus';
 
@@ -54,17 +55,19 @@ export default function GoLiveDialog({
     setBusy(false);
   };
 
-  return (
+  // Portalled to <body>: the header's backdrop-filter would otherwise trap
+  // this fixed overlay inside the header box.
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/25"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2 sm:p-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-ink/25"
       style={{ backdropFilter: 'blur(6px)' }}
       onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="golive-title"
     >
-      <div className="glass-strong rise-in w-full max-w-[460px] rounded-panel overflow-hidden">
-        <div className="flex items-start gap-3 px-6 pt-5 pb-4">
+      <div className="glass-strong rise-in w-full max-w-[460px] max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-panel">
+        <div className="flex items-start gap-3 px-4 sm:px-6 pt-5 pb-4">
           <div className="flex-1">
             <h2 id="golive-title" className="text-xl font-bold text-ink">
               {live ? `Move ${NAMES[tag]} back to paper` : `Take ${NAMES[tag]} live`}
@@ -81,7 +84,7 @@ export default function GoLiveDialog({
         </div>
         <div className="accent-rule" />
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-4 sm:px-6 py-4 space-y-4">
           {!live && (
             <ul className="space-y-2">
               {(status?.readiness ?? []).map(c => (
@@ -140,7 +143,7 @@ export default function GoLiveDialog({
           {err && <p className="text-sm text-down">{err}</p>}
         </div>
 
-        <div className="flex justify-end gap-2 px-6 py-4 bg-bg/70 border-t border-border">
+        <div className="flex justify-end gap-2 px-4 sm:px-6 py-4 bg-bg/70 border-t border-border">
           <button onClick={onClose} className="pressable px-4 py-2 rounded-control text-sm font-semibold text-ink2 hover:bg-ink/5">
             Cancel
           </button>
@@ -164,5 +167,5 @@ export default function GoLiveDialog({
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }

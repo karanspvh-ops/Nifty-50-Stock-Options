@@ -35,7 +35,7 @@ function fmtPnL(v: number) {
 
 function PnLStat({ label, value, count, color }: { label: string; value: number; count: number; color: string }) {
   return (
-    <div className={`flex flex-col px-4 py-2 rounded-control border ${color}`}>
+    <div className={`min-w-0 flex flex-col px-3 md:px-4 py-2 rounded-control border ${color}`}>
       <div className="text-xs font-semibold mb-0.5 opacity-70">{label}</div>
       <div className={`font-bold text-base ${pnlColor(value)}`}>{fmtPnL(value)}</div>
       <div className="text-[12px] opacity-50">{count} trade{count !== 1 ? 's' : ''}</div>
@@ -124,16 +124,16 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
   const visible = filter === 'ALL' ? rangedTrades : rangedTrades.filter(t => getStrategy(t.entry_logic) === filter);
 
   return (
-    <div className="bg-surface rounded-panel border border-border p-4 space-y-4">
+    <div className="bg-surface rounded-panel border border-border p-3 md:p-4 space-y-3 md:space-y-4">
 
       {/* ── PnL stat cards ── */}
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 md:gap-3">
         <PnLStat label="Early Scalp [ES]"       value={esPnL} count={esTrades.length} color="border-es/30 bg-es/5" />
         <PnLStat label="Opening Breakout [OB]"   value={obPnL} count={obTrades.length} color="border-teal/30 bg-teal/5" />
         {teTrades.length > 0 && (
           <PnLStat label="Trading Engine [TE]"   value={tePnL} count={teTrades.length} color="border-border bg-border/10" />
         )}
-        <div className="flex flex-col px-4 py-2 rounded-control border border-border bg-white/5 ml-auto">
+        <div className="col-span-2 sm:col-span-1 flex flex-col px-3 md:px-4 py-2 rounded-control border border-border bg-white/5 sm:ml-auto">
           <div className="text-xs font-semibold mb-0.5 text-muted">Net PnL</div>
           <div className={`font-bold text-xl ${pnlColor(netPnL)}`}>{fmtPnL(netPnL)}</div>
           <div className="text-[12px] text-muted">
@@ -145,12 +145,12 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
       {/* Per-day breakdown removed — this view always shows today only */}
 
       {/* ── Strategy filter tabs ── */}
-      <div className="flex gap-2">
+      <div className="scroll-x -mx-3 px-3 md:mx-0 md:px-0 flex gap-2">
         {(['ALL', 'ES', 'OB', 'TE'] as const).map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`text-[12.5px] px-3 py-1 rounded font-semibold transition-colors ${
+            className={`pressable shrink-0 whitespace-nowrap text-[12.5px] px-3 h-9 md:h-7 rounded-full font-semibold ${
               filter === f
                 ? f === 'ES' ? 'bg-es/30 text-es border border-es/50'
                   : f === 'OB' ? 'bg-teal/30 text-teal border border-teal/50'
@@ -172,15 +172,15 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
         <p className="text-muted text-xs">No trades for this range.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left whitespace-nowrap">
             <thead>
               <tr className="text-muted text-xs font-semibold border-b border-border">
-                <th className="px-3 pb-2">#</th>
+                <th className="hidden md:table-cell px-3 pb-2">#</th>
                 <th className="px-3 pb-2">Strategy</th>
                 <th className="px-3 pb-2">Symbol</th>
                 <th className="px-3 pb-2">Dir</th>
-                <th className="px-3 pb-2">Contract</th>
-                <th className="px-3 pb-2">Qty</th>
+                <th className="hidden sm:table-cell px-3 pb-2">Contract</th>
+                <th className="hidden sm:table-cell px-3 pb-2">Qty</th>
                 <th className="px-3 pb-2">Entry</th>
                 <th className="px-3 pb-2">LTP / Exit</th>
                 <th className="px-3 pb-2">PnL</th>
@@ -199,7 +199,7 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                       className="border-b border-border/50 hover:bg-border/20 cursor-pointer"
                       onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                     >
-                      <td className="px-3 py-2 text-muted text-xs">{t.id}</td>
+                      <td className="hidden md:table-cell px-3 py-2 text-muted text-xs">{t.id}</td>
                       <td className="px-3 py-2">
                         <span className={`text-[12px] px-1.5 py-0.5 rounded font-bold tracking-wide
                           ${strat === 'ES' ? 'bg-es/20 text-es'
@@ -215,11 +215,11 @@ export default function TradeTable({ env }: { env: 'paper' | 'live' }) {
                           {t.direction?.toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-[12.5px] text-ink font-mono">
+                      <td className="hidden sm:table-cell px-3 py-2 text-[12.5px] text-ink font-mono">
                         {t.strike ? `${t.strike} ${t.option_type || ''}` : (t.option_symbol || '—')}
                         {t.expiry && <span className="text-muted ml-1">{t.expiry.slice(5)}</span>}
                       </td>
-                      <td className="px-3 py-2 text-[12.5px] text-ink font-mono">
+                      <td className="hidden sm:table-cell px-3 py-2 text-[12.5px] text-ink font-mono">
                         {t.quantity != null && t.lot_size != null
                           ? <>{t.quantity}×{t.lot_size}<span className="text-muted ml-1">={t.quantity * t.lot_size}</span></>
                           : '—'}

@@ -23,7 +23,7 @@ export default function SectorBarChart() {
   if (!data.length) return null;
 
   return (
-    <div className="bg-surface rounded-panel border border-border p-4">
+    <div className="bg-surface rounded-panel border border-border p-3 md:p-4">
       <h2 className="text-ink font-bold text-base mb-3">
         Sector Momentum
         <span className="ml-2 text-xs text-muted font-normal">avg % move today</span>
@@ -52,7 +52,7 @@ export default function SectorBarChart() {
             labelStyle={{ color: 'rgb(22 24 29)', fontSize: 12, fontWeight: 600 }}
             formatter={tooltipFormatter}
           />
-          <ReferenceLine y={0} stroke="rgb(168 124 34 / 0.6)" />
+          <ReferenceLine y={0} stroke="rgb(65 105 176 / 0.6)" />
           <Bar dataKey="pct" radius={[2, 2, 2, 2]} maxBarSize={35} isAnimationActive={false}>
             {data.map((entry, i) => (
               <Cell key={i} fill={entry.pct >= 0 ? 'rgb(11 125 69)' : 'rgb(196 43 35)'} />

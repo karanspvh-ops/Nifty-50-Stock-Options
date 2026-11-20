@@ -8,7 +8,7 @@ export default function Segmented<T extends string>({
   label: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-bg border border-border">
+    <div role="radiogroup" aria-label={label} className="scroll-x inline-flex max-w-full items-center gap-0.5 p-0.5 rounded-full bg-bg border border-border">
       {options.map(o => {
         const on = o.key === value;
         return (
@@ -17,7 +17,7 @@ export default function Segmented<T extends string>({
             role="radio"
             aria-checked={on}
             onClick={() => onChange(o.key)}
-            className={`pressable h-7 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap
+            className={`pressable shrink-0 h-9 md:h-7 px-3.5 rounded-full text-xs font-semibold whitespace-nowrap
               ${on ? 'btn-primary' : 'text-ink2 hover:text-ink hover:bg-white/80'}`}
           >
             {o.label}

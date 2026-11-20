@@ -23,7 +23,7 @@ function SectorBlock({ name, data }: { name: string; data: SectorData }) {
       }}
     >
       <div className="flex items-center justify-between">
-        <span className="text-ink font-bold text-xs font-semibold">{name}</span>
+        <span className="text-ink font-bold text-xs truncate">{name}</span>
         <span className={`text-xs font-semibold ${pct >= 0 ? 'text-up' : 'text-down'}`}>
           {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
         </span>
@@ -57,12 +57,12 @@ export default function SectorHeatmap() {
 
   if (!sectors.length) {
     return (
-      <div className="bg-surface rounded-panel border border-border p-4">
+      <div className="bg-surface rounded-panel border border-border p-3 md:p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-ink font-bold text-base">Sector Scope</h2>
           <span className="text-muted text-xs">Waiting for market data…</span>
         </div>
-        <div className="grid grid-cols-4 gap-2 h-40 animate-pulse">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 h-40 animate-pulse">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="bg-border rounded-control" />
           ))}
@@ -72,14 +72,14 @@ export default function SectorHeatmap() {
   }
 
   return (
-    <div className="bg-surface rounded-panel border border-border p-4">
+    <div className="bg-surface rounded-panel border border-border p-3 md:p-4">
       <h2 className="text-ink font-bold text-base mb-3">
         Sector Scope
         <span className="ml-2 text-xs text-muted font-normal">
           {sectors.length} sectors · live
         </span>
       </h2>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {sectors.map(([name, data]) => (
           <SectorBlock key={name} name={name} data={data} />
         ))}

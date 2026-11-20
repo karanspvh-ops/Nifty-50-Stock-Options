@@ -44,6 +44,11 @@ html, body, #root {
   padding: 0;
   overflow: hidden;
 }
+/* Dynamic viewport height: on phones the browser's toolbars come and go;
+   100dvh tracks the visible area so the bottom tab bar is never hidden. */
+#root { height: 100dvh; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 
 body {
   background: rgb(var(--canvas));
@@ -105,7 +110,30 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
       0 -1px 0 rgb(var(--spvh-700) / 0.4) inset,
       0 6px 16px -6px rgb(var(--spvh-600) / 0.55);
   }
-  .btn-primary:hover { filter: brightness(1.06); }
+  @media (hover: hover) {
+    .btn-primary:hover { filter: brightness(1.06); }
+  }
+
+  /* Page body: tighter gutters on phones, contained on very wide screens */
+  .page {
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 12px 20px;
+  }
+  @media (min-width: 640px)  { .page { padding: 16px 16px 24px; } }
+  @media (min-width: 768px)  { .page { padding: 20px 24px 28px; } }
+  .page-inner { max-width: 1760px; margin-inline: auto; }
+
+  /* Horizontal scroller for wide tables and chip rows: no visible bar on touch */
+  .scroll-x {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar { display: none; }
 
   .pressable {
     transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
@@ -154,6 +182,10 @@ h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--spvh-500) / 0.55); }
 
 input, select, textarea { color: rgb(var(--ink)); }
+/* iOS zooms the page into any field under 16px; keep phone fields at 16px */
+@media (max-width: 767px) {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
+}
 input::placeholder, textarea::placeholder { color: rgb(var(--muted)); }
 
 @keyframes live-pulse {
