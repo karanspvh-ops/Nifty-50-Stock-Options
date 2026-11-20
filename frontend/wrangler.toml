@@ -27,4 +27,4 @@ database_id = "51a2b286-c5c8-486d-97f4-cf5507170921"
 
 # Every minute 08:30-16:29 IST on weekdays; the collector itself keeps to 09:15-15:30
 [triggers]
-crons = ["* 3-10 * * 1-5"]
+crons = ["* 3-10 * * MON-FRI"]
