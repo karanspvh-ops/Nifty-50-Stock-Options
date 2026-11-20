@@ -1,87 +1,126 @@
 import { useState } from 'react';
+import { WifiHigh, WifiSlash, WarningOctagon } from '@phosphor-icons/react';
 import { useMarketStore } from '../../store/marketStore';
+import GoLiveDialog from './GoLiveDialog';
+import ChecksPill from './ChecksPill';
+import { useLiveStatus } from './useLiveStatus';
+import { useDesk } from '../../hooks/useDesk';
 
-const API = 'http://localhost:8000';
+function StrategySwitch({ tag, label, short, live, onClick, disabled, className = '' }: {
+  tag: 'ES' | 'OB'; label: string; short: string; live: boolean; onClick: () => void;
+  disabled?: boolean; className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={`${label}: ${live ? 'live' : 'paper'}`}
+      title={disabled ? 'Unavailable while the office PC is offline'
+        : live ? `${label} is placing real orders. Click to move back to paper.` : `${label} is on paper. Click to go live.`}
+      className={`pressable disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 h-11 md:h-10 pl-3 pr-1 rounded-full border
+        ${live ? 'glass-pill border-spvh-400/70' : 'glass-pill border-transparent hover:border-spvh-300/70'} ${className}`}
+    >
+      <span className={`text-sm font-bold ${tag === 'ES' ? 'text-es' : 'text-teal'}`}>{tag}</span>
+      <span className="text-xs text-muted truncate md:hidden">{short}</span>
+      <span className="text-xs text-muted hidden xl:inline">{label}</span>
+      <span
+        className={`ml-auto md:ml-0 flex items-center gap-1.5 h-9 md:h-8 px-3 rounded-full text-xs font-bold tracking-wide shrink-0
+          ${live ? 'btn-primary' : 'glass-track text-ink2'}`}
+      >
+        {live && <span className="live-dot w-2 h-2 rounded-full bg-down" />}
+        {live ? 'LIVE' : 'PAPER'}
+      </span>
+    </button>
+  );
+}
 
 export default function Header() {
-  const { settings, setSettings, feedHealth } = useMarketStore();
-  const [saving, setSaving] = useState(false);
+  const { settings, feedHealth, haltStatus } = useMarketStore();
+  const { status, refresh } = useLiveStatus();
+  const [dialog, setDialog] = useState<'ES' | 'OB' | null>(null);
 
-  const patch = async (key: string, value: unknown) => {
-    setSettings({ [key]: value } as any);
-    setSaving(true);
-    await fetch(`${API}/api/settings`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [key]: value }),
-    });
-    setSaving(false);
-  };
+  const d = useDesk();
+  // Team site with the office PC offline: the last saved feed state must not read as live
+  const connected = feedHealth.connected && d.online;
+  const lastTick = feedHealth.last_tick ? new Date(feedHealth.last_tick).toLocaleTimeString('en-IN', { hour12: false }) : null;
+  const savedAt = d.savedAt ? new Date(d.savedAt).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
+  const feedTitle = connected ? 'Live price feed connected' : d.online ? 'Live price feed disconnected' : 'Office PC offline: showing the last saved data';
 
-  const toggleLive = () => patch('is_live', !settings.is_live);
+  const switches = (cls: string) => (
+    <>
+      <StrategySwitch tag="ES" label="Early Scalp" short="Early Scalp" live={settings.es_live} disabled={!d.online}
+        onClick={() => setDialog('ES')} className={cls} />
+      <StrategySwitch tag="OB" label="Opening Breakout" short="Breakout" live={settings.ob_live} disabled={!d.online}
+        onClick={() => setDialog('OB')} className={cls} />
+    </>
+  );
 
   return (
-    <header className="h-14 flex items-center gap-2 px-3 bg-surface border-b border-border shrink-0 overflow-hidden">
+    <header className="glass z-30 pt-[env(safe-area-inset-top)] md:pt-0 md:rounded-[22px]">
+      <div className="flex items-center gap-3 md:gap-4 h-14 md:h-16 px-3 sm:px-4 md:px-5">
+        {/* Brand: mark on phones (no rail there), full wordmark on desktop */}
+        <img src={`${import.meta.env.BASE_URL}spvh-mark.png`} alt="SPVH" className="md:hidden w-8 h-8 object-contain select-none" draggable={false} />
+        <img src={`${import.meta.env.BASE_URL}spvh-wordmark.png`} alt="SPVH Asset and Investment Management" className="hidden lg:block h-8 w-auto select-none" draggable={false} />
+        <div className="hidden lg:block w-px h-8 bg-border" />
 
-      {/* Feed indicator */}
-      <div className={`w-2 h-2 rounded-full shrink-0 ${feedHealth.connected ? 'bg-up' : 'bg-down'} animate-pulse`} />
-
-      {/* Index selector */}
-      <select
-        value={settings.active_index}
-        onChange={e => patch('active_index', e.target.value)}
-        className="bg-bg border border-border text-xs text-white rounded px-2 py-1 shrink-0"
-      >
-        <option value="NIFTY50">NIFTY 50</option>
-        <option value="NIFTY100">NIFTY 100</option>
-        <option value="NIFTY200">NIFTY 200</option>
-      </select>
-
-      <div className="flex-1 min-w-2" />
-
-      {/* Settings inputs */}
-      {[
-        { label: 'Funds',     key: 'available_funds',   type: 'number', step: 1000, w: 'w-24' },
-        { label: 'Target %',  key: 'target_profit_pct', type: 'number', step: 1,    w: 'w-14' },
-        { label: 'Trade SL%', key: 'trade_sl_pct',      type: 'number', step: 0.5,  w: 'w-14' },
-        { label: 'Port SL%',  key: 'portfolio_sl_pct',  type: 'number', step: 1,    w: 'w-14' },
-      ].map(f => (
-        <div key={f.key} className="flex flex-col items-center gap-0.5 shrink-0">
-          <span className="text-muted text-[9px] uppercase tracking-wider whitespace-nowrap">{f.label}</span>
-          <input
-            type={f.type}
-            step={f.step}
-            value={(settings as any)[f.key]}
-            onChange={e => patch(f.key, parseFloat(e.target.value))}
-            className={`${f.w} bg-bg border border-border text-white text-xs rounded px-1.5 py-1 text-center`}
-          />
+        <div className="min-w-0">
+          <div className="text-[15px] font-bold text-ink leading-tight">Options Desk</div>
+          {/* Phones: the feed state lives here, under the name */}
+          <div className="md:hidden flex items-center gap-1.5 text-xs leading-tight min-w-0" title={feedTitle}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-up live-dot' : 'bg-down'}`} />
+            <span className={`font-semibold shrink-0 ${connected ? 'text-up' : 'text-down'}`}>
+              {connected ? 'Feed live' : d.online ? 'Feed disconnected' : 'Office PC offline'}
+            </span>
+            {connected && lastTick && <span className="text-muted truncate">· {lastTick}</span>}
+            {!d.online && savedAt && <span className="text-muted truncate">· {savedAt}</span>}
+          </div>
+          <div className="hidden lg:block text-xs text-muted leading-tight">NSE F&amp;O · ~211 option stocks</div>
         </div>
-      ))}
 
-      {/* Dynamic SL toggle */}
-      <div className="flex flex-col items-center gap-0.5 shrink-0">
-        <span className="text-muted text-[9px] uppercase tracking-wider">Dyn SL</span>
-        <button
-          onClick={() => patch('dynamic_sl_enabled', !settings.dynamic_sl_enabled)}
-          className={`w-10 h-5 rounded-full transition-colors relative ${settings.dynamic_sl_enabled ? 'bg-accent' : 'bg-border'}`}
+        <div
+          className={`hidden md:flex items-center gap-2 h-8 px-3 rounded-full text-xs font-semibold min-w-0
+            ${connected ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}
+          title={feedTitle}
         >
-          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${settings.dynamic_sl_enabled ? 'left-5' : 'left-0.5'}`} />
-        </button>
+          {connected ? <WifiHigh size={15} weight="bold" className="shrink-0" /> : <WifiSlash size={15} weight="bold" className="shrink-0" />}
+          <span className="shrink-0">{connected ? 'Feed live' : 'Feed disconnected'}</span>
+          {connected && lastTick && <span className="font-normal text-muted hidden lg:inline">· {lastTick}</span>}
+          {!d.online && savedAt && <span className="font-normal text-muted truncate">· data as of {savedAt}</span>}
+        </div>
+
+        <div className="ml-auto md:ml-0">
+          <ChecksPill />
+        </div>
+
+        {haltStatus.halted && (
+          <div className="hidden md:flex items-center gap-1.5 h-8 px-3 rounded-full bg-down text-white text-xs font-bold min-w-0">
+            <WarningOctagon size={15} weight="fill" className="shrink-0" />
+            <span className="truncate">Trading halted: {haltStatus.reason}</span>
+          </div>
+        )}
+
+        <div className="hidden md:block flex-1" />
+        <div className="hidden md:flex items-center gap-2 lg:gap-3">{switches('')}</div>
       </div>
 
-      {/* LIVE toggle */}
-      <button
-        onClick={toggleLive}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-semibold text-sm transition-all shrink-0
-          ${settings.is_live
-            ? 'bg-down text-white shadow-[0_0_12px_rgba(239,68,68,0.5)]'
-            : 'bg-surface border border-border text-muted hover:border-accent'}`}
-      >
-        <span className={`w-2 h-2 rounded-full ${settings.is_live ? 'bg-white animate-pulse' : 'bg-muted'}`} />
-        {settings.is_live ? 'LIVE' : 'PAPER'}
-      </button>
+      {/* Phones: live/paper state for both strategies, full width under the bar */}
+      <div className="md:hidden grid grid-cols-2 gap-2 px-3 sm:px-4 pb-2.5">{switches('w-full min-w-0')}</div>
+      {haltStatus.halted && (
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 bg-down text-white text-sm font-bold">
+          <WarningOctagon size={16} weight="fill" className="shrink-0" />
+          <span className="min-w-0">Trading halted: {haltStatus.reason}</span>
+        </div>
+      )}
 
-      {saving && <span className="text-muted text-[10px] shrink-0">saving…</span>}
+      {dialog && (
+        <GoLiveDialog
+          tag={dialog}
+          status={status}
+          funds={settings.available_funds || 0}
+          onClose={() => setDialog(null)}
+          onDone={refresh}
+        />
+      )}
     </header>
   );
 }

@@ -72,6 +72,16 @@ def stop_risk_engine():
     return {"status": "stopped"}
 
 
+# ── Manual halt override ───────────────────────────────────────────────────
+
+@router.post("/resume")
+def resume_trading():
+    """Manually clear a trading halt (e.g. after portfolio SL override)."""
+    from backend.core.market_state import market
+    market.resume_trading()
+    return {"status": "resumed", "halted": market.is_trading_halted()}
+
+
 # ── Volume Profile on demand ───────────────────────────────────────────────
 
 @router.get("/volume-profile/{token}")

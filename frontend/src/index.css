@@ -2,19 +2,312 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Tokens ────────────────────────────────────────────────────────────────
+   White canvas, frosted-glass panels, SPVH brand blue for highlights and
+   primary actions. Text tokens are checked for WCAG AA on white:
+   ink 17.8:1 · ink-2 10.4:1 · muted 6.1:1 · spvh-600 7.0:1 · up 5.2:1 · down 5.7:1
+   (Liquid-glass here is a web approximation: backdrop-filter + layered
+   borders + highlights. Apple's material itself exists only on Apple platforms.) */
+:root {
+  --canvas:  255 255 255;
+  --inset:   244 245 247;
+  --surface: 255 255 255;
+  --line:    227 229 234;
+  --ink:     22 24 29;
+  --ink-2:   59 64 75;
+  --muted:   92 98 112;
+  --faint:   134 140 153;
+  --up:      11 125 69;
+  --down:    196 43 35;
+  --warn:    154 91 0;
+  --brand:   65 105 176;
+  --teal:    26 122 105;
+
+  --es:      106 79 176;   /* Early Scalp identity (muted violet) */
+
+  /* SPVH brand blue: the accent. White text on 500/600/700 passes AA (5.4 / 7.0 / 9.0) */
+  --spvh-50:  242 245 251;
+  --spvh-100: 225 232 245;
+  --spvh-300: 169 188 227;
+  --spvh-400: 111 143 208;
+  --spvh-500: 65 105 176;
+  --spvh-600: 52 88 154;
+  --spvh-700: 42 72 128;
+
+  color-scheme: light;
+}
+
 html, body, #root {
   width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
-  background: #0f172a;
-  color: #e2e8f0;
-  font-family: 'Segoe UI', system-ui, Roboto, sans-serif;
   overflow: hidden;
 }
+/* Dynamic viewport height: on phones the browser's toolbars come and go;
+   100dvh tracks the visible area so the bottom tab bar is never hidden. */
+#root { height: 100dvh; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font-family: Calibri, Carlito, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ambient light behind the glass. Glass only reads as glass when there is
+   something behind it to bend: soft fields of SPVH blue, teal and the ES
+   violet sit under a white page. Static on purpose -- moving light would
+   force every glass surface to re-blur each frame, which phones can't afford. */
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 65% at 0% 0%, rgb(var(--spvh-400) / 0.42), transparent 70%),
+    radial-gradient(100% 55% at 100% 32%, rgb(var(--teal) / 0.24), transparent 70%),
+    radial-gradient(115% 60% at 6% 100%, rgb(var(--es) / 0.24), transparent 70%),
+    radial-gradient(100% 55% at 100% 100%, rgb(var(--spvh-500) / 0.30), transparent 72%),
+    rgb(var(--canvas));
+}
+#root > * { position: relative; z-index: 1; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #1e293b; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+h1, h2, h3 { text-wrap: balance; letter-spacing: -0.005em; }
+
+/* ── Liquid glass ─────────────────────────────────────────────────────────
+   A web approximation of Apple's material (the real one exists only on Apple
+   platforms): a thin translucent body, a strong blur that lifts the colour of
+   what's beneath (saturate), a specular rim brightest along the top-left edge,
+   an inner glow for thickness, and a soft tinted shadow for lift.
+
+   --lg-rim draws the rim as a 1px gradient ring through a mask, so it sits on
+   the element's own edge whatever its radius. */
+:root {
+  --lg-rim: linear-gradient(140deg,
+      rgb(255 255 255 / 0.98) 0%, rgb(255 255 255 / 0.55) 18%,
+      rgb(255 255 255 / 0.10) 45%, rgb(255 255 255 / 0.05) 60%,
+      rgb(255 255 255 / 0.55) 88%, rgb(255 255 255 / 0.85) 100%);
+  --lg-lift: 0 1px 2px rgb(30 50 90 / 0.06), 0 14px 34px -14px rgb(30 50 90 / 0.24);
+  --lg-inner:
+    inset 0 1px 0 rgb(255 255 255 / 0.85),
+    inset 0 -1px 0 rgb(255 255 255 / 0.30),
+    inset 0 0 22px rgb(255 255 255 / 0.28),
+    inset 0 0 0 0.5px rgb(22 24 29 / 0.05);
+  /* Height of the floating chrome (header + banners), measured by App */
+  --chrome-h: 64px;
+  --tabbar-h: 0px;
+}
+@media (max-width: 767px) {
+  /* floating tab bar: 64px capsule + gap + home indicator */
+  :root { --tabbar-h: calc(64px + max(10px, env(safe-area-inset-bottom)) + 8px); }
+}
+
+@layer components {
+  /* Bars that float over scrolling content: the thinnest, most refractive glass */
+  .glass {
+    position: relative;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.46));
+    -webkit-backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
+    backdrop-filter: blur(26px) saturate(200%) brightness(1.04);
+    box-shadow: var(--lg-inner), var(--lg-lift);
+  }
+  /* Popovers and dialogs: denser so long text stays easy to read */
+  .glass-strong {
+    position: relative;
+    background: linear-gradient(170deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.74));
+    -webkit-backdrop-filter: blur(32px) saturate(190%);
+    backdrop-filter: blur(32px) saturate(190%);
+    box-shadow: var(--lg-inner), 0 2px 6px rgb(30 50 90 / 0.08), 0 28px 64px -20px rgb(22 24 29 / 0.32);
+  }
+  .glass::before, .glass-strong::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--lg-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* The selection "lens": a drop of tinted glass that slides between items */
+  .glass-lens {
+    background: linear-gradient(180deg, rgb(var(--spvh-500) / 0.16), rgb(var(--spvh-500) / 0.10));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.75),
+      inset 0 -1px 0 rgb(255 255 255 / 0.25),
+      inset 0 0 0 0.5px rgb(var(--spvh-500) / 0.22),
+      0 6px 16px -8px rgb(var(--spvh-600) / 0.35);
+    transition: transform 420ms cubic-bezier(0.32, 0.72, 0, 1), width 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  /* Segmented thumb: raised clear glass, like iOS */
+  .glass-thumb {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.96), rgb(255 255 255 / 0.82));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 1),
+      0 0 0 0.5px rgb(22 24 29 / 0.08),
+      0 3px 10px -2px rgb(30 50 90 / 0.22);
+    transition: transform 380ms cubic-bezier(0.32, 0.72, 0, 1), width 380ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  /* Recessed track behind segmented controls */
+  .glass-track {
+    background: rgb(22 24 29 / 0.055);
+    box-shadow: inset 0 1px 2px rgb(22 24 29 / 0.06), inset 0 0 0 0.5px rgb(22 24 29 / 0.05);
+  }
+  /* Small controls sitting on glass: no blur of their own (nested blurs
+     render inconsistently in Safari), just clear glass shading */
+  .glass-pill {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.50));
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.95),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.6),
+      0 0 0 0.5px rgb(22 24 29 / 0.08),
+      0 4px 12px -6px rgb(30 50 90 / 0.22);
+  }
+
+  /* Primary action: SPVH blue glass with white text (5.4:1+) */
+  .btn-primary {
+    background: linear-gradient(180deg, rgb(var(--spvh-400)) -20%, rgb(var(--spvh-500)) 45%, rgb(var(--spvh-600)));
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.45),
+      inset 0 -1px 0 rgb(var(--spvh-700) / 0.45),
+      inset 0 0 12px rgb(255 255 255 / 0.10),
+      0 6px 16px -6px rgb(var(--spvh-600) / 0.55);
+  }
+  @media (hover: hover) {
+    .btn-primary:hover { filter: brightness(1.06); }
+  }
+
+  /* Page body: content scrolls beneath the floating header and tab bar */
+  .page {
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: calc(var(--chrome-h) + 12px) 12px calc(var(--tabbar-h) + 16px);
+    scroll-padding-top: calc(var(--chrome-h) + 12px);
+  }
+  @media (min-width: 640px)  { .page { padding: calc(var(--chrome-h) + 16px) 16px calc(var(--tabbar-h) + 24px); } }
+  @media (min-width: 768px)  { .page { padding: calc(var(--chrome-h) + 16px) 12px 24px; } }
+  .page-inner { max-width: 1760px; margin-inline: auto; }
+
+  /* Horizontal scroller for wide tables and chip rows: no visible bar on touch */
+  .scroll-x {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar { display: none; }
+
+  .pressable {
+    transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+                background-color 160ms ease, border-color 160ms ease,
+                color 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+  }
+  .pressable:active:not(:disabled) { transform: scale(0.96); }
+
+  .accent-rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgb(var(--spvh-500) / 0.6), transparent);
+  }
+}
+
+/* Every bg-surface panel is a glass sheet, without per-file edits. */
+.bg-surface {
+  position: relative;
+  background: linear-gradient(165deg, rgb(255 255 255 / 0.66), rgb(255 255 255 / 0.48)) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) brightness(1.03);
+  backdrop-filter: blur(24px) saturate(190%) brightness(1.03);
+  border-color: rgb(255 255 255 / 0.5) !important;
+}
+.rounded-panel.bg-surface,
+.rounded-control.bg-surface,
+.rounded-xl.bg-surface,
+.rounded-2xl.bg-surface {
+  box-shadow: var(--lg-inner), var(--lg-lift);
+}
+.rounded-panel.bg-surface::before,
+.rounded-control.bg-surface::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--lg-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+/* Wells inside glass (table heads, inset cards) stay translucent too */
+.bg-surface .bg-bg { background-color: rgb(255 255 255 / 0.42); }
+
+/* Focus that is visible on white and on blue */
+:focus-visible {
+  outline: 2px solid rgb(var(--spvh-500));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection { background: rgb(var(--spvh-300) / 0.6); color: rgb(var(--ink)); }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--ink) / 0.14);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: rgb(var(--spvh-500) / 0.55); }
+
+input, select, textarea { color: rgb(var(--ink)); }
+/* iOS zooms the page into any field under 16px; keep phone fields at 16px */
+@media (max-width: 767px) {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px; }
+}
+input::placeholder, textarea::placeholder { color: rgb(var(--muted)); }
+
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--down) / 0.45); }
+  50%      { box-shadow: 0 0 0 5px rgb(var(--down) / 0); }
+}
+.live-dot { animation: live-pulse 1.8s ease-out infinite; }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.rise-in { animation: rise-in 220ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Reduce transparency (Windows "Transparency effects" off, iOS Reduce
+   Transparency): the glass keeps its blur, rim and depth but lets less of
+   the background through, so text always sits on a calm surface. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass        { background: linear-gradient(180deg, rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.74)); }
+  .glass-strong { background: rgb(255 255 255 / 0.93); }
+  .bg-surface   { background: linear-gradient(165deg, rgb(255 255 255 / 0.82), rgb(255 255 255 / 0.70)) !important; }
+}
+

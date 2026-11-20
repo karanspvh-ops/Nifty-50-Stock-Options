@@ -39,8 +39,8 @@ class TickEngine:
 
     # ── Token list ────────────────────────────────────────────────────────────
     def _stock_tokens(self) -> list:
-        # Always stream the full NIFTY200 superset; index switch is a view filter.
-        stocks = get_stocks_for_index("NIFTY200")
+        # Stream the full F&O-tradable universe (NIFTY 200 + extras = ~211 stocks).
+        stocks = get_stocks_for_index("FNO")
         toks = []
         for s in stocks:
             try:
@@ -55,6 +55,19 @@ class TickEngine:
         self._subscribed_tokens = toks
         ws.subscribe(toks)
         ws.set_mode(ws.MODE_QUOTE, toks)   # QUOTE: ltp + ohlc + volume
+
+        # Re-subscribe every dynamically-added option/index token too -- this fires
+        # on EVERY reconnect (including after the machine wakes from sleep, not just
+        # the first connect), and previously only the base stock universe came back.
+        # Found via the NIFTY collector's index candles silently going stale after a
+        # laptop-sleep reconnect on 3 Sep while everything else (stocks, ES/OB) kept
+        # working fine -- this was the actual cause, not the collector itself.
+        if self._option_meta:
+            opt_toks = [int(t) for t in self._option_meta.keys()]
+            ws.subscribe(opt_toks)
+            ws.set_mode(ws.MODE_FULL, opt_toks)   # FULL: includes the 5-level order book
+            print(f"[TICK ENGINE] Re-subscribed {len(opt_toks)} option/index contracts after (re)connect.")
+
         market.set_feed_reconnected()
         print(f"[TICK ENGINE] Connected. Subscribed to {len(toks)} stocks.")
 
@@ -72,9 +85,23 @@ class TickEngine:
                 meta   = get_meta(token)
                 symbol = meta.get("symbol") or self._option_meta.get(token, {}).get("symbol") or token
                 market.update_tick(token, ltp, vol, prev_close, ts)
+                depth = tk.get("depth")
+                if depth:
+                    buys, sells = depth.get("buy") or [], depth.get("sell") or []
+                    bid = float(buys[0]["price"]) if buys and buys[0].get("price") else None
+                    ask = float(sells[0]["price"]) if sells and sells[0].get("price") else None
+                    market.update_depth(token, bid, ask)
                 process_tick(token, symbol, ltp, vol, ts)
             except Exception as e:
                 print(f"[TICK ENGINE] tick parse error: {e}")
+
+    def _on_order_update(self, ws, data):
+        # Zerodha pushes every order status change here; the balance moves on
+        # these, so refresh the account straight away.
+        from backend.core.account_monitor import account_monitor
+        from backend.execution.live_orders import on_order_update
+        on_order_update(data)
+        account_monitor.poke()
 
     def _on_close(self, ws, code, reason):
         print(f"[TICK ENGINE] WebSocket closed: {code} {reason}")
@@ -110,7 +137,9 @@ class TickEngine:
         if new:
             try:
                 self._kws.subscribe(new)
-                self._kws.set_mode(self._kws.MODE_QUOTE, new)
+                # FULL mode carries bid/ask, so entries, exits and stop-loss
+                # checks read the order book from the feed, not the 1/s quote API
+                self._kws.set_mode(self._kws.MODE_FULL, new)
                 print(f"[TICK ENGINE] Subscribed {len(new)} option contracts.")
             except Exception as e:
                 print(f"[TICK ENGINE] option subscribe error: {e}")
@@ -119,12 +148,12 @@ class TickEngine:
     def _sector_loop(self):
         while self._running:
             try:
-                index   = get_active_index()
-                sectors = get_sectors_for_index(index)
+                index   = "FNO"                 # combined F&O-tradable universe…
+                sectors = get_sectors_for_index(index, fno_only=True)   # …F&O only
                 result  = {}
                 moves   = market.get_all_stock_moves()
                 for sector in sectors:
-                    stocks, pcts, lst = get_stocks_in_sector(sector, index), [], []
+                    stocks, pcts, lst = get_stocks_in_sector(sector, index, fno_only=True), [], []
                     for s in stocks:
                         mv = moves.get(s["token"])
                         if mv:
@@ -159,6 +188,7 @@ class TickEngine:
         self._kws.on_error        = self._on_error
         self._kws.on_reconnect    = self._on_reconnect
         self._kws.on_noreconnect  = self._on_noreconnect
+        self._kws.on_order_update = self._on_order_update
 
         market.set_feed_connected(True)
         self._kws.connect(threaded=True)       # background thread, non-blocking

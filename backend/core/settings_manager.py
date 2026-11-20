@@ -17,6 +17,8 @@ def get_settings() -> dict:
             return {}
         return {
             "is_live":             row.is_live,
+            "es_live":             bool(row.es_live),
+            "ob_live":             bool(row.ob_live),
             "available_funds":     row.available_funds,
             "target_profit_pct":   row.target_profit_pct,
             "trade_sl_pct":        row.trade_sl_pct,
@@ -35,7 +37,7 @@ def update_settings(payload: dict) -> dict:
     Only keys present in payload are updated.
     """
     allowed = {
-        "is_live", "available_funds", "target_profit_pct",
+        "is_live", "es_live", "ob_live", "available_funds", "target_profit_pct",
         "trade_sl_pct", "portfolio_sl_pct",
         "dynamic_sl_enabled", "active_index"
     }
@@ -61,6 +63,11 @@ def update_settings(payload: dict) -> dict:
 def is_live_mode() -> bool:
     s = get_settings()
     return s.get("is_live", False)
+
+
+def is_strategy_live(tag: str) -> bool:
+    """True when the given strategy ("ES" or "OB") should place real Zerodha orders."""
+    return bool(get_settings().get(f"{tag.lower()}_live", False))
 
 
 def get_trade_sl_pct() -> float:

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 
-const API = 'http://localhost:8000';
+import { API } from '../../lib/api';
 
 interface Tradable {
   symbol: string; token: string; sector: string;
@@ -13,12 +13,13 @@ interface Tradable {
 function fmtDuration(secs: number) {
   if (secs < 60) return `${secs}s`;
   const m = Math.floor(secs / 60), s = secs % 60;
-  return `${m}m ${s}s`;
+  return m < 60 ? `${m}m ${s}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-IN', { hour12: false });
 }
 
+/** Compact list of stocks currently meeting entry criteria: one dense row each. */
 export default function TradableSignals() {
   const [active, setActive] = useState<Tradable[]>([]);
   const prevTokens = useRef<Set<string>>(new Set());
@@ -29,7 +30,7 @@ export default function TradableSignals() {
       try {
         const res  = await fetch(`${API}/api/scanner/tradable/active`);
         const data: Tradable[] = await res.json();
-        // Detect newly-appeared tokens to flash
+        // Detect newly-appeared tokens to highlight briefly
         const now = new Set(data.map(d => d.token));
         const fresh = new Set([...now].filter(t => !prevTokens.current.has(t)));
         if (fresh.size) {
@@ -45,53 +46,69 @@ export default function TradableSignals() {
     return () => clearInterval(id);
   }, []);
 
+  // Strongest first: full score, then the longest-standing signals
+  const rows = [...active].sort((a, b) =>
+    b.entry_score / b.max_score - a.entry_score / a.max_score || b.live_secs - a.live_secs);
+  const calls = active.filter(t => t.direction === 'call').length;
+
   return (
-    <div className="bg-surface rounded-xl border border-border p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-white font-semibold text-sm flex items-center gap-2">
+    <div className="bg-surface rounded-panel border border-border overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 md:px-4 py-3 border-b border-border">
+        <h2 className="text-ink font-bold text-base flex flex-wrap items-baseline gap-x-2">
           Tradable Now
           <span className="text-xs text-muted font-normal">stocks meeting entry criteria</span>
         </h2>
-        <span className="flex items-center gap-1.5 text-xs">
-          <span className={`w-2 h-2 rounded-full ${active.length ? 'bg-up animate-pulse' : 'bg-muted'}`} />
-          <span className="text-muted">{active.length} live</span>
+        <span className="flex items-center gap-3 text-xs text-muted">
+          {active.length > 0 && (
+            <span><span className="text-up font-semibold">{calls} call</span> · <span className="text-down font-semibold">{active.length - calls} put</span></span>
+          )}
+          <span className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${active.length ? 'bg-up' : 'bg-faint'}`} />
+            {active.length} live
+          </span>
         </span>
       </div>
 
       {!active.length ? (
-        <p className="text-muted text-xs py-3">
-          No stocks currently meet the entry criteria. Watching the market…
-        </p>
+        <p className="text-muted text-sm px-3 md:px-4 py-4">No stocks meet the entry criteria right now.</p>
       ) : (
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2">
-          {active.map(t => (
-            <div
-              key={t.token}
-              className={`rounded-lg border p-3 transition-all duration-500
-                ${flash.has(t.token) ? 'border-up shadow-[0_0_14px_rgba(34,197,94,0.6)]' : 'border-border'}
-                ${t.direction === 'call' ? 'bg-up/5' : 'bg-down/5'}`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-white font-bold text-sm">{t.symbol}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold
-                  ${t.direction === 'call' ? 'bg-up/20 text-up' : 'bg-down/20 text-down'}`}>
-                  {t.direction.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-muted mb-1">
-                <span>{t.sector}</span>
-                <span className="text-accent font-semibold">{t.entry_score}/{t.max_score}</span>
-              </div>
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-muted">LTP</span>
-                <span className="text-white">{t.ltp ? `₹${t.ltp.toFixed(1)}` : '—'}</span>
-              </div>
-              <div className="mt-2 pt-2 border-t border-border/50 flex items-center justify-between text-[10px]">
-                <span className="text-muted">since {fmtTime(t.opened_at)}</span>
-                <span className="text-up font-semibold">▲ {fmtDuration(t.live_secs)}</span>
-              </div>
-            </div>
-          ))}
+        <div className="max-h-[300px] overflow-y-auto">
+          <table className="w-full text-sm tabular-nums whitespace-nowrap">
+            <thead className="sticky top-0 bg-white/95 backdrop-blur z-[1]">
+              <tr className="text-muted text-xs font-semibold border-b border-border">
+                <th className="text-left px-3 md:px-4 py-1.5">Stock</th>
+                <th className="hidden sm:table-cell text-left px-2 py-1.5">Sector</th>
+                <th className="text-right px-2 py-1.5">Score</th>
+                <th className="text-right px-2 py-1.5">LTP</th>
+                <th className="hidden sm:table-cell text-right px-2 py-1.5">Since</th>
+                <th className="text-right px-3 md:px-4 py-1.5">Live for</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(t => {
+                const call = t.direction === 'call';
+                const full = t.entry_score === t.max_score;
+                return (
+                  <tr key={t.token}
+                      className={`border-b border-border/50 transition-colors duration-700 ${flash.has(t.token) ? 'bg-spvh-100/80' : ''}`}>
+                    <td className="px-3 md:px-4 py-1.5">
+                      <span className="font-semibold text-ink">{t.symbol}</span>
+                      <span className={`ml-2 text-[11px] font-bold px-1.5 py-px rounded ${call ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}>
+                        {call ? 'CE' : 'PE'}
+                      </span>
+                    </td>
+                    <td className="hidden sm:table-cell px-2 py-1.5 text-muted text-xs">{t.sector}</td>
+                    <td className={`px-2 py-1.5 text-right font-semibold ${full ? 'text-accent' : 'text-ink2'}`}>
+                      {t.entry_score}/{t.max_score}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-ink">{t.ltp ? `₹${t.ltp.toFixed(1)}` : '—'}</td>
+                    <td className="hidden sm:table-cell px-2 py-1.5 text-right text-muted text-xs">{fmtTime(t.opened_at)}</td>
+                    <td className="px-3 md:px-4 py-1.5 text-right text-ink2 text-xs">{fmtDuration(t.live_secs)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
