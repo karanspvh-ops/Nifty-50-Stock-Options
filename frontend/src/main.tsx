@@ -1,22 +1,15 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import OfflineScreen from './components/layout/OfflineScreen'
-import { backendState, initApi, onBackendChange } from './lib/api'
+import { initApi } from './lib/api'
 
-/** On the hosted team site the app only mounts while the trading PC is connected,
- *  so an offline backend costs one status check every 10 s, not every panel's polling. */
-function Root() {
-  const [state, setState] = useState(backendState);
-  useEffect(() => onBackendChange(() => setState(backendState)), []);
-  if (state === 'offline' || state === 'checking') return <OfflineScreen checking={state === 'checking'} />;
-  return <App />;
-}
+// Hosted team site: start the desk data socket (and local answer cache) before the
+// first panel polls. On the trading PC this does nothing.
+initApi()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Root />
+    <App />
   </StrictMode>,
 )
-initApi()

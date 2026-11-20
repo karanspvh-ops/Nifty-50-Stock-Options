@@ -1,62 +1,110 @@
-// SPVH Options Desk -- team site relay (Cloudflare Worker + Durable Object).
+// SPVH Options Desk -- team site (Cloudflare Worker + Durable Object).
 //
-// The trading PC never accepts connections. Its backend opens ONE outgoing
-// WebSocket to /relay (secret-checked) and keeps it open. Through it:
-//   - live streams (market, trades) are pushed up once and fanned out here
-//     to every team browser connected to /api/market/ws/<channel>
-//   - every HTTP request a team browser makes to /api/* is forwarded down
-//     to the backend, which answers it over the same socket
-// Everything else is the built frontend (static assets).
+// Always on. The trading PC's backend keeps ONE outgoing WebSocket to /relay
+// (secret-checked). Over it the backend:
+//   - pushes dashboard data whenever it changes ({t:'data', path, body})
+//   - pushes the live market / trades streams ({t:'stream', ch, data})
+//   - answers HTTP requests forwarded from team browsers ({t:'req'} -> {t:'res'})
 //
-// One Durable Object instance ("desk") holds the backend socket, the browser
-// sockets and the requests waiting for answers.
+// The Durable Object keeps the latest copy of everything (memory, plus SQLite
+// storage flushed at most once a minute per key), so the site works at any
+// hour: with the backend off, browsers get the saved copy and the header
+// shows the feed as disconnected; only actions that need the trading PC
+// (exits, go live, settings) answer "unavailable".
+//
+// Cost: browsers make ONE request per page load (the /api/desk/ws socket);
+// dashboard data reaches them as pushes over it (outbound messages aren't
+// billed) and their polling is answered from a local cache, not the network.
 
+import { DurableObject } from 'cloudflare:workers';
+
+// Bump to start a fresh instance (a new deploy doesn't restart one held open by live sockets)
+const DESK_INSTANCE = 'desk-v2';
 const REQUEST_TIMEOUT_MS = 25_000;
-const GET_CACHE_MS = 1_000;          // identical GETs from several viewers within 1 s share one backend call
-const CHANNELS = ['market', 'trades'];
-// Latest message per (channel, type) replayed to a browser the moment it connects
+const GET_CACHE_MS = 1_000;
+const CHUNK = 400_000;                 // characters per stored row / per pushed message part
+const FLUSH_MS = 60_000;               // persist changed keys at most once a minute
+const STREAMS = ['market', 'trades'];
 const REPLAY_TYPES = { market: ['market_update'], trades: ['snapshot', 'account', 'alerts'] };
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/relay' || url.pathname.startsWith('/api/')) {
-      const stub = env.RELAY.get(env.RELAY.idFromName('desk'));
-      return stub.fetch(request);
+      return env.RELAY.get(env.RELAY.idFromName(DESK_INSTANCE)).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
 };
 
-export class Relay {
-  constructor(state, env) {
-    this.env = env;
-    this.backend = null;
+export class Relay extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS kv (k TEXT NOT NULL, part INTEGER NOT NULL, v TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (k, part))');
+    this.backend = null;               // non-hibernating socket: keeps this object awake while the PC is connected
     this.backendSince = null;
-    this.pending = new Map();        // request id -> {resolve, timer}
-    this.viewers = new Map(CHANNELS.map(c => [c, new Set()]));
-    this.replay = new Map(CHANNELS.map(c => [c, new Map()]));
-    this.getCache = new Map();       // path?query -> {at, promise}
+    this.pending = new Map();          // request id -> {resolve, timer}
+    this.parts = new Map();            // chunk reassembly: key -> {parts: [], n}
+    this.mem = null;                   // key -> {v, at}; loaded lazily from storage
+    this.dirty = new Set();
+    this.getCache = new Map();
   }
 
+  // ── Storage ──────────────────────────────────────────────────────────────
+  load() {
+    if (this.mem) return;
+    this.mem = new Map();
+    const rows = this.sql.exec('SELECT k, part, v, at FROM kv ORDER BY k, part').toArray();
+    for (const r of rows) {
+      const cur = this.mem.get(r.k);
+      if (cur && r.part > 0) cur.v += r.v; else this.mem.set(r.k, { v: r.v, at: r.at });
+    }
+  }
+
+  set(k, v) {
+    this.load();
+    this.mem.set(k, { v, at: Date.now() });
+    this.dirty.add(k);
+    this.ctx.storage.getAlarm().then(a => { if (a == null) this.ctx.storage.setAlarm(Date.now() + FLUSH_MS); });
+  }
+
+  get(k) { this.load(); return this.mem.get(k) || null; }
+
+  flush() {
+    for (const k of this.dirty) {
+      const e = this.mem.get(k);
+      if (!e) continue;
+      this.sql.exec('DELETE FROM kv WHERE k = ?', k);
+      const n = Math.max(1, Math.ceil(e.v.length / CHUNK));
+      for (let p = 0; p < n; p++) {
+        this.sql.exec('INSERT INTO kv (k, part, v, at) VALUES (?, ?, ?, ?)', k, p, e.v.slice(p * CHUNK, (p + 1) * CHUNK), e.at);
+      }
+    }
+    this.dirty.clear();
+  }
+
+  async alarm() { this.flush(); }
+
+  // ── Routing ──────────────────────────────────────────────────────────────
   async fetch(request) {
     const url = new URL(request.url);
+    const upgrade = request.headers.get('Upgrade') === 'websocket';
     if (url.pathname === '/relay') return this.connectBackend(request);
-    if (url.pathname === '/api/_relay/status') {
-      return json({ online: !!this.backend, since: this.backendSince, viewers: this.viewerCount() });
-    }
+    if (url.pathname === '/api/_relay/status') return json(this.deskState());
+    if (upgrade && url.pathname === '/api/desk/ws') return this.connectViewer('data');
     const m = url.pathname.match(/^\/api\/market\/ws\/(market|trades)$/);
-    if (m && request.headers.get('Upgrade') === 'websocket') return this.connectViewer(m[1]);
+    if (upgrade && m) return this.connectViewer(m[1]);
     return this.forward(request, url);
   }
 
-  viewerCount() {
-    let n = 0;
-    for (const s of this.viewers.values()) n += s.size;
-    return n;
+  deskState() {
+    this.load();
+    const last = this.get('meta:last_data_at');
+    return { type: 'desk', online: !!this.backend, since: this.backendSince, saved_at: last ? Number(last.v) : null };
   }
 
-  // ── The trading PC ────────────────────────────────────────────────────────
+  // ── The trading PC ───────────────────────────────────────────────────────
   connectBackend(request) {
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('expected websocket', { status: 426 });
     if (!this.env.RELAY_SECRET || request.headers.get('X-Relay-Secret') !== this.env.RELAY_SECRET) {
@@ -66,66 +114,107 @@ export class Relay {
     server.accept();
     if (this.backend) { try { this.backend.close(4000, 'replaced by a newer backend connection'); } catch {} }
     this.backend = server;
-    this.backendSince = new Date().toISOString();
+    this.backendSince = Date.now();
+    this.load();
+    this.broadcastData(JSON.stringify(this.deskState()));
 
-    server.addEventListener('message', ev => {
-      let msg;
-      try { msg = JSON.parse(ev.data); } catch { return; }
-      if (msg.t === 'res') {
-        const p = this.pending.get(msg.id);
-        if (p) { clearTimeout(p.timer); this.pending.delete(msg.id); p.resolve(msg); }
-      } else if (msg.t === 'stream' && this.viewers.has(msg.ch)) {
-        this.broadcast(msg.ch, msg.data);
-      } else if (msg.t === 'ping') {
-        server.send(JSON.stringify({ t: 'pong' }));
-      }
-    });
+    server.addEventListener('message', ev => this.onBackendMessage(ev.data));
     const gone = () => {
       if (this.backend !== server) return;
       this.backend = null;
       this.backendSince = null;
       for (const [id, p] of this.pending) {
         clearTimeout(p.timer);
-        p.resolve({ status: 503, body: JSON.stringify({ detail: 'The trading system went offline' }), type: 'application/json' });
+        p.resolve(offlineRes());
         this.pending.delete(id);
       }
-      // Drop viewers so their pages show the system offline and reconnect later
-      for (const set of this.viewers.values()) for (const ws of set) { try { ws.close(4001, 'backend offline'); } catch {} }
+      this.flush();
+      this.broadcastData(JSON.stringify(this.deskState()));
     };
     server.addEventListener('close', gone);
     server.addEventListener('error', gone);
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // ── Team browsers: live streams ──────────────────────────────────────────
-  connectViewer(channel) {
-    if (!this.backend) return new Response('trading system offline', { status: 503 });
-    const [client, server] = Object.values(new WebSocketPair());
-    server.accept();
-    const set = this.viewers.get(channel);
-    set.add(server);
-    for (const data of this.replay.get(channel).values()) { try { server.send(data); } catch {} }
-    const drop = () => set.delete(server);
-    server.addEventListener('close', drop);
-    server.addEventListener('error', drop);
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  broadcast(channel, data) {
-    try {
-      const type = JSON.parse(data).type;
-      if (REPLAY_TYPES[channel].includes(type)) this.replay.get(channel).set(type, data);
-    } catch {}
-    for (const ws of this.viewers.get(channel)) {
-      try { ws.send(data); } catch { this.viewers.get(channel).delete(ws); }
+  onBackendMessage(raw) {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.parts > 1) {                       // reassemble chunked messages
+      const key = `${msg.t}:${msg.id || msg.path}`;
+      const acc = this.parts.get(key) || { parts: [], got: 0 };
+      if (acc.parts[msg.part] == null) { acc.parts[msg.part] = msg.body; acc.got++; }
+      this.parts.set(key, acc);
+      if (acc.got < msg.parts) return;
+      this.parts.delete(key);
+      msg = { ...msg, body: acc.parts.join(''), parts: 1, part: 0 };
+    }
+    if (msg.t === 'res') {
+      const p = this.pending.get(msg.id);
+      if (p) { clearTimeout(p.timer); this.pending.delete(msg.id); p.resolve(msg); }
+    } else if (msg.t === 'data') {
+      this.set('data:' + msg.path, msg.body);
+      this.set('meta:last_data_at', String(Date.now()));
+      this.sendData(msg.path, msg.body);
+    } else if (msg.t === 'stream' && STREAMS.includes(msg.ch)) {
+      try {
+        const type = JSON.parse(msg.data).type;
+        if (REPLAY_TYPES[msg.ch].includes(type)) this.set(`stream:${msg.ch}:${type}`, msg.data);
+      } catch {}
+      for (const ws of this.ctx.getWebSockets(msg.ch)) { try { ws.send(msg.data); } catch {} }
     }
   }
 
-  // ── Team browsers: HTTP requests, answered by the backend ─────────────────
+  // ── Team browsers (hibernatable sockets: an idle site costs nothing) ──────
+  connectViewer(channel) {
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server, [channel]);
+    this.load();
+    if (channel === 'data') {
+      server.send(JSON.stringify(this.deskState()));
+      for (const [k, e] of this.mem) {
+        if (k.startsWith('data:')) this.sendTo(server, k.slice(5), e.v, e.at);
+      }
+    } else {
+      for (const type of REPLAY_TYPES[channel]) {
+        const e = this.get(`stream:${channel}:${type}`);
+        if (e) { try { server.send(e.v); } catch {} }
+      }
+    }
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  webSocketMessage() {}                         // browsers only listen
+  webSocketClose(ws) { try { ws.close(); } catch {} }
+
+  sendTo(ws, path, body, at) {
+    const n = Math.max(1, Math.ceil(body.length / CHUNK));
+    for (let p = 0; p < n; p++) {
+      try { ws.send(JSON.stringify({ type: 'data', path, at, part: p, parts: n, body: body.slice(p * CHUNK, (p + 1) * CHUNK) })); } catch {}
+    }
+  }
+
+  sendData(path, body) {
+    const at = Date.now();
+    for (const ws of this.ctx.getWebSockets('data')) this.sendTo(ws, path, body, at);
+  }
+
+  broadcastData(text) {
+    for (const ws of this.ctx.getWebSockets('data')) { try { ws.send(text); } catch {} }
+  }
+
+  // ── HTTP from browsers: forwarded when online, saved copy when not ───────
   async forward(request, url) {
-    if (!this.backend) return json({ detail: 'The trading system is offline' }, 503);
     const key = url.pathname + url.search;
-    if (request.method === 'GET') {
+    const isGet = request.method === 'GET';
+    if (!this.backend) {
+      if (isGet) {
+        const e = this.get('data:' + key) || this.get('get:' + key);
+        if (e) return new Response(e.v, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Desk-Saved-At': String(e.at) } });
+        return json({ detail: 'Not saved yet. Available once the trading system is back online.' }, 503);
+      }
+      return json({ detail: 'Unavailable right now: the trading system on the office PC is offline.' }, 503);
+    }
+    if (isGet) {
       const hit = this.getCache.get(key);
       if (hit && Date.now() - hit.at < GET_CACHE_MS) return toResponse(await hit.promise);
     }
@@ -148,14 +237,20 @@ export class Relay {
     } catch {
       const p = this.pending.get(id);
       if (p) { clearTimeout(p.timer); this.pending.delete(id); }
-      return json({ detail: 'The trading system is offline' }, 503);
+      return toResponse(offlineRes());
     }
-    if (request.method === 'GET') {
+    if (isGet) {
       this.getCache.set(key, { at: Date.now(), promise });
-      if (this.getCache.size > 500) this.getCache.clear();
+      if (this.getCache.size > 300) this.getCache.clear();
     }
-    return toResponse(await promise);
+    const res = await promise;
+    if (isGet && res.status === 200 && !res.b64 && (res.type || '').includes('json')) this.set('get:' + key, res.body);
+    return toResponse(res);
   }
+}
+
+function offlineRes() {
+  return { status: 503, type: 'application/json', body: JSON.stringify({ detail: 'Unavailable right now: the trading system on the office PC is offline.' }) };
 }
 
 function toResponse(msg) {

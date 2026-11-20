@@ -4,15 +4,18 @@ import { useMarketStore } from '../../store/marketStore';
 import GoLiveDialog from './GoLiveDialog';
 import ChecksPill from './ChecksPill';
 import { useLiveStatus } from './useLiveStatus';
+import { useDesk } from '../../hooks/useDesk';
 
-function StrategySwitch({ tag, label, live, onClick }: {
-  tag: 'ES' | 'OB'; label: string; live: boolean; onClick: () => void;
+function StrategySwitch({ tag, label, live, onClick, disabled }: {
+  tag: 'ES' | 'OB'; label: string; live: boolean; onClick: () => void; disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      title={live ? `${label} is placing real orders. Click to move back to paper.` : `${label} is on paper. Click to go live.`}
-      className={`pressable flex items-center gap-2.5 h-10 pl-3 pr-1 rounded-full border
+      disabled={disabled}
+      title={disabled ? 'Unavailable while the office PC is offline'
+        : live ? `${label} is placing real orders. Click to move back to paper.` : `${label} is on paper. Click to go live.`}
+      className={`pressable disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2.5 h-10 pl-3 pr-1 rounded-full border
         ${live ? 'bg-white border-spvh-400 shadow-primary' : 'bg-white/70 border-border hover:border-spvh-300'}`}
     >
       <span className={`text-sm font-bold ${tag === 'ES' ? 'text-es' : 'text-teal'}`}>{tag}</span>
@@ -33,7 +36,11 @@ export default function Header() {
   const { status, refresh } = useLiveStatus();
   const [dialog, setDialog] = useState<'ES' | 'OB' | null>(null);
 
+  const d = useDesk();
+  // Team site with the office PC offline: the last saved feed state must not read as live
+  const connected = feedHealth.connected && d.online;
   const lastTick = feedHealth.last_tick ? new Date(feedHealth.last_tick).toLocaleTimeString('en-IN', { hour12: false }) : null;
+  const savedAt = d.savedAt ? new Date(d.savedAt).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
 
   return (
     <header className="glass relative z-30 h-16 shrink-0 flex items-center gap-4 px-5 border-b border-white/60">
@@ -46,12 +53,13 @@ export default function Header() {
 
       <div
         className={`ml-2 flex items-center gap-2 h-8 px-3 rounded-full text-xs font-semibold
-          ${feedHealth.connected ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}
-        title={feedHealth.connected ? 'Live price feed connected' : 'Live price feed disconnected'}
+          ${connected ? 'bg-up/10 text-up' : 'bg-down/10 text-down'}`}
+        title={connected ? 'Live price feed connected' : d.online ? 'Live price feed disconnected' : 'Office PC offline: showing the last saved data'}
       >
-        {feedHealth.connected ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
-        {feedHealth.connected ? 'Feed live' : 'Feed down'}
-        {lastTick && <span className="font-normal text-muted">· {lastTick}</span>}
+        {connected ? <WifiHigh size={15} weight="bold" /> : <WifiSlash size={15} weight="bold" />}
+        {connected ? 'Feed live' : 'Feed disconnected'}
+        {connected && lastTick && <span className="font-normal text-muted">· {lastTick}</span>}
+        {!d.online && savedAt && <span className="font-normal text-muted">· data as of {savedAt}</span>}
       </div>
 
       <ChecksPill />
@@ -65,8 +73,8 @@ export default function Header() {
 
       <div className="flex-1" />
 
-      <StrategySwitch tag="ES" label="Early Scalp" live={settings.es_live} onClick={() => setDialog('ES')} />
-      <StrategySwitch tag="OB" label="Opening Breakout" live={settings.ob_live} onClick={() => setDialog('OB')} />
+      <StrategySwitch tag="ES" label="Early Scalp" live={settings.es_live} disabled={!d.online} onClick={() => setDialog('ES')} />
+      <StrategySwitch tag="OB" label="Opening Breakout" live={settings.ob_live} disabled={!d.online} onClick={() => setDialog('OB')} />
 
       {dialog && (
         <GoLiveDialog
