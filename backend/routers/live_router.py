@@ -81,9 +81,9 @@ def _readiness() -> list:
 
 @router.get("/desk")
 def desk_status():
-    """Team site connection: site address, current tunnel, last registration."""
-    from backend.core.desk_tunnel import desk_tunnel
-    return desk_tunnel.status()
+    """Team site connection: relay address, connected since, requests served."""
+    from backend.core.desk_relay import desk_relay
+    return desk_relay.status()
 
 
 @router.get("/actions")

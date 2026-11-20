@@ -107,8 +107,8 @@ async def lifespan(app: FastAPI):
     reconciler.start()
     from backend.execution import ban_list
     ban_list.start()
-    from backend.core.desk_tunnel import desk_tunnel
-    desk_tunnel.start()            # team site (Cloudflare Pages) -> this backend
+    from backend.core.desk_relay import desk_relay
+    desk_relay.start()             # team site: one outbound connection to the Cloudflare relay
 
     print("[BOOT] Starting risk engine...")
     risk_engine.start()
@@ -153,8 +153,8 @@ async def lifespan(app: FastAPI):
     tradable_tracker.stop()
     from backend.core.account_monitor import account_monitor
     account_monitor.stop()
-    from backend.core.desk_tunnel import desk_tunnel
-    desk_tunnel.stop()
+    from backend.core.desk_relay import desk_relay
+    desk_relay.stop()
     print("[SHUTDOWN] Stopping trading engine...")
     trading_engine.stop()
     print("[SHUTDOWN] Stopping risk engine...")
@@ -164,8 +164,6 @@ async def lifespan(app: FastAPI):
     print("[SHUTDOWN] Graceful shutdown complete.")
 
 
-from backend.core.desk_tunnel import desk_site
-
 app = FastAPI(
     title       = "Nifty 50 Options Trading Engine",
     description = "Multi-agent, real-time algorithmic trading platform",
@@ -174,9 +172,9 @@ app = FastAPI(
 )
 
 # ── Action log: every change request (anything but GET), with who sent it ────
-# The team site reaches this backend over a public tunnel with no login, so
-# every control action (go live, exits, capital limit, settings...) is recorded
-# with the caller's IP to actions.log in the data directory.
+# The team site reaches this backend through the Cloudflare relay with no
+# login, so every control action (go live, exits, capital limit, settings...)
+# is recorded with the team member's IP to actions.log in the data directory.
 @app.middleware("http")
 async def log_actions(request, call_next):
     response = await call_next(request)
@@ -185,11 +183,11 @@ async def log_actions(request, call_next):
             import json as _json, os as _os
             from backend.core.clock import now_ist
             from backend.storage.data_dir import DATA_DIR
-            via = "team site" if request.headers.get("cf-connecting-ip") else "this PC"
+            via = "team site" if request.headers.get("x-via-relay") else "this PC"
             entry = {"at": now_ist().isoformat(timespec="seconds"), "method": request.method,
                      "path": request.url.path, "query": str(request.url.query or ""),
                      "status": response.status_code, "via": via,
-                     "ip": request.headers.get("cf-connecting-ip") or (request.client.host if request.client else None),
+                     "ip": request.headers.get("x-relay-client-ip") or (request.client.host if request.client else None),
                      "agent": (request.headers.get("user-agent") or "")[:120]}
             with open(_os.path.join(DATA_DIR, "actions.log"), "a", encoding="utf-8") as f:
                 f.write(_json.dumps(entry) + "\n")
@@ -204,11 +202,7 @@ async def log_actions(request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ["http://localhost:3000", "http://127.0.0.1:3000",
-                         "http://localhost:3002", "http://127.0.0.1:3002"]
-                        + ([desk_site()] if desk_site() else []),
-    # Hosted team site incl. its preview deployments (<hash>.<project>.pages.dev)
-    allow_origin_regex = (r"https://([a-z0-9-]+\.)?" + desk_site().split("//", 1)[1].split(".")[0].replace("-", r"\-")
-                          + r"\.pages\.dev") if desk_site().endswith(".pages.dev") else None,
+                         "http://localhost:3002", "http://127.0.0.1:3002"],
     allow_credentials = True,
     allow_methods     = ["*"],
     allow_headers     = ["*"],

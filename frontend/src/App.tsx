@@ -6,7 +6,6 @@ import Sidebar      from './components/layout/Sidebar';
 import Header       from './components/layout/Header';
 import LoginBanner  from './components/layout/LoginBanner';
 import AlertsBanner from './components/layout/AlertsBanner';
-import BackendOffline from './components/layout/BackendOffline';
 import SectorHeatmap    from './components/dashboard/SectorHeatmap';
 import SectorBarChart   from './components/dashboard/SectorBarChart';
 import OpenTradesPanel  from './components/dashboard/OpenTradesPanel';
@@ -96,7 +95,6 @@ export default function App() {
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
         <AlertsBanner />
-        <BackendOffline />
         <LoginBanner />
         <main className="flex-1 overflow-hidden">
           {activeView === 'dashboard'     && <ErrorBoundary><Dashboard /></ErrorBoundary>}
