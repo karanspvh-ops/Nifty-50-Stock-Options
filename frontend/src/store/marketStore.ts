@@ -48,6 +48,7 @@ export interface Account {
   intraday_payin?: number; net?: number; used_margin?: number;
   m2m_realised?: number; m2m_unrealised?: number;
   fetched_at?: string; error?: string; failed_at?: string;
+  watching?: boolean;     // true while the backend polls every second (9-11 AM, or a live trade open)
   received_at?: number;   // browser clock when it arrived
 }
 export interface LiveAlert {

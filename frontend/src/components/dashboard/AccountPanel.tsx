@@ -9,7 +9,8 @@ const rs = (v: number | undefined) =>
 const signed = (v: number | undefined) =>
   v == null ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}₹${Math.abs(v).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-/** Zerodha balance, pushed by the backend on every refresh (2 s, and instantly on order events). */
+/** Zerodha balance, pushed by the backend every second from 9 to 11 AM (and while a live
+ *  trade is open), instantly on any order event, and once at sign-in. */
 export default function AccountPanel() {
   const account  = useMarketStore(s => s.account);
   const setAcct  = useMarketStore(s => s.setAccount);
@@ -25,6 +26,12 @@ export default function AccountPanel() {
 
   const age = account?.received_at ? (Date.now() - account.received_at) / 1000 : null;
   const fresh = age != null && age < 5 && account?.ok;
+  // Outside the trading window the backend stops polling on purpose: the figure
+  // is the last one fetched, not a stale feed, so it isn't shown as a fault.
+  const idle = account?.ok && account.watching === false;
+  const asOf = account?.fetched_at
+    ? new Date(account.fetched_at).toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit' })
+    : null;
   const bal = account?.live_balance;
 
   const stats = [
@@ -43,9 +50,10 @@ export default function AccountPanel() {
             <Wallet size={18} weight="duotone" className="text-accent" />
             Available to trade
             <span className="ml-1 inline-flex items-center gap-1.5 text-xs font-normal text-muted">
-              <span className={`w-1.5 h-1.5 rounded-full ${fresh ? 'bg-up live-dot' : 'bg-down'}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${idle ? 'bg-faint' : fresh ? 'bg-up live-dot' : 'bg-down'}`} />
               {account == null ? 'Waiting for Zerodha'
                 : account.ok === false ? 'Zerodha not answering'
+                : idle ? `As of ${asOf ?? '—'} · live 9–11 AM and on orders`
                 : `Updated ${age == null ? '' : age < 1 ? 'just now' : `${age.toFixed(0)}s ago`}`}
             </span>
           </div>
