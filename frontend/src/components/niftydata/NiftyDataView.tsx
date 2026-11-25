@@ -124,7 +124,7 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
 // The minute list shows one compact row per snapshot minute (time + spot);
 // a minute's ±10-strike rows are fetched only when it is expanded, so a long
 // range never mounts tens of thousands of table rows.
-interface MinuteRow { t: string; spot: number | null; rows: number; book: number; cloud?: boolean; }
+interface MinuteRow { t: string; spot: number | null; rows: number; book: number; cloud?: boolean; expiry?: string; }
 interface Backfill { running: boolean; started_at: string | null;
   results: { date: string; status: string; inserted?: number; filled?: number; note?: string }[]; }
 
@@ -290,8 +290,10 @@ export default function NiftyDataView() {
     ? [...cloudOnly, ...minutes].sort((a, b) => b.t.localeCompare(a.t))
     : minutes;
   const cloudRows = cloudOnly.reduce((n, m) => n + m.rows, 0);
+  const newestCloud = cloudMins[0];
   const cloudLast = cloud?.last_saved_minute && cloud.last_saved_minute.startsWith(cloud.today)
-    ? cloud.last_saved_minute.replace(' ', 'T') : null;
+    ? cloud.last_saved_minute.replace(' ', 'T')
+    : newestCloud ? `${newestCloud.t}:00` : null;
   const lastAt = [status?.last_snapshot_at ?? null, cloudLast].filter(Boolean).sort().pop() ?? null;
   const shownCandles = range === 'today' && !candles.length && cloudOnly.length ? candlesFromMinutes(allMinutes) : candles;
 
@@ -303,7 +305,7 @@ export default function NiftyDataView() {
   const cloudAge = secondsAgo(cloudLast);
   const collector = !cloud ? { t: 'Checking…', c: 'text-muted' }
     : cloud.market_closed === cloud.today ? { t: 'Market closed today', c: 'text-muted' }
-    : !cloud.market_hours ? { t: cloudLast ? 'Done for the day' : 'Starts 9:15 am', c: 'text-ink2' }
+    : !cloud.market_hours ? { t: cloudLast || (status?.rows_today ?? 0) > 0 ? 'Done for the day' : 'Starts 9:15 am', c: 'text-ink2' }
     : cloudAge != null && cloudAge <= CLOUD_STALL_MIN * 60 + 30 ? { t: 'Collecting', c: 'text-up' }
     : { t: `Stalled${cloud.last_reason ? `: ${cloud.last_reason}` : ''}`, c: 'text-down' };
 
@@ -317,9 +319,9 @@ export default function NiftyDataView() {
         <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
           <h1 className="text-ink font-bold text-xl md:text-2xl leading-tight">Nifty Data Collector</h1>
           <span className="flex items-center gap-1.5 text-xs pb-1">
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
+            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-up' : cloud && !cloud.market_hours ? 'bg-faint' : 'bg-down'}`} />
             <span className="text-muted">
-              {isLive ? 'Live' : 'Not receiving data'}{staleness !== null && staleness < 3600 && `, last row ${staleness}s ago`}
+              {isLive ? 'Live' : cloud && !cloud.market_hours ? 'Market closed' : 'Not receiving data'}{staleness !== null && staleness < 3600 && `, last row ${staleness}s ago`}
               {cloudOnly.length > 0 && ` · ${cloudOnly.length} minutes held in Cloudflare, saved here after 3:40 pm`}
             </span>
           </span>
@@ -365,8 +367,8 @@ export default function NiftyDataView() {
         {[
           { l: 'Rows today', v: ((status?.rows_today ?? 0) + cloudRows).toLocaleString('en-IN') },
           { l: 'Last snapshot', v: lastAt ? fmtTime(lastAt) : '—' },
-          { l: 'Contracts tracked', v: cloud?.last_saved_rows ?? (status?.contracts || '—') },
-          { l: 'Expiry', v: cloud?.expiry ?? status?.expiry ?? '—' },
+          { l: 'Contracts tracked', v: cloud?.last_saved_rows ?? newestCloud?.rows ?? (status?.contracts || '—') },
+          { l: 'Expiry', v: cloud?.expiry ?? newestCloud?.expiry ?? status?.expiry ?? '—' },
         ].map(c => (
           <div key={c.l} className="min-w-0 bg-surface rounded-panel border border-border p-3">
             <div className="text-xs font-semibold text-muted mb-1">{c.l}</div>
