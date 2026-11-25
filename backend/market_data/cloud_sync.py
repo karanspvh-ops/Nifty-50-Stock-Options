@@ -15,7 +15,12 @@ whether or not this backend is running. This module, inside the backend:
      exactly those rows, so nothing is lost and its storage stays small.
 
 Minute OHLC and volume aren't in a quote snapshot; nifty_backfill fills them
-from Zerodha's minute history right after a full sync.
+from Zerodha's minute history right after a full sync -- once before the
+market (previous days) and once after the close (today included).
+
+  4. watches the collector in market hours (its public status endpoint) and
+     raises a dashboard alert when no minute has been saved for STALL_MIN
+     minutes, with Cloudflare's own reason (no session, error, ...).
 """
 
 import json
@@ -34,6 +39,9 @@ PULL_SEC = 300           # pull cadence inside an allowed window
 BATCH = 1000
 PREMARKET_END = (9, 0)
 AFTER_CLOSE = (15, 40)
+WATCH_FROM, WATCH_TO = (9, 18), (15, 31)   # collector stall watch (first minute is 09:15)
+STALL_MIN = 3
+ALERT_KEY = "nifty_collector"
 _FIELDS = ("nifty_spot", "close", "oi", "oi_day_high", "oi_day_low", "buy_quantity", "sell_quantity",
            "day_volume", "bid_price", "ask_price", "spread_pct", "bid_depth", "ask_depth")
 
@@ -52,7 +60,7 @@ class CloudSync:
         self._sent_token = None        # (date, token) last sent
         self._sent_chain = None        # date the chain was last sent
         self._next_pull = 0.0
-        self._completed_on = None      # date the post-sync OHLC completion last ran
+        self._completed = set()        # (date, "pre"|"post") completion runs started
         self._wake = threading.Event()
         self.last_run = None
         self.last_pulled = 0
@@ -111,6 +119,7 @@ class CloudSync:
         h = {"X-Relay-Secret": secret}
         self._push_session(site, h)
         self._push_chain(site, h)
+        self._watch_collector(site)
 
         if not force_pull and time.monotonic() < self._next_pull:
             return
@@ -124,12 +133,44 @@ class CloudSync:
         self.last_pulled = self._pull(site, h, before_date=before)
         self.last_run = now.strftime("%H:%M:%S")
 
-        # OHLC/volume completion once the day's cloud rows are local
-        if full and self._completed_on != today:
+        # OHLC/volume completion once the cloud rows are local: before the
+        # market for the previous days, and again after the close for today.
+        # (One flag per day used to let the morning run block the evening one.)
+        phase = "post" if hm >= AFTER_CLOSE or now.weekday() >= 5 else "pre"
+        if full and (today, phase) not in self._completed:
             from backend.market_data import nifty_backfill
             if nifty_backfill.run_async(nifty_backfill.recent_trading_days(7)):
-                self._completed_on = today
-                print("[CLOUD-SYNC] Started the OHLC/volume completion for the last 7 trading days")
+                self._completed.add((today, phase))
+                print(f"[CLOUD-SYNC] Started the OHLC/volume completion for the last 7 trading days ({phase}-market)")
+
+    def _watch_collector(self, site):
+        """Alert when the cloud collector stops saving minutes in market hours."""
+        from backend.core.alerts import raise_alert, clear_alert
+        now = now_ist()
+        hm = (now.hour, now.minute)
+        if now.weekday() >= 5 or not (WATCH_FROM <= hm < WATCH_TO):
+            clear_alert(ALERT_KEY)
+            return
+        try:
+            st = requests.get(f"{site}/api/_collector/status", timeout=10).json()
+        except Exception as e:
+            raise_alert(ALERT_KEY, f"NIFTY collector status unreachable: {e}", "warning")
+            return
+        today = now.date().isoformat()
+        if st.get("market_closed") == today:
+            clear_alert(ALERT_KEY)            # exchange holiday: nothing to collect
+            return
+        last = st.get("last_saved_minute") or ""
+        age_min = None
+        if last.startswith(today):
+            t = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+            age_min = (now.replace(tzinfo=None) - t).total_seconds() / 60
+        if age_min is not None and age_min <= STALL_MIN:
+            clear_alert(ALERT_KEY)
+            return
+        since = last[11:16] if last.startswith(today) else "market open"
+        why = st.get("last_reason") or "no reason recorded"
+        raise_alert(ALERT_KEY, f"NIFTY data collector has saved nothing since {since} ({why})", "warning")
 
     def _push_session(self, site, h):
         from backend.core.broker import broker

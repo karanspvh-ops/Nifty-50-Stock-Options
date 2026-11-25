@@ -5,6 +5,7 @@ import GoLiveDialog from './GoLiveDialog';
 import ChecksPill from './ChecksPill';
 import { useLiveStatus } from './useLiveStatus';
 import { useDesk } from '../../hooks/useDesk';
+import IstClock from './IstClock';
 
 function StrategySwitch({ tag, label, short, live, onClick, disabled, className = '' }: {
   tag: 'ES' | 'OB'; label: string; short: string; live: boolean; onClick: () => void;
@@ -42,9 +43,10 @@ export default function Header() {
   const d = useDesk();
   // Team site with the office PC offline: the last saved feed state must not read as live
   const connected = feedHealth.connected && d.online;
-  const lastTick = feedHealth.last_tick ? new Date(feedHealth.last_tick).toLocaleTimeString('en-IN', { hour12: false }) : null;
-  const savedAt = d.savedAt ? new Date(d.savedAt).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
-  const feedTitle = connected ? 'Live price feed connected' : d.online ? 'Live price feed disconnected' : 'Office PC offline: showing the last saved data';
+  const lastTick = feedHealth.last_tick ? new Date(feedHealth.last_tick).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' }) : null;
+  const savedAt = d.savedAt ? new Date(d.savedAt).toLocaleString('en-IN', { hour12: false, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : null;
+  const feedTitle = (connected ? 'Live price feed connected' : d.online ? 'Live price feed disconnected' : 'Office PC offline: showing the last saved data')
+    + (lastTick ? ` · last price tick ${lastTick} IST` : '');
 
   const switches = (cls: string) => (
     <>
@@ -71,8 +73,9 @@ export default function Header() {
             <span className={`font-semibold shrink-0 ${connected ? 'text-up' : 'text-down'}`}>
               {connected ? 'Feed live' : d.online ? 'Feed disconnected' : 'Office PC offline'}
             </span>
-            {connected && lastTick && <span className="text-muted truncate">· {lastTick}</span>}
-            {!d.online && savedAt && <span className="text-muted truncate">· {savedAt}</span>}
+            <span className="text-muted shrink-0">·</span>
+            <IstClock className="text-muted shrink-0" />
+            {!d.online && savedAt && <span className="text-muted truncate">· data {savedAt}</span>}
           </div>
           <div className="hidden lg:block text-xs text-muted leading-tight">NSE F&amp;O · ~211 option stocks</div>
         </div>
@@ -84,7 +87,8 @@ export default function Header() {
         >
           {connected ? <WifiHigh size={15} weight="bold" className="shrink-0" /> : <WifiSlash size={15} weight="bold" className="shrink-0" />}
           <span className="shrink-0">{connected ? 'Feed live' : 'Feed disconnected'}</span>
-          {connected && lastTick && <span className="font-normal text-muted hidden lg:inline">· {lastTick}</span>}
+          <span className="font-normal text-muted shrink-0">·</span>
+          <IstClock className="font-normal text-muted shrink-0" />
           {!d.online && savedAt && <span className="font-normal text-muted truncate">· data as of {savedAt}</span>}
         </div>
 

@@ -100,6 +100,8 @@ def backfill_day(day: date) -> dict:
     if day == now.date() and now.time() < dtime(15, 32):
         cutoff = now.replace(second=0, microsecond=0) - timedelta(minutes=2)
         spot_bars = [b for b in spot_bars if b["date"] < cutoff]
+        if not spot_bars:
+            return {**res, "status": "skipped", "note": "no finished minutes yet today"}
     spot_at = {b["date"]: b["close"] for b in spot_bars}
     res["minutes"] = len(spot_bars)
 

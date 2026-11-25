@@ -58,6 +58,7 @@ def status():
             "contracts":        len(nifty_options_collector._contracts),
             "expiry":           nifty_options_collector._expiry,
             "index_subscribed": nifty_options_collector.get_index_token() is not None,
+            "local_collector":  False,     # the Cloudflare collector is the only one (see cloud_sync.py)
         }
     finally:
         db.close()

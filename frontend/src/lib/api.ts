@@ -16,6 +16,9 @@
 export const isHosted = !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 
 export let API = isHosted ? '' : 'http://localhost:8000';
+/** The team site's Worker: the cloud NIFTY collector's read-only endpoints live
+ *  there (same origin on the team site; called cross-origin from localhost). */
+export const CLOUD = isHosted ? '' : 'https://spvh-desk.spventures-inv.workers.dev';
 export let WS_BASE = isHosted
   ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
   : 'ws://localhost:8000';

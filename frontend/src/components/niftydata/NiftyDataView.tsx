@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, useRef } from 'react';
 import { CaretRight, ArrowsClockwise, CircleNotch } from '@phosphor-icons/react';
 import Segmented from '../ui/Segmented';
 
-import { API } from '../../lib/api';
+import { API, CLOUD } from '../../lib/api';
 
 interface Candle { time: string; open: number; high: number; low: number; close: number; }
 type RangeKey = 'today' | '7d' | '30d' | '90d' | 'all';
@@ -25,6 +25,25 @@ interface Snapshot {
 interface Status {
   date: string; rows_today: number; last_snapshot_at: string | null;
   contracts: number; expiry: string | null; index_subscribed: boolean;
+}
+/** The Cloudflare collector's own record (works with the office backend off) */
+interface CloudStatus {
+  today: string; now: string; market_hours: boolean;
+  minutes_today: number; rows_today: number;
+  last_run_at?: string; last_result?: 'saved' | 'skipped' | 'closed' | 'error';
+  last_reason?: string | null; market_closed?: string | null;
+  last_saved_minute?: string; last_saved_rows?: number; expiry?: string; spot?: number;
+}
+const CLOUD_STALL_MIN = 3;
+
+/** Spot candles approximated from minute snapshots (open = previous minute's spot),
+ *  shown until the end-of-day completion brings Zerodha's real minute candles. */
+function candlesFromMinutes(ms: { t: string; spot: number | null }[]): Candle[] {
+  const asc = ms.filter(m => m.spot != null).sort((a, b) => a.t.localeCompare(b.t));
+  return asc.map((m, i) => {
+    const o = i ? (asc[i - 1].spot as number) : (m.spot as number), c = m.spot as number;
+    return { time: `${m.t}:00`, open: o, close: c, high: Math.max(o, c), low: Math.min(o, c) };
+  });
 }
 
 function fmtTime(iso: string, withDate = false) {
@@ -105,7 +124,7 @@ function CandleChart({ candles, showDate }: { candles: Candle[]; showDate: boole
 // The minute list shows one compact row per snapshot minute (time + spot);
 // a minute's ±10-strike rows are fetched only when it is expanded, so a long
 // range never mounts tens of thousands of table rows.
-interface MinuteRow { t: string; spot: number | null; rows: number; book: number; }
+interface MinuteRow { t: string; spot: number | null; rows: number; book: number; cloud?: boolean; }
 interface Backfill { running: boolean; started_at: string | null;
   results: { date: string; status: string; inserted?: number; filled?: number; note?: string }[]; }
 
@@ -177,6 +196,10 @@ export default function NiftyDataView() {
   const [shown, setShown] = useState(PAGE);
   const [open, setOpen] = useState<Record<string, Snapshot[] | 'loading'>>({});
   const [bf, setBf] = useState<Backfill | null>(null);
+  // Today's minutes still held by the Cloudflare collector (merged locally after 15:40)
+  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [cloudMins, setCloudMins] = useState<MinuteRow[]>([]);
+  const cloudDay = useRef<string>('');
   const [nowTick, setNowTick] = useState(Date.now());
   const poll = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const clock = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -192,6 +215,28 @@ export default function NiftyDataView() {
       setStatus(s); setCandles(c); setMinutes(Array.isArray(m) ? m : []); setBf(b);
     } catch { /* backend not reachable this tick — keep showing last known data */ }
   };
+
+  // Cloud collector: status + only the minutes newer than the ones we hold
+  const cloudNewest = useRef<string>('');
+  const loadCloud = async () => {
+    try {
+      const st: CloudStatus = await fetch(`${CLOUD}/api/_collector/status`).then(x => x.json());
+      setCloud(st);
+      if (cloudDay.current !== st.today) { cloudDay.current = st.today; cloudNewest.current = ''; setCloudMins([]); }
+      const add: MinuteRow[] = await fetch(
+        `${CLOUD}/api/_collector/minutes?date=${st.today}&since=${encodeURIComponent(cloudNewest.current)}`).then(x => x.json());
+      if (Array.isArray(add) && add.length) {
+        cloudNewest.current = add[0].t;                       // newest first
+        const seen = new Set(add.map(a => a.t));
+        setCloudMins(p => [...add.map(a => ({ ...a, cloud: true })), ...p.filter(x => !seen.has(x.t))]);
+      }
+    } catch { /* team site unreachable: keep what we have */ }
+  };
+  useEffect(() => {
+    loadCloud();
+    const id = setInterval(loadCloud, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     load(range);
@@ -223,7 +268,10 @@ export default function NiftyDataView() {
     if (open[t]) { setOpen(o => { const n = { ...o }; delete n[t]; return n; }); return; }
     setOpen(o => ({ ...o, [t]: 'loading' }));
     try {
-      const rows = await fetch(`${API}/api/nifty-data/minute?t=${encodeURIComponent(t)}`).then(x => x.json());
+      // A minute not merged locally yet is read from the cloud collector
+      const fromCloud = cloudOnly.some(m => m.t === t);
+      const base = fromCloud ? `${CLOUD}/api/_collector/minute` : `${API}/api/nifty-data/minute`;
+      const rows = await fetch(`${base}?t=${encodeURIComponent(t)}`).then(x => x.json());
       setOpen(o => (t in o ? { ...o, [t]: Array.isArray(rows) ? rows : [] } : o));
     } catch {
       setOpen(o => (t in o ? { ...o, [t]: [] } : o));
@@ -235,12 +283,32 @@ export default function NiftyDataView() {
     if (r?.ok) setBf({ running: true, started_at: new Date().toISOString(), results: [] });
   };
 
-  const staleness = secondsAgo(status?.last_snapshot_at ?? null);
-  const isLive = staleness !== null && staleness < 90;
+  // Merge: local minutes win; cloud-only minutes (today, not yet synced) fill in
+  const localTs = new Set(minutes.map(m => m.t));
+  const cloudOnly = cloudMins.filter(m => !localTs.has(m.t));
+  const allMinutes = cloudOnly.length
+    ? [...cloudOnly, ...minutes].sort((a, b) => b.t.localeCompare(a.t))
+    : minutes;
+  const cloudRows = cloudOnly.reduce((n, m) => n + m.rows, 0);
+  const cloudLast = cloud?.last_saved_minute && cloud.last_saved_minute.startsWith(cloud.today)
+    ? cloud.last_saved_minute.replace(' ', 'T') : null;
+  const lastAt = [status?.last_snapshot_at ?? null, cloudLast].filter(Boolean).sort().pop() ?? null;
+  const shownCandles = range === 'today' && !candles.length && cloudOnly.length ? candlesFromMinutes(allMinutes) : candles;
+
+  const staleness = secondsAgo(lastAt);
+  const isLive = staleness !== null && staleness < 150;
   void nowTick; // re-render trigger for the staleness clock
 
+  // Collector health, from Cloudflare's own record
+  const cloudAge = secondsAgo(cloudLast);
+  const collector = !cloud ? { t: 'Checking…', c: 'text-muted' }
+    : cloud.market_closed === cloud.today ? { t: 'Market closed today', c: 'text-muted' }
+    : !cloud.market_hours ? { t: cloudLast ? 'Done for the day' : 'Starts 9:15 am', c: 'text-ink2' }
+    : cloudAge != null && cloudAge <= CLOUD_STALL_MIN * 60 + 30 ? { t: 'Collecting', c: 'text-up' }
+    : { t: `Stalled${cloud.last_reason ? `: ${cloud.last_reason}` : ''}`, c: 'text-down' };
+
   const multiDay = range !== 'today';
-  const visible = minutes.slice(0, shown);
+  const visible = allMinutes.slice(0, shown);
   const lastRun = bf?.results ?? [];
 
   return (
@@ -251,7 +319,8 @@ export default function NiftyDataView() {
           <span className="flex items-center gap-1.5 text-xs pb-1">
             <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-up' : 'bg-down'}`} />
             <span className="text-muted">
-              {isLive ? 'Live' : 'Not receiving data'}{staleness !== null && `, last row ${staleness}s ago`}
+              {isLive ? 'Live' : 'Not receiving data'}{staleness !== null && staleness < 3600 && `, last row ${staleness}s ago`}
+              {cloudOnly.length > 0 && ` · ${cloudOnly.length} minutes held in Cloudflare, saved here after 3:40 pm`}
             </span>
           </span>
         </div>
@@ -294,21 +363,19 @@ export default function NiftyDataView() {
       {/* Status strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { l: 'Rows today', v: status?.rows_today?.toLocaleString('en-IN') ?? '—' },
-          { l: 'Last snapshot', v: status?.last_snapshot_at ? fmtTime(status.last_snapshot_at) : '—' },
-          { l: 'Contracts tracked', v: status?.contracts ?? '—' },
-          { l: 'Expiry', v: status?.expiry ?? '—' },
+          { l: 'Rows today', v: ((status?.rows_today ?? 0) + cloudRows).toLocaleString('en-IN') },
+          { l: 'Last snapshot', v: lastAt ? fmtTime(lastAt) : '—' },
+          { l: 'Contracts tracked', v: cloud?.last_saved_rows ?? (status?.contracts || '—') },
+          { l: 'Expiry', v: cloud?.expiry ?? status?.expiry ?? '—' },
         ].map(c => (
           <div key={c.l} className="min-w-0 bg-surface rounded-panel border border-border p-3">
             <div className="text-xs font-semibold text-muted mb-1">{c.l}</div>
             <div className="text-lg font-bold text-ink">{c.v}</div>
           </div>
         ))}
-        <div className="bg-surface rounded-panel border border-border p-3">
-          <div className="text-xs font-semibold text-muted mb-1">Index feed</div>
-          <div className={`text-lg font-bold ${status?.index_subscribed ? 'text-up' : 'text-down'}`}>
-            {status?.index_subscribed ? 'Subscribed' : 'Not yet'}
-          </div>
+        <div className="min-w-0 bg-surface rounded-panel border border-border p-3" title={cloud?.last_reason ?? undefined}>
+          <div className="text-xs font-semibold text-muted mb-1">Cloud collector</div>
+          <div className={`text-lg font-bold truncate ${collector.c}`}>{collector.t}</div>
         </div>
       </div>
 
@@ -318,10 +385,12 @@ export default function NiftyDataView() {
           <span className="font-bold text-base text-ink">
             NIFTY 50 spot, 1-minute candles {range === 'today' ? '(today, live)' : `(${RANGES.find(r => r.key === range)?.label})`}
           </span>
-          <span className="text-xs text-muted">{candles.length} candles</span>
+          <span className="text-xs text-muted">
+            {shownCandles.length} candles{shownCandles !== candles ? ' · from minute snapshots until the 3:40 pm completion' : ''}
+          </span>
         </div>
         <div className="px-2 md:px-4 pt-3 pb-1">
-          <CandleChart candles={candles} showDate={multiDay} />
+          <CandleChart candles={shownCandles} showDate={multiDay} />
         </div>
       </div>
 
@@ -329,9 +398,9 @@ export default function NiftyDataView() {
       <div className="bg-surface rounded-panel border border-border overflow-hidden">
         <div className="px-3 md:px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
           <span className="font-bold text-base text-ink">Minute snapshots, newest first</span>
-          <span className="text-xs text-muted">{minutes.length.toLocaleString('en-IN')} minutes · click a minute for its strikes</span>
+          <span className="text-xs text-muted">{allMinutes.length.toLocaleString('en-IN')} minutes · click a minute for its strikes</span>
         </div>
-        {minutes.length === 0 && (
+        {allMinutes.length === 0 && (
           <div className="px-4 py-10 text-center text-muted text-sm">No snapshots in this range yet.</div>
         )}
         <div>
@@ -368,11 +437,11 @@ export default function NiftyDataView() {
             );
           })}
         </div>
-        {shown < minutes.length && (
+        {shown < allMinutes.length && (
           <div className="px-4 py-3 flex justify-center">
             <button onClick={() => setShown(s => s + PAGE)}
               className="pressable px-4 py-1.5 rounded-full border border-border bg-white text-sm font-semibold text-ink2 hover:text-ink hover:border-spvh-400">
-              Show {Math.min(PAGE, minutes.length - shown)} more minutes
+              Show {Math.min(PAGE, allMinutes.length - shown)} more minutes
             </button>
           </div>
         )}
