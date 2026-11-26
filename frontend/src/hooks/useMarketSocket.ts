@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { useMarketStore } from '../store/marketStore';
 
-const WS_URL = 'ws://localhost:8000/api/market/ws/market';
+import { wsUrl } from '../lib/api';
+const WS_PATH = '/api/market/ws/market';
 const RECONNECT_MS = 3000;
 
 export function useMarketSocket() {
@@ -14,7 +15,7 @@ export function useMarketSocket() {
 
   const connect = () => {
     try {
-      ws.current = new WebSocket(WS_URL);
+      ws.current = new WebSocket(wsUrl(WS_PATH));
 
       ws.current.onopen = () => {
         console.log('[WS] Connected to market feed');
