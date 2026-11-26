@@ -234,14 +234,13 @@ class CloudSync:
             existing = {}
             for e in db.query(NiftyOptionSnapshot).filter(NiftyOptionSnapshot.date.in_(dates)).all():
                 existing[(e.snapshot_time.replace(second=0, microsecond=0), e.strike, e.option_type)] = e
-            # Minutes the office collector already recorded keep their own ladder:
-            # the cloud may centre ATM one strike differently, so for those minutes
-            # only empty fields are filled and no strikes are added.
-            local_minutes = {k[0] for k in existing}
+            # Every cloud row is kept: a new (minute, strike, type) is inserted, an
+            # existing one only gets its empty fields filled. (A rule that skipped
+            # new strikes for minutes already present -- meant for the retired office
+            # collector -- dropped the rest of any minute split across two 1,000-row
+            # batches: ~2% of each day's bid/ask rows on 23 and 25 Nov.)
             for r in rows:
                 snap = datetime.strptime(r["snapshot_time"], "%Y-%m-%d %H:%M:%S")
-                if snap in local_minutes and (snap, float(r["strike"]), r["option_type"]) not in existing:
-                    continue
                 vals = {k: r.get(k) for k in _FIELDS}
                 for k in ("bid_depth", "ask_depth"):
                     if isinstance(vals[k], str):

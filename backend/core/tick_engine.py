@@ -8,6 +8,12 @@ few seconds.
 
 Requires a valid Zerodha access token (broker.has_token()). If the feed
 drops, trading halts immediately (no blind trades); KiteTicker auto-reconnects.
+
+Watchdog: KiteTicker's own retries give up after ~50 attempts, and Zerodha
+refuses ticker connections (403) for a while early in the morning even with
+a valid token. So if the feed stays down for WATCHDOG_DOWN_SEC, the ticker is
+rebuilt from scratch with the current token, every WATCHDOG_RETRY_SEC, until
+it connects -- an early start can never leave the desk without a feed at 9:15.
 """
 
 import os, sys, time, threading
@@ -27,6 +33,8 @@ from backend.core.settings_manager import get_active_index
 from backend.core.broker import broker
 
 SECTOR_UPDATE_INTERVAL = 5      # seconds between sector aggregation
+WATCHDOG_DOWN_SEC  = 120        # feed down this long -> rebuild the ticker
+WATCHDOG_RETRY_SEC = 120        # then at most one rebuild per this interval
 
 
 class TickEngine:
@@ -36,6 +44,9 @@ class TickEngine:
         self._sector_thread: threading.Thread = None
         self._subscribed_tokens: list = []     # ints
         self._option_meta: dict = {}           # token(str) -> {symbol, name}
+        self._down_since = None                # monotonic time the feed went down (None = up)
+        self._last_rebuild = 0.0
+        self._watchdog_thread: threading.Thread = None
 
     # ── Token list ────────────────────────────────────────────────────────────
     def _stock_tokens(self) -> list:
@@ -51,6 +62,12 @@ class TickEngine:
 
     # ── KiteTicker callbacks ──────────────────────────────────────────────────
     def _on_connect(self, ws, response):
+        if self._kws is not None and ws is not self._kws:
+            try:
+                ws.close()                      # a ticker the watchdog replaced came back late
+            except Exception:
+                pass
+            return
         toks = self._stock_tokens()
         self._subscribed_tokens = toks
         ws.subscribe(toks)
@@ -69,6 +86,7 @@ class TickEngine:
             print(f"[TICK ENGINE] Re-subscribed {len(opt_toks)} option/index contracts after (re)connect.")
 
         market.set_feed_reconnected()
+        self._down_since = None
         print(f"[TICK ENGINE] Connected. Subscribed to {len(toks)} stocks.")
 
     def _on_ticks(self, ws, ticks):
@@ -104,19 +122,31 @@ class TickEngine:
         account_monitor.poke()
 
     def _on_close(self, ws, code, reason):
+        if ws is not self._kws:
+            return                              # a ticker the watchdog already replaced
         print(f"[TICK ENGINE] WebSocket closed: {code} {reason}")
         market.set_feed_connected(False, f"closed: {reason}")
+        if self._down_since is None:
+            self._down_since = time.monotonic()
 
     def _on_error(self, ws, code, reason):
+        if ws is not self._kws:
+            return
         print(f"[TICK ENGINE] WebSocket error: {code} {reason}")
         market.set_feed_connected(False, f"error: {reason}")
+        if self._down_since is None:
+            self._down_since = time.monotonic()
 
     def _on_reconnect(self, ws, attempts):
         print(f"[TICK ENGINE] Reconnecting… attempt {attempts}")
 
     def _on_noreconnect(self, ws):
-        print("[TICK ENGINE] Reconnect failed permanently.")
+        if ws is not self._kws:
+            return
+        print("[TICK ENGINE] Reconnect failed permanently -- the watchdog will rebuild the ticker.")
         market.set_feed_connected(False, "reconnect failed")
+        if self._down_since is None:
+            self._down_since = time.monotonic()
 
     # ── Dynamic option subscription (real option prices for trades) ───────────
     def subscribe_options(self, contracts: list):
@@ -181,21 +211,52 @@ class TickEngine:
             return
         self._running = True
 
-        self._kws = KiteTicker(broker.api_key, broker.access_token)
-        self._kws.on_connect      = self._on_connect
-        self._kws.on_ticks        = self._on_ticks
-        self._kws.on_close        = self._on_close
-        self._kws.on_error        = self._on_error
-        self._kws.on_reconnect    = self._on_reconnect
-        self._kws.on_noreconnect  = self._on_noreconnect
-        self._kws.on_order_update = self._on_order_update
-
+        self._down_since = None
+        self._connect_ticker()
         market.set_feed_connected(True)
-        self._kws.connect(threaded=True)       # background thread, non-blocking
 
         self._sector_thread = threading.Thread(target=self._sector_loop, daemon=True)
         self._sector_thread.start()
+        if self._watchdog_thread is None or not self._watchdog_thread.is_alive():
+            self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True, name="FeedWatchdog")
+            self._watchdog_thread.start()
         print("[TICK ENGINE] Started (KiteTicker).")
+
+    def _connect_ticker(self):
+        """Build a KiteTicker on the current token and connect it (non-blocking)."""
+        kws = KiteTicker(broker.api_key, broker.access_token)
+        kws.on_connect      = self._on_connect
+        kws.on_ticks        = self._on_ticks
+        kws.on_close        = self._on_close
+        kws.on_error        = self._on_error
+        kws.on_reconnect    = self._on_reconnect
+        kws.on_noreconnect  = self._on_noreconnect
+        kws.on_order_update = self._on_order_update
+        self._kws = kws
+        kws.connect(threaded=True)              # background thread, non-blocking
+
+    def _watchdog_loop(self):
+        while True:
+            time.sleep(15)
+            if not self._running or self._down_since is None or not broker.has_token():
+                continue
+            now = time.monotonic()
+            if now - self._down_since < WATCHDOG_DOWN_SEC or now - self._last_rebuild < WATCHDOG_RETRY_SEC:
+                continue
+            self._last_rebuild = now
+            down_min = (now - self._down_since) / 60
+            print(f"[TICK ENGINE] Watchdog: feed down {down_min:.1f} min -- rebuilding the ticker")
+            old = self._kws
+            try:
+                if old:
+                    old.stop_retry()            # stop its own retry loop; keep the shared reactor
+                    old.close()
+            except Exception:
+                pass
+            try:
+                self._connect_ticker()
+            except Exception as e:
+                print(f"[TICK ENGINE] Watchdog: rebuild failed: {e}")
 
     def stop(self):
         self._running = False
